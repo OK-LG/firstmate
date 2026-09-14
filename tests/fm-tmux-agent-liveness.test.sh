@@ -194,6 +194,45 @@ for decoy in ompd comp; do
 done
 pass "tmux liveness: unrelated omp-containing command names stay ambiguous"
 
+# --- zcode's node-launcher wrapper -------------------------------------------
+# zcode's wrapper bin is a node script, so the pane's foreground process is a
+# bare `node` whose comm and argv[0] carry no harness identity: only the
+# flattened command line names the zcode bin. That is the exact window between
+# the wrapper's exec and the runtime child renaming itself to zcode-cli, and a
+# pane that reads ambiguous through it can never verify a lifecycle action.
+# The rows run the wrapper the real way - a script with a node shebang invoked
+# directly - so the kernel produces the same argv the live wrapper produces.
+
+NODE_BIN=$(command -v node 2>/dev/null || true)
+if [ -n "$NODE_BIN" ]; then
+  cat > "$LAB/bin/zcode" <<'SH'
+#!/usr/bin/env node
+setInterval(() => {}, 60000)
+SH
+  chmod +x "$LAB/bin/zcode"
+  cat > "$LAB/bin/unrelated.js" <<'SH'
+setInterval(() => {}, 60000)
+SH
+
+  new_window zcode-wrapper "$LAB/bin/zcode" --mode yolo
+  wait_for_state "$SESSION:zcode-wrapper" alive \
+    || fail "a bare node launcher running the zcode bin must classify alive through its flattened args"
+  # Both name sources must be blind here, or the verdict could come from a
+  # name surface and the flattened-args rule would be proved by nothing.
+  title_classifies_agent "$SESSION:zcode-wrapper" \
+    && fail "the pane's current command must not name a harness here, or the args case proves nothing"
+  comms_classify_agent "$SESSION:zcode-wrapper" \
+    && fail "no name surface may classify this bare node pane, or the args case proves nothing"
+  pass "tmux liveness: zcode's bare node wrapper classifies alive from its script argument alone"
+
+  new_window zcode-node-decoy "node '$LAB/bin/unrelated.js' --prompt 'run zcode tests'"
+  wait_for_state "$SESSION:zcode-node-decoy" ambiguous \
+    || fail "an unrelated node script must stay ambiguous even when a later argument mentions zcode"
+  pass "tmux liveness: an unrelated node script mentioning zcode in a later argument stays ambiguous"
+else
+  echo "skip: no node interpreter, so the zcode node-launcher case cannot reproduce the wrapper"
+fi
+
 # --- a version name blinds one source ---------------------------------------
 # Giving a genuine harness-named executable the version-string argv[0] that
 # Claude Code 2.1.220 reports drives the two sources apart on both supported

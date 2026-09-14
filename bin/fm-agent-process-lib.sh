@@ -46,6 +46,14 @@ fm_agent_process_classify_name() {  # <path> [argv0] -> agent|shell|other
     # single binary, comm=agy with argv[0]=agy), and a glob would claim
     # unrelated commands containing that fragment.
     agy) printf 'agent' ;;
+    # zcode (Z.AI's coding-agent harness, Linux via the zcode-app-cli wrapper)
+    # is anchored for the same reason as agy and omp: the wrapper's own live
+    # name is the bare word `zcode` and its runtime children rename themselves
+    # (verified live on zcode-runtime 0.16.5 under tmux: comm values `zcode-cli`,
+    # `zcode-c`, and `zco`), while a glob would claim unrelated commands such
+    # as zcodegraph. The wrapper also runs as a node launcher, claimed by the
+    # path-component fallback above and the args rule below.
+    zcode|zcode-cli|zcode-c|zco) printf 'agent' ;;
     zsh|bash|sh|dash|ash|ksh|mksh|tcsh|csh|fish) printf 'shell' ;;
     *)
       if fm_harness_path_name "$path" >/dev/null || fm_harness_path_name "$argv0" >/dev/null; then
@@ -69,6 +77,63 @@ fm_agent_process_classify_name() {  # <path> [argv0] -> agent|shell|other
   esac
 }
 
+# zcode's wrapper bin is a node script, so a live zcode pane can present as a
+# bare interpreter exactly like gemini's bundle: the pane command is `node`
+# and only the script argument carries the identity (observed on
+# zcode-app-cli 3.11.2-24 wrapping zcode-runtime 0.16.5 with Node 22.22.3).
+# The rule is the same shape as bin/fm-gemini-lib.sh's: structural only, and
+# only argv[0] and the script argument are ever consulted, so an unrelated
+# command line that merely mentions zcode in a later argument never matches.
+
+# True when path $1 carries zcode's structural evidence: the file is named
+# zcode, or it sits inside the published zcode-app-cli package tree.
+fm_zcode_path_is_zcode() {  # <path>
+  local path=$1
+  [ -n "$path" ] || return 1
+  case "$path" in
+    -*) return 1 ;;
+  esac
+  case "${path##*/}" in
+    zcode) return 0 ;;
+  esac
+  case "$path" in
+    */zcode-app-cli/*) return 0 ;;
+  esac
+  return 1
+}
+
+# True when the whitespace-separated command line $1 is a zcode process:
+# a command whose own argv[0] is zcode (the bin run directly), and an
+# interpreter whose first non-flag argument is zcode's bin or package path -
+# the exact shape the wrapper's shebang execs (`node /usr/lib/node_modules/
+# zcode-app-cli/bin/zcode --mode yolo ...`).
+fm_zcode_args_are_zcode() {  # <args>
+  local args=$1 argv0 rest token
+  [ -n "$args" ] || return 1
+  args=${args#"${args%%[![:space:]]*}"}
+  argv0=${args%%[[:space:]]*}
+  fm_zcode_path_is_zcode "$argv0" && return 0
+  case "${argv0##*/}" in
+    node|node-*|node[0-9]*|MainThread) ;;
+    *) return 1 ;;
+  esac
+  rest=${args#"$argv0"}
+  # The first non-flag token after the interpreter is the script it runs,
+  # skipping the interpreter's own options exactly like the gemini rule.
+  while [ -n "$rest" ]; do
+    rest=${rest#"${rest%%[![:space:]]*}"}
+    [ -n "$rest" ] || break
+    token=${rest%%[[:space:]]*}
+    rest=${rest#"$token"}
+    case "$token" in
+      -*) continue ;;
+    esac
+    fm_zcode_path_is_zcode "$token" && return 0
+    return 1
+  done
+  return 1
+}
+
 # fm_agent_process_classify: one process, from every identity surface a
 # backend can hand over, as agent|shell|other. Any single surface naming a
 # verified harness carries `agent`, because a false negative is the one outcome
@@ -80,7 +145,8 @@ fm_agent_process_classify_name() {  # <path> [argv0] -> agent|shell|other
 #   <argv0>  argv[0] as the process reports it - a bare name or an install
 #            path, whichever the launcher used (empty when unknown).
 #   <args>   the flattened command line, read only for the node-bundle
-#            harnesses whose identity sits in argv[1] (bin/fm-gemini-lib.sh).
+#            harnesses whose identity sits in argv[1] (gemini in
+#            bin/fm-gemini-lib.sh; zcode in the rule above).
 #   [pid]    when given, lets the Gemini rule read argv boundaries from the
 #            live process instead of the flattened line.
 fm_agent_process_classify() {  # <name> <argv0> <args> [pid] -> agent|shell|other
@@ -100,6 +166,10 @@ fm_agent_process_classify() {  # <name> <argv0> <args> [pid] -> agent|shell|othe
     return 0
   fi
   if [ -n "$args" ] && fm_gemini_args_are_gemini "$args"; then
+    printf 'agent'
+    return 0
+  fi
+  if [ -n "$args" ] && fm_zcode_args_are_zcode "$args"; then
     printf 'agent'
     return 0
   fi

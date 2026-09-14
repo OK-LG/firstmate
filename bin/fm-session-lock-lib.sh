@@ -21,11 +21,13 @@
 # omp 18.1.11), and a substring match would claim ompd or comp.
 FM_HARNESS_RE='claude|codex|opencode|grok|kimi|^pi$|^pi-signed$|^omp$'
 
-# The same harnesses as exact executable names. Keep in sync with
-# FM_HARNESS_RE. Used only for the stricter path evidence below, where the
-# loose regex would also match ordinary firstmate paths such as
-# bin/fm-claude-stop-autoarm.sh.
-FM_HARNESS_NAMES=(claude codex opencode grok kimi pi-signed pi omp)
+# The same harnesses as exact executable names, plus the crewmate/scout-only
+# zcode: it is deliberately absent from FM_HARNESS_RE because it is never a
+# primary session, but bin/fm-agent-process-lib.sh matches its bin path as
+# pane-liveness component evidence. Keep the rest in sync with FM_HARNESS_RE.
+# Used only for the stricter path evidence below, where the loose regex would
+# also match ordinary firstmate paths such as bin/fm-claude-stop-autoarm.sh.
+FM_HARNESS_NAMES=(claude codex opencode grok kimi pi-signed pi omp zcode)
 
 # Print the exact harness name carried by executable path $1 - its own basename
 # or any directory component - or return 1.
