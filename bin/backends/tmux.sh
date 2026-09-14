@@ -196,7 +196,8 @@ fm_backend_tmux_foreground_comms() {  # <target>
 
 # The foreground group's full command lines. Needed because a node-bundle
 # harness carries its identity in argv[1] rather than in its command name or
-# argv[0]; bin/fm-gemini-lib.sh owns what counts as evidence inside one.
+# argv[0]; the gemini rule in bin/fm-gemini-lib.sh and the zcode rule in
+# bin/fm-agent-process-lib.sh own what counts as evidence inside one.
 fm_backend_tmux_foreground_args() {  # <target>
   local target=$1 tty pid pgid tpgid comm args
   tty=$(tmux display-message -p -t "$target" '#{pane_tty}' 2>/dev/null) || return 0
@@ -326,6 +327,20 @@ EOF
   while IFS= read -r name; do
     [ -n "$name" ] || continue
     if fm_gemini_args_are_gemini "$name"; then
+      printf 'alive'
+      return 0
+    fi
+  done <<EOF
+$(fm_backend_tmux_foreground_args "$target")
+EOF
+
+  # zcode's wrapper bin is a node script, so its pane presents as the same bare
+  # interpreter (comm and argv[0] both `node`) with the identity only in the
+  # script argument; fm_zcode_args_are_zcode in bin/fm-agent-process-lib.sh
+  # owns what counts as evidence inside the line.
+  while IFS= read -r name; do
+    [ -n "$name" ] || continue
+    if fm_zcode_args_are_zcode "$name"; then
       printf 'alive'
       return 0
     fi
