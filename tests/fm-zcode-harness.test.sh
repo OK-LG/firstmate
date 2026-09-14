@@ -32,6 +32,11 @@
 #      foreground process group, verified live to cancel a mid-turn run), there
 #      is no composer to clear, no cancellation acknowledgement to observe,
 #      and no typed exit command at all - the headless process IS the turn.
+#   7. The pane-liveness classifier (bin/fm-agent-process-lib.sh) knows the
+#      same anchored name set plus the wrapper's node-launcher shapes - the
+#      install path and the npm-global lib path - because fm-control's
+#      interrupt/exit/relaunch verify against it and an unattributed pane can
+#      never confirm a lifecycle action.
 set -u
 
 # shellcheck source=tests/fixtures.sh
@@ -122,6 +127,57 @@ test_zcode_marker_needs_real_ancestry() {
   [ "$out" != zcode ] \
     || fail "the marker alone must never claim the zcode identity, got '$out'"
   pass "fm-harness: FM_ZCODE_HARNESS is a precedence override that needs real zcode ancestry"
+}
+
+# --- 1b. Pane-liveness classification -----------------------------------------
+
+# bin/fm-agent-process-lib.sh is the classifier every lifecycle verification
+# reads (fm-control interrupt/exit/relaunch, session-start liveness, recovery):
+# `other` folds to ambiguous, and an ambiguous pane can never verify a
+# lifecycle action. The rows below pin every observed zcode surface and the
+# negatives that keep a stranger's pane out.
+test_zcode_pane_liveness_classifies_every_observed_surface() {
+  # shellcheck source=/dev/null
+  . "$ROOT/bin/fm-agent-process-lib.sh"
+  # The wrapper's own comm and every observed runtime child name classify agent.
+  for name in zcode zcode-cli zcode-c zco; do
+    [ "$(fm_agent_process_classify_name "$name")" = agent ] \
+      || fail "the observed live name '$name' must classify as an agent pane"
+  done
+  # The install-path shape: the bin's own path as the pane command.
+  [ "$(fm_agent_process_classify_name /usr/local/bin/zcode)" = agent ] \
+    || fail "the zcode install path must classify as an agent pane"
+  # The wrapper's node-launcher shape, the npm-global lib bin path, claimed
+  # through path-component evidence as an interpreter's argv[0]...
+  [ "$(fm_agent_process_classify_name node /usr/lib/node_modules/zcode-app-cli/bin/zcode)" = agent ] \
+    || fail "a node pane whose argv[0] is the zcode lib bin must classify agent"
+  [ "$(fm_agent_process_classify_name '' /usr/lib/node_modules/zcode-app-cli/bin/zcode)" = agent ] \
+    || fail "an argv[0]-only zcode lib path must classify agent"
+  # ...or through the flattened command line a backend hands over.
+  [ "$(fm_agent_process_classify node node \
+      'node /usr/lib/node_modules/zcode-app-cli/bin/zcode --mode yolo --cwd /x --prompt hi')" = agent ] \
+    || fail "the node launcher running the zcode bin must classify agent through its args"
+  [ "$(fm_agent_process_classify node node \
+      'node /usr/local/bin/zcode --mode yolo --cwd /x --prompt hi')" = agent ] \
+    || fail "the node launcher running the install-path bin must classify agent through its args"
+  # The safety half: an unrelated node process stays other, never agent, and
+  # the callers fold `other` into ambiguous rather than dead.
+  [ "$(fm_agent_process_classify node /usr/bin/node 'node unrelated-server.js')" = other ] \
+    || fail "an unrelated node process must stay other, never agent"
+  [ "$(fm_agent_process_classify node node \
+      'node unrelated-server.js --prompt "run zcode tests"')" = other ] \
+    || fail "a later argument naming zcode must not classify an unrelated node pane agent"
+  # Anchored names keep fragment decoys out, exactly like omp's.
+  for decoy in zcodegraph zcod zco2; do
+    [ "$(fm_agent_process_classify_name "$decoy")" != agent ] \
+      || fail "'$decoy' merely contains a zcode name fragment and must not classify agent"
+  done
+  [ "$(fm_agent_process_classify_name /usr/local/bin/zcodegraph)" != agent ] \
+    || fail "an unrelated zcodegraph path must not classify agent"
+  # Neighbours must not regress.
+  [ "$(fm_agent_process_classify_name agy)" = agent ] || fail "agy regressed"
+  [ "$(fm_agent_process_classify_name zsh)" = shell ] || fail "zsh regressed"
+  pass "fm-agent-process-lib: every zcode surface classifies agent; unrelated node and fragment decoys stay out"
 }
 
 # --- 2. Control mechanics -------------------------------------------------------
@@ -301,6 +357,7 @@ test_zcode_is_refused_as_a_secondmate() {
 test_zcode_ancestry_detects_every_observed_process_name
 test_zcode_ancestry_rejects_unrelated_mentions
 test_zcode_marker_needs_real_ancestry
+test_zcode_pane_liveness_classifies_every_observed_surface
 test_zcode_control_mechanics_are_the_verified_ones
 test_zcode_busy_signature_is_configured_only
 test_zcode_spawn_launch_line_records_axes_and_pins_headless
