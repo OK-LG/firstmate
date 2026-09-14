@@ -422,6 +422,24 @@ test_kimi_and_grok_install_no_unverified_wiring() {
   pass "kimi and grok install no unverified semantic wiring and classify through their own gates"
 }
 
+test_zcode_installs_no_wiring_and_has_no_default_signature() {
+  local state out
+  state="$TMP_ROOT/zcode-gates/state"
+  mkdir -p "$state"
+  [ -z "$(fm_busy_sources_for_harness zcode)" ] \
+    || fail "zcode must trust no semantic source: its Stop hook is Phase B work"
+  # The headless mode renders nothing mid-turn (verified on zcode-runtime
+  # 0.16.5 over pipe and PTY), so no busy signature ships by default and no
+  # tail - not even another harness's busy token - may read busy.
+  out=$(fm_busy_classify tmux fake:w zcode gate-z "$state" 'Ctrl+c:cancel')
+  [ "$out" = "unknown zcode-regex" ] \
+    || fail "zcode must not borrow grok's busy token or any default, got '$out'"
+  out=$(fm_busy_classify tmux fake:w zcode gate-z "$state" 'esc to cancel')
+  [ "$out" = "unknown zcode-regex" ] \
+    || fail "zcode must not borrow agy's busy token either, got '$out'"
+  pass "zcode installs no busy wiring and classifies unknown until a signature is configured"
+}
+
 test_pi_extension_semantic_lifecycle
 test_pi_extension_serializes_settle_before_next_start
 test_pi_extension_stale_incarnation_rejected
@@ -434,5 +452,6 @@ test_gemini_hooks_stale_incarnation_harmless
 test_raw_gemini_launch_has_no_semantic_wiring
 test_gemini_is_refused_as_a_secondmate
 test_codex_unverified_until_a_semantic_source_exists
+test_zcode_installs_no_wiring_and_has_no_default_signature
 
 echo "all fm-busy-adapter-wiring tests passed"

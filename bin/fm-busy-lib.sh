@@ -42,9 +42,9 @@
 #   fm-interrupt     the legacy Claude fm-send --key Escape idle event
 #   fm-recovery      a documented recovery reset after relaunch
 # Classifier-only sources (never written into a record):
-#   endpoint-gone, herdr-native, grok-regex, rovo-regex, agy-regex, muse-session-log,
-#   cursor-transcript, missing, malformed, gen-mismatch, source-mismatch,
-#   kimi-unverified, codex-unverified, capture-failed, no-target
+#   endpoint-gone, herdr-native, grok-regex, rovo-regex, agy-regex, zcode-regex,
+#   muse-session-log, cursor-transcript, missing, malformed, gen-mismatch,
+#   source-mismatch, kimi-unverified, codex-unverified, capture-failed, no-target
 #
 # Classification (fm_busy_classify): busy | idle | unknown | dead, always
 # with the producing source as the second token. Precedence:
@@ -54,15 +54,23 @@
 #   4. no record at all: herdr's native busy verdict is trusted as busy
 #      (generation state is sufficient for busy, not for idle), then the
 #      muse session-log and cursor transcript pull sources, then the
-#      Grok/Rovo/AGY temporary regex fallbacks classify a grok, rovo, or agy
-#      task from its rendered tail, then unknown missing
+#      Grok/Rovo/AGY temporary regex fallbacks and the zcode configured-regex
+#      fallback classify a grok, rovo, agy, or zcode task from its rendered
+#      tail, then unknown missing
 #   5. malformed, stale, or untrusted records -> unknown, never a fallback
 # Grok, Rovo, and AGY are the ONLY rendered-text classifications that survive the
 # redesign, because none of their structured lifecycles was credited-live-verified
 # in the approved audit (Rovo's clean ACP stopReason lives outside the TUI
 # path firstmate drives, see references/harness/rovo.md; agy 1.2.0 exposes no
 # hook surface at all, see references/harness/agy.md); each is scoped to
-# its own harness= and can never classify another adapter. The delivery
+# its own harness= and can never classify another adapter. zcode joins them
+# in the same harness-scoped shape with one difference the arm below owns:
+# no default busy signature exists to ship, because zcode-runtime 0.16.5's
+# headless -p mode renders NOTHING while a turn runs (verified over pipe and
+# PTY across streaming text, a thinking block, and a tool-call turn: only the
+# final assistant text prints, after the whole turn completes), so the only
+# honest signature is one an operator or the live verification gate pins
+# explicitly through FM_BUSY_ZCODE_REGEX. The delivery
 # guards in bin/fm-composer-lib.sh match rendered footers for submit
 # acknowledgement and away-mode supervisor injection only; neither is a
 # recorded worker state source.
@@ -867,6 +875,24 @@ fm_busy_agy_tail_busy() {
     | grep -qiE 'esc[[:space:]]+to[[:space:]]+cancel'
 }
 
+# fm_busy_zcode_tail_busy: the zcode-only configured-signature rendered-tail
+# fallback. Consumes the tail on stdin; 0 when the signature configured in
+# FM_BUSY_ZCODE_REGEX matches. There is NO default signature, and that absence
+# is a verified fact rather than a gap: zcode-runtime 0.16.5's headless -p
+# mode renders nothing at all while a turn runs - not streamed text, not a
+# thinking block, not tool-call lines, not a spinner (verified over pipe and
+# PTY against a mock provider; only the final assistant text prints, after
+# the whole turn completes) - so any shipped default would be invented, and
+# the harness-dependent-check rule forbids inventing one. With no signature
+# configured this arm can never report busy, which keeps every zcode worker
+# at unknown (the safe verdict) until the live verification gate captures a
+# real turn and pins the signature through FM_BUSY_ZCODE_REGEX - or lands a
+# verified default here in the same change as its evidence.
+fm_busy_zcode_tail_busy() {
+  [ -n "${FM_BUSY_ZCODE_REGEX:-}" ] || return 1
+  grep -v '^[[:space:]]*$' | tail -12 | grep -qiE "$FM_BUSY_ZCODE_REGEX"
+}
+
 # fm_busy_classify: semantic classification for a task whose endpoint the
 # caller has already established as present. Prints "<verdict> <source>":
 # busy|idle|unknown plus the producing source (see header). Never probes
@@ -1013,6 +1039,30 @@ fm_busy_classify() {  # <backend> <target> <harness> <id> <state-dir> [tail40]
         printf 'busy agy-regex'
       else
         printf 'unknown agy-regex'
+      fi
+      return 0
+      ;;
+    zcode*)
+      if [ -z "$tail40" ]; then
+        if command -v fm_backend_capture >/dev/null 2>&1; then
+          tail40=$(fm_backend_capture "$backend" "$target" 40 2>/dev/null) || {
+            printf 'unknown capture-failed'
+            return 0
+          }
+        else
+          printf 'unknown capture-failed'
+          return 0
+        fi
+      fi
+      # Best-effort like rovo and agy, with the stronger default: no verified
+      # busy signature ships (see fm_busy_zcode_tail_busy), so without a
+      # configured FM_BUSY_ZCODE_REGEX this is always unknown, and even with
+      # one a non-matching tail means "can't tell," never idle - headless
+      # zcode renders nothing mid-turn, so an empty tail proves nothing.
+      if printf '%s' "$tail40" | fm_busy_zcode_tail_busy; then
+        printf 'busy zcode-regex'
+      else
+        printf 'unknown zcode-regex'
       fi
       return 0
       ;;
