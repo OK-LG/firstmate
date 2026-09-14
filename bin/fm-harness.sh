@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Detect the agent harness this process tree runs on.
-# Usage: fm-harness.sh                  print own harness: claude|codex|opencode|pi|pi-signed|grok|kimi|cursor|gemini|muse|rovo|omp|agy|unknown
+# Usage: fm-harness.sh                  print own harness: claude|codex|opencode|pi|pi-signed|grok|kimi|cursor|gemini|muse|rovo|omp|agy|zcode|unknown
 #        fm-harness.sh crew             print the effective CREWMATE harness
 #                                        (config/crew-harness; "default" resolves to own)
 #        fm-harness.sh secondmate       print the harness the PRIMARY uses to launch
@@ -118,6 +118,23 @@ harness_marker() {
     echo omp
     return
   fi
+  # zcode (Z.AI's coding-agent harness, Linux via the zcode-app-cli wrapper)
+  # publishes NO harness-identity marker of its own: the runtime's ZCODE_*
+  # env surface carries only configuration (storage, telemetry, plugin paths),
+  # never a child identity. FM_ZCODE_HARNESS=zcode is therefore a
+  # Firstmate-OWNED launch marker, exactly omp's pattern, and like omp's it is
+  # a PRECEDENCE override, never evidence on its own: it wins over an inherited
+  # CLAUDECODE only when a real zcode process is in the ancestry. The wrapper
+  # runs as a node launcher (comm `node`) whose runtime children rename
+  # themselves (verified live on zcode-runtime 0.16.5 under tmux: comm values
+  # `zcode-c` and `zco` with process title `zcode-cli`), so the anchored name
+  # set below covers the launcher's own name plus those observed runtime
+  # names, and the args fallback in harness_process_verdict covers the bare
+  # node launcher via its zcode bin path.
+  if [ "${FM_ZCODE_HARNESS:-}" = zcode ] && ancestry_names_zcode; then
+    echo zcode
+    return
+  fi
   [ "${CLAUDECODE:-}" = "1" ] && { echo claude; return; }
   if [ "${PI_CODING_AGENT:-}" = "true" ]; then
     if [ "${FM_PI_HARNESS:-}" = pi-signed ]; then echo pi-signed; else echo pi; fi
@@ -153,6 +170,27 @@ ancestry_names_omp() {
   for _ in 1 2 3 4 5 6 7 8; do
     comm=$(ps -o comm= -p "$pid" 2>/dev/null) || return 1
     [ "$(basename -- "$comm")" = omp ] && return 0
+    pid=$(ps -o ppid= -p "$pid" 2>/dev/null | tr -d ' ')
+    [ -n "$pid" ] && [ "$pid" -gt 1 ] || return 1
+  done
+  return 1
+}
+
+# True when an exact `zcode`-family process sits within eight parents of this
+# one. The same anchored match as the ancestry walk below, kept separate so the
+# marker precedence above can demand real process evidence before trusting
+# FM_ZCODE_HARNESS. The observed live names are the wrapper's own `zcode` and
+# the runtime's renamed children `zcode-cli`, `zcode-c`, and `zco`
+# (zcode-runtime 0.16.5); `zco` is short, so it is anchored EXACTLY like omp's
+# and agy's names rather than globbed, and no longer name claiming to start
+# with these prefixes matches.
+ancestry_names_zcode() {
+  local pid=$$ comm
+  for _ in 1 2 3 4 5 6 7 8; do
+    comm=$(ps -o comm= -p "$pid" 2>/dev/null) || return 1
+    case "$(basename -- "$comm")" in
+      zcode|zcode-cli|zcode-c|zco) return 0 ;;
+    esac
     pid=$(ps -o ppid= -p "$pid" 2>/dev/null | tr -d ' ')
     [ -n "$pid" ] && [ "$pid" -gt 1 ] || return 1
   done
@@ -228,6 +266,15 @@ harness_process_verdict() {  # <pid>
     # inherited launcher value, not an agy identity), so like muse it is
     # detected by ancestry alone.
     agy) echo "comm agy"; return ;;
+    # zcode's wrapper bin is a node launcher (comm `node`), but its runtime
+    # children rename themselves, so the anchored names observed live
+    # (zcode-runtime 0.16.5) are `zcode-cli`, `zcode-c`, and `zco` beside the
+    # wrapper's own `zcode`. Every name is anchored exactly, never *zcode*:
+    # a glob would claim unrelated commands such as zcodegraph, and the short
+    # runtime names make an unanchored match unsafe. It sits above the
+    # node*|python* interpreter fallback deliberately so the node launcher
+    # running the zcode bin is never claimed by another harness's args glob.
+    zcode|zcode-cli|zcode-c|zco) echo "comm zcode"; return ;;
     node*|python*)
       # Bare interpreter: match the harness name in its script path.
       args=$(ps -o args= -p "$pid" 2>/dev/null)
@@ -240,6 +287,7 @@ harness_process_verdict() {  # <pid>
         *codex*) echo "args codex"; return ;;
         *opencode*) echo "args opencode"; return ;;
         *grok*) echo "args grok"; return ;;
+        *zcode*) echo "args zcode"; return ;;
         *" pi "*|*/pi) echo "args pi"; return ;;
       esac ;;
   esac

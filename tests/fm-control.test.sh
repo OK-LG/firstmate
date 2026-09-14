@@ -268,7 +268,7 @@ test_harness_family_resolution() {
   for pair in claude:claude claude-latest:claude codex:codex codex-cli:codex \
       opencode:opencode grok:grok grok-2:grok kimi:kimi cursor:cursor \
       cursor-agent:cursor muse:muse muse-bin-0.1.0:muse pi:pi \
-      pi-signed:pi-signed omp:omp; do
+      pi-signed:pi-signed omp:omp zcode:zcode; do
     recorded=${pair%%:*}
     want=${pair#*:}
     got=$(fm_control_harness_family "$recorded") \
@@ -287,6 +287,10 @@ test_harness_family_resolution() {
     && fail "ompd must not be guessed into the omp adapter"
   fm_control_harness_family comp \
     && fail "comp must not be guessed into the omp adapter"
+  # zcode is exact for the same reason: zcodegraph is an unrelated command and
+  # must not be guessed into the zcode adapter.
+  fm_control_harness_family zcodegraph \
+    && fail "zcodegraph must not be guessed into the zcode adapter"
   pass "fm-control-lib: a recorded harness resolves to its verified adapter without guessing"
 }
 

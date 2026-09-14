@@ -163,6 +163,27 @@
 #   all and relies on omp auto-discovering the home's tracked .omp/extensions/
 #   (verified, omp 18.1.11: a file named both ways loads twice, and discovery is
 #   cwd-only with no trust dialog).
+#   For zcode (Z.AI's coding-agent harness; Linux via the third-party
+#   zcode-app-cli wrapper 3.11.2-24 wrapping zcode-runtime 0.16.5), fm-spawn
+#   resolves the `zcode` bin from PATH once and refuses when it is absent.
+#   Phase A workers run zcode's HEADLESS single-prompt mode: --prompt carries
+#   the brief, --mode yolo pins the unattended permission posture explicitly
+#   (the CLI defaults yolo for --prompt, but a default is not a pin), and --cwd
+#   anchors the run to the task worktree because the headless process is the
+#   whole turn and exits when it ends. Foreign markers are cleared and the
+#   Firstmate-owned FM_ZCODE_HARNESS=zcode marker is set for bin/fm-harness.sh,
+#   the omp pattern; ZCODE_DISABLE_UPDATE_CHECK=1 suppresses the wrapper's
+#   npm update notice so a worker pane never renders one. zcode's headless
+#   flag set has NO --model and no effort flag (model selection is the TUI's
+#   /model slash command only, verified against 0.16.5 --help), so both axes
+#   follow the record-and-omit contract and stay in task metadata. No busy
+#   wiring and no turn-end hook are installed: zcode's headless mode renders
+#   nothing while a turn runs (verified over pipe and PTY: streaming text, a
+#   thinking block, and a tool-call turn all print only the final assistant
+#   text), so bin/fm-busy-lib.sh's zcode arm classifies unknown until a live
+#   gate pins a signature, and headless error paths exit 0 (the request-signing
+#   failure was verified exiting 0 while the unconfigured path exits 1), so
+#   nothing may trust exit status. zcode is crewmate/scout only in Phase A.
 #   config/secondmate-harness may also carry an optional model and effort as extra
 #   whitespace-separated tokens ("<harness> [<model>] [<effort>]"). For a
 #   --secondmate spawn, those tokens apply only when this spawn also resolves its
@@ -282,6 +303,7 @@
 #     __GEMINISETTINGS__ firstmate-owned per-task gemini settings file (busy-state hooks)
 #     __ROVOBIN__   resolved, rovo-verified executable for a rovo launch
 #     __AGYBIN__    resolved, agy-verified executable for an agy launch
+#     __ZCODEBIN__  resolved zcode executable path (the zcode-app-cli wrapper's bin)
 # Verified per-harness turn-end hooks are installed automatically where enabled; some live outside the worktree.
 # Kimi uses one surgically installed Firstmate region in $HOME/.kimi-code/config.toml,
 # a firstmate-owned global hook and registry, and a gitignored per-task pointer.
@@ -297,6 +319,13 @@
 # only after a TUI readiness gate, then a delivery-confirmation gate - the same
 # launch-then-send shape as kimi. Its busy state is a screen-scrape fallback like
 # grok. rovo is crewmate/scout only and is refused for --secondmate, like muse.
+# zcode installs no hook and no busy wiring in Phase A: its runtime HAS a Stop
+# hook (bundle-verified event list) but wiring it is Phase B work, and its
+# headless -p mode renders nothing mid-turn anyway (see the zcode header note
+# above), so its busy state is the configured-signature fallback in
+# bin/fm-busy-lib.sh and its completion arrives through the worker status
+# protocol. zcode is crewmate/scout only and is refused for --secondmate,
+# like muse.
 # agy installs no hook either - it exposes no hook surface at all - so it
 # carries no busy-source wiring and no turn-end hook. Its brief rides the launch
 # command, but a fresh worktree would park it on a folder-trust dialog, so the
@@ -1400,7 +1429,7 @@ if [ "$RELAUNCH" -eq 1 ]; then
   }
 elif [ "$KIND" = secondmate ]; then
   case "${POS[1]:-}" in
-    ''|claude|codex|opencode|pi|pi-signed|grok|kimi|cursor|gemini|muse|rovo|omp|agy)
+    ''|claude|codex|opencode|pi|pi-signed|grok|kimi|cursor|gemini|muse|rovo|omp|agy|zcode)
       ARG3=${POS[1]:-}
       ;;
     *' '*)
@@ -1606,6 +1635,25 @@ launch_template() {
     # agy exposes no hook surface, so busy state is a rendered-tail fallback
     # (bin/fm-busy-lib.sh) and nothing is armed below.
     agy) printf '%s' 'env -u CLAUDECODE -u PI_CODING_AGENT -u GROK_AGENT -u FM_PI_HARNESS __AGYBIN__ --prompt-interactive "$(__OPINPUT__ encode launch-brief < __BRIEF__)" __MODELFLAG____EFFORTFLAG__--dangerously-skip-permissions' ;;
+    # zcode (Z.AI coding agent, Linux via zcode-app-cli): the Phase A worker is
+    # the HEADLESS single-prompt run, so the brief rides the launch command as
+    # --prompt and the process IS the turn - it exits when the turn ends, which
+    # is why there is no TUI readiness or delivery gate here (there is no
+    # composer to gate on) and why busy classification is the configured-
+    # signature fallback rather than a writer. --mode yolo is passed EXPLICITLY:
+    # the CLI defaults yolo for --prompt (verified, zcode-runtime 0.16.5 --help),
+    # but an unattended worker's permission posture is a pin, not a default to
+    # trust. --cwd anchors the run because the headless runtime otherwise uses
+    # the launching shell's directory. ZCODE_DISABLE_UPDATE_CHECK=1 suppresses
+    # the wrapper's documented npm update notice so it can never render into a
+    # supervised pane. No __MODELFLAG__ and no __EFFORTFLAG__ appear because the
+    # headless flag set has neither (verified against 0.16.5 --help: model
+    # selection is the TUI's /model slash command only) - the record-and-omit
+    # contract keeps both axes in task metadata. Foreign markers are cleared and
+    # FM_ZCODE_HARNESS=zcode is established exactly as omp's launch boundary
+    # does, so a zcode worker's children detect as zcode and an inherited
+    # CLAUDECODE can never rename them.
+    zcode) printf '%s' 'env -u CLAUDECODE -u PI_CODING_AGENT -u GROK_AGENT -u FM_PI_HARNESS -u GEMINI_CLI -u CURSOR_AGENT -u CURSOR_INVOKED_AS FM_ZCODE_HARNESS=zcode ZCODE_DISABLE_UPDATE_CHECK=1 __ZCODEBIN__ --mode yolo --cwd __WORKTREE__ --prompt "$(__OPINPUT__ encode launch-brief < __BRIEF__)"' ;;
     # grok (Grok Build TUI): a positional prompt starts the supervised interactive
     # session. --always-approve auto-approves every tool execution (verified: the
     # crewmate runs fully autonomously, no permission gate), which an unattended
@@ -1774,7 +1822,11 @@ esac
 # secondmate whose supervision cycle could never be armed.
 # agy has none either: it exposes no hook surface for primary supervision and
 # docs/supervision-protocols/ carries no agy wake protocol (agy 1.2.0).
-if [ "$KIND" = secondmate ] && { [ "$HARNESS" = muse ] || [ "$HARNESS" = gemini ] || [ "$HARNESS" = agy ]; }; then
+# zcode joins them for Phase A: it exposes no primary supervision surface here
+# (its native Stop hook is crewmate-side Phase B work) and the adapter stays
+# undispatchable until its live verification gate passes, so a secondmate is
+# refused rather than stood up on an unverified supervision path.
+if [ "$KIND" = secondmate ] && { [ "$HARNESS" = muse ] || [ "$HARNESS" = gemini ] || [ "$HARNESS" = agy ] || [ "$HARNESS" = zcode ]; }; then
   echo "error: $HARNESS is a verified crewmate/scout adapter only and cannot run a secondmate; it has no primary supervision protocol. Select a harness verified for secondmates." >&2
   exit 1
 fi
@@ -1831,6 +1883,16 @@ case "$HARNESS" in
   agy)
     AGY_BIN=$(resolve_pi_executable agy) || {
       echo "error: agy executable not found on PATH; install Antigravity CLI or select a different verified harness" >&2
+      exit 1
+    }
+    ;;
+  zcode)
+    # The zcode-app-cli wrapper's bin is the only supported Linux entry point
+    # (there is no official standalone CLI), so a missing `zcode` on PATH is a
+    # missing install and refuses here rather than launching a pane that dies
+    # on command-not-found.
+    ZCODE_BIN=$(resolve_pi_executable zcode) || {
+      echo "error: zcode executable not found on PATH; install the zcode-app-cli package (npm install -g zcode-app-cli) or select a different verified harness" >&2
       exit 1
     }
     ;;
@@ -1987,6 +2049,10 @@ model_flag_for_harness() {
     claude|codex|opencode|pi|pi-signed|grok|kimi|cursor|gemini|muse|rovo|omp|agy)
       printf -- '--model %s ' "$(shell_quote "$model")"
       ;;
+    # zcode is deliberately absent: its headless flag set has no --model
+    # (verified against zcode-runtime 0.16.5 --help; model selection is the
+    # TUI's /model slash command only), so a requested model stays recorded in
+    # task metadata and never reaches the launch command.
   esac
 }
 
@@ -2065,7 +2131,9 @@ effort_flag_for_harness() {
     # kimi likewise has no reasoning-effort flag; the requested axis stays in
     # task metadata but never reaches the launch command. Cursor encodes effort
     # in model ids such as cursor-grok-4.5-high, so it also receives no separate
-    # effort flag.
+    # effort flag. zcode joins them for the same record-and-omit reason: its
+    # headless flag set exposes no effort flag at all (verified against
+    # zcode-runtime 0.16.5 --help).
   esac
 }
 
@@ -3699,6 +3767,17 @@ EOF
       # wiring is installed. The turn-end NOTIFICATION marker still rides
       # the launch command via -c notify=[...] and __TURNEND__.
       ;;
+    zcode*)
+      # Phase A wires nothing: the runtime HAS a Stop hook (bundle-verified
+      # event list) but a firstmate-owned hook plugin is Phase B work, and the
+      # headless -p mode renders nothing while a turn runs (verified over pipe
+      # and PTY on zcode-runtime 0.16.5), so there is no rendered signature to
+      # arm either. bin/fm-busy-lib.sh's zcode arm classifies unknown until a
+      # live gate pins a signature through FM_BUSY_ZCODE_REGEX, so no record is
+      # seeded here that nothing could clear, and the turn-end notification
+      # stays the worker status protocol's job (the headless process exiting
+      # IS the turn ending).
+      ;;
     grok*)
       # grok fires a Stop hook at every turn boundary (verified, grok 0.2.73), the
       # clean equivalent of codex's notify= and pi's turn_end. But grok only loads
@@ -4059,10 +4138,11 @@ case "$HARNESS" in
   gemini) LAUNCH=${LAUNCH//__GEMINISETTINGS__/"$(shell_quote "$STATE_REAL/$ID.gemini-settings.json")"} ;;
   omp) LAUNCH=${LAUNCH//__OMPBIN__/"$(shell_quote "$OMP_BIN")"} ;;
   agy) LAUNCH=${LAUNCH//__AGYBIN__/"$(shell_quote "$AGY_BIN")"} ;;
+  zcode) LAUNCH=${LAUNCH//__ZCODEBIN__/"$(shell_quote "$ZCODE_BIN")"} ;;
 esac
 LAUNCH=${LAUNCH//__WORKTREE__/$sq_worktree}
 case "$HARNESS" in
-  claude|codex|opencode|pi|pi-signed|grok|kimi|gemini|muse|rovo|agy)
+  claude|codex|opencode|pi|pi-signed|grok|kimi|gemini|muse|rovo|agy|zcode)
     LAUNCH="env -u CURSOR_AGENT -u CURSOR_INVOKED_AS -u GEMINI_CLI $LAUNCH"
     ;;
 esac
