@@ -107,6 +107,14 @@ case "${1:-}" in
          && { [ "$payload" = Escape ] || [ "$payload" = C-c ]; }; then
         printf 'zsh' > "$D/command"
       fi
+      # The zcode TUI survivor: the first C-c cancels a turn and the TUI stays
+      # alive, the second (the idle-composer exit key) stops it - the verified
+      # cancel-then-exit shape a signal-shaped exit must deliver bounded.
+      if [ "$payload" = C-c ] && [ -n "${FM_FAKE_CC_DIES_ON_SECOND:-}" ]; then
+        ccs=$(( $(cat "$D/cc-count" 2>/dev/null || printf 0) + 1 ))
+        printf '%s' "$ccs" > "$D/cc-count"
+        [ "$ccs" -ge 2 ] && printf 'zsh' > "$D/command"
+      fi
       if [ "$payload" = Escape ] && [ -n "${FM_FAKE_MUSE_LOG:-}" ]; then
         if [ -n "${FM_FAKE_MUSE_DISAPPEAR_BEFORE_ACK:-}" ]; then
           : > "$D/muse-ack-pending"
@@ -194,10 +202,13 @@ run_control() {
   local dir=$1; shift
   env PATH="$dir/fakebin:$PATH" FM_HOME="$dir/home" FM_FAKE_DIR="$dir/fake" \
     FM_CONTROL_POLL=0.01 FM_CONTROL_SETTLE_WAIT=0.05 \
-    FM_CONTROL_EXIT_WAIT=0.05 FM_CONTROL_LAUNCH_WAIT=0.05 \
+    FM_CONTROL_EXIT_WAIT="${FM_CONTROL_EXIT_WAIT:-0.05}" \
+    FM_CONTROL_EXIT_SECOND_KEY_AFTER="${FM_CONTROL_EXIT_SECOND_KEY_AFTER:-0.05}" \
+    FM_CONTROL_LAUNCH_WAIT=0.05 \
     FM_FAKE_MUSE_LOG="${FM_FAKE_MUSE_LOG:-}" \
     FM_FAKE_MUSE_DISAPPEAR_BEFORE_ACK="${FM_FAKE_MUSE_DISAPPEAR_BEFORE_ACK:-}" \
     FM_FAKE_INTERRUPT_STOPS_AGENT="${FM_FAKE_INTERRUPT_STOPS_AGENT:-}" \
+    FM_FAKE_CC_DIES_ON_SECOND="${FM_FAKE_CC_DIES_ON_SECOND:-}" \
     "$CONTROL" "$@" 2>&1
 }
 
@@ -744,6 +755,68 @@ test_interrupt_retires_busy_wiring_when_it_ends_the_agent() {
   pass "fm-control interrupt: an interrupt that ends the agent retires the busy record"
 }
 
+test_zcode_signal_exit_stops_headless_worker_on_one_key() {
+  local dir out rc gen
+  dir=$(new_case zcode-headless-exit)
+  add_task "$dir" t1 zcode
+  alive_as "$dir" zcode
+  gen=$("$ROOT/bin/fm-busy-event.sh" arm "$dir/home/state" t1)
+  printf 'busy_gen=%s\n' "$gen" >> "$dir/home/state/t1.meta"
+  # The headless single-prompt worker IS the turn: its process dies on the one
+  # C-c (verified live on zcode-runtime 0.16.5), so the signal-shaped exit must
+  # stop on exactly one key and never deliver a second.
+  out=$(FM_FAKE_INTERRUPT_STOPS_AGENT=1 FM_CONTROL_EXIT_WAIT=0.5 run_control "$dir" t1 exit); rc=$?
+  expect_code 0 "$rc" "a headless zcode exit should stop on its single signal"$'\n'"$out"
+  assert_contains "$out" "stopped t1 harness=zcode" "the headless signal exit should report the stop"
+  [ "$(keys_sent "$dir")" = "C-c" ] \
+    || fail "a headless zcode exit needs exactly one C-c, got: $(keys_sent "$dir")"
+  [ -z "$(literals "$dir")" ] || fail "a signal-shaped exit must type no text"
+  [ ! -e "$dir/home/state/t1.busy-gen" ] && [ ! -e "$dir/home/state/t1.busy-state" ] \
+    || fail "the signal exit must retire the busy wiring it stopped"
+  pass "fm-control exit: a headless zcode worker stops on one C-c with no second key"
+}
+
+test_zcode_signal_exit_stops_tui_worker_on_cancel_then_exit() {
+  local dir out rc gen
+  dir=$(new_case zcode-tui-exit)
+  add_task "$dir" t1 zcode
+  alive_as "$dir" zcode
+  gen=$("$ROOT/bin/fm-busy-event.sh" arm "$dir/home/state" t1)
+  printf 'busy_gen=%s\n' "$gen" >> "$dir/home/state/t1.meta"
+  # The opt-in TUI variant survives its first C-c (verified live: the turn is
+  # cancelled, the TUI stays alive) and exits on the second at the idle
+  # composer, so the signal-shaped exit must deliver cancel-then-exit bounded
+  # to one extra key.
+  out=$(FM_FAKE_CC_DIES_ON_SECOND=1 FM_CONTROL_EXIT_WAIT=0.5 run_control "$dir" t1 exit); rc=$?
+  expect_code 0 "$rc" "a TUI zcode exit should stop through cancel-then-exit"$'\n'"$out"
+  assert_contains "$out" "stopped t1 harness=zcode" "the cancel-then-exit should report the stop"
+  [ "$(keys_sent "$dir")" = "C-c
+C-c" ] \
+    || fail "a TUI zcode exit needs exactly cancel then exit C-c, got: $(keys_sent "$dir")"
+  [ -z "$(literals "$dir")" ] || fail "a signal-shaped exit must type no text"
+  [ ! -e "$dir/home/state/t1.busy-gen" ] && [ ! -e "$dir/home/state/t1.busy-state" ] \
+    || fail "the cancel-then-exit must retire the busy wiring it stopped"
+  pass "fm-control exit: a TUI zcode worker stops on bounded cancel-then-exit"
+}
+
+test_zcode_signal_exit_fails_closed_on_a_never_stopping_survivor() {
+  local dir out rc gen
+  dir=$(new_case zcode-stubborn)
+  add_task "$dir" t1 zcode
+  alive_as "$dir" zcode
+  gen=$("$ROOT/bin/fm-busy-event.sh" arm "$dir/home/state" t1)
+  printf 'busy_gen=%s\n' "$gen" >> "$dir/home/state/t1.meta"
+  # A survivor that never stops keeps its exit unconfirmed, and the second-key
+  # bound holds: at most two C-c total inside the wait, never a third.
+  out=$(FM_CONTROL_EXIT_WAIT=0.3 run_control "$dir" t1 exit); rc=$?
+  expect_code 1 "$rc" "a never-stopping zcode survivor should fail closed"$'\n'"$out"
+  assert_contains "$out" "exit=unconfirmed" "the failure should say the exit was unconfirmed"
+  [ "$(keys_sent "$dir")" = "C-c
+C-c" ] \
+    || fail "the bounded exit must deliver at most cancel plus exit C-c, got: $(keys_sent "$dir")"
+  pass "fm-control exit: a never-stopping zcode survivor fails closed inside the two-key bound"
+}
+
 test_muse_interrupt_confirms_adapter_acknowledgement() {
   local dir root log out rc
   dir=$(new_case confirmed)
@@ -931,6 +1004,9 @@ test_busy_agent_is_interrupted_before_the_exit_command
 test_idle_agent_is_not_interrupted
 test_interrupt_without_acknowledgement_preserves_busy_state
 test_interrupt_retires_busy_wiring_when_it_ends_the_agent
+test_zcode_signal_exit_stops_headless_worker_on_one_key
+test_zcode_signal_exit_stops_tui_worker_on_cancel_then_exit
+test_zcode_signal_exit_fails_closed_on_a_never_stopping_survivor
 test_muse_interrupt_confirms_adapter_acknowledgement
 test_interrupt_revalidates_agent_after_acknowledgement_wait
 test_exit_accepts_agent_stopped_by_busy_interrupt

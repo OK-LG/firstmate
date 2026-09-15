@@ -49,6 +49,25 @@
 #      install path and the npm-global lib path - because fm-control's
 #      interrupt/exit/relaunch verify against it and an unattributed pane can
 #      never confirm a lifecycle action.
+#   8. The opt-in TUI variant (fm-spawn --zcode-tui): the launch template goes
+#      BARE (no --prompt; a positional prompt is a subcommand parse error, not
+#      a queued TUI prompt - verified live on 0.16.5), the variant is recorded
+#      as zcode_tui=1 while the default headless spawn records no line, the
+#      brief arrives as a one-line pointer through the kimi launch-then-send
+#      gates, and delivery is confirmed STRUCTURALLY by the same global
+#      UserPromptSubmit hook flipping the busy record to source=zcode-hook.
+#      The readiness gate answers only painted-TUI evidence - the pane's own
+#      echo of the launch command is rejected by its launch marker, and a
+#      positive must hold on two consecutive captures - because the PR#6
+#      review reproduced a bare identity grep matching that echo ~2.5s before
+#      the real TUI painted, silently discarding the once-typed pointer; the
+#      fake renders exactly that echo behind a paint delay, and the pointer-
+#      state log is the regression net. Delivery is verify-and-retry, never a
+#      single fire-and-forget type: a swallowed first pointer is recovered by
+#      one bare-Enter probe (a verified no-op on an empty composer) and a
+#      retype. The flag is refused off zcode and refused on a relaunch, whose
+#      variant comes from the task's own record - and a relaunch reuses that
+#      variant in both directions.
 set -u
 
 # shellcheck source=tests/fixtures.sh
@@ -493,6 +512,180 @@ run_scout_spawn() {  # <home> <wt> <fakebin> <launch-log> <spawn-args...>
   FM_FAKE_LAUNCH_LOG="$launchlog" fm_test_run_spawn "$home" "$wt" "$fakebin" "$@" --scout
 }
 
+# The TUI-variant fake pane: a tmux stub whose state machine walks the real
+# launch-then-send sequence (launch -> Enter -> echoed command -> paint ->
+# ready -> pointer -> Enter -> delivered), rendering the verified screen
+# shapes for the readiness gate. The pre-paint state renders the pane's own
+# ECHO of the launch command - exactly the poison the PR#6 review reproduced
+# live (a bare identity grep matched the echo's FM_ZCODE_HARNESS/ZCODE
+# substrings ~2.5s before the real TUI painted) - and the paint itself is
+# delayed FM_FAKE_ZCODE_TUI_PAINT_POLLS capture-pane calls after the launch
+# Enter, so a gate that opens on the echo types the pointer into the echo
+# state and the pointer-state log catches it red-handed. The delivered
+# transition fires the REAL installed global hook with a Claude-compatible
+# UserPromptSubmit payload - exactly what a live TUI submit does (verified
+# live on zcode-runtime 0.16.5) - so the delivery gate's source=zcode-hook
+# flip is produced by the real wiring, never faked.
+make_zcode_tui_fakebin() {  # <dir> -> echoes <fakebin>
+  local dir=$1 fakebin
+  fakebin=$(fm_fakebin "$dir")
+  cat > "$fakebin/tmux" <<'SH'
+#!/usr/bin/env bash
+set -u
+D=${FM_FAKE_DIR:?}
+state=$(cat "$D/zcode-tui-state" 2>/dev/null || true)
+fake_screen() {
+  case "$state" in
+    ready|pointer-typed|delivered)
+      printf '╭─ ◆ ZCODE  v3.11.2-24 ─────────────────────────╮\n'
+      printf '│ /tmp/wt/workspace                             │\n'
+      if [ "$state" = pointer-typed ]; then
+        printf '│ > Read the brief at /brief and follow it.     │\n'
+      else
+        printf '│ Ask a task about this workspace               │\n'
+      fi
+      printf '│                                               │\n'
+      printf '╰─ /help commands · /status details ────────────╯\n'
+      if [ "$state" = delivered ]; then
+        printf ' working… ── [ 1s ]\n'
+      fi
+      ;;
+    launching)
+      # The shell echo of the launch command, before the TUI paints.
+      cat "$D/zcode-tui-launch-line" 2>/dev/null || true
+      printf '$ \n'
+      ;;
+    *)
+      printf 'shell starting\n$ \n'
+      ;;
+  esac
+}
+case "$*" in
+  *"#{pane_current_path}"*) printf '%s\n' "${FM_FAKE_PANE_PATH:-}"; exit 0 ;;
+  *"#{cursor_y}"*) printf '2\n'; exit 0 ;;
+  # Relaunch validation: no foreground tty, and a shell as the pane command,
+  # so the agent-state classifier proves the endpoint dead.
+  *"#{pane_tty}"*) printf '\n'; exit 0 ;;
+  *"#{pane_current_command}"*) printf 'zsh\n'; exit 0 ;;
+esac
+case "${1:-}" in
+  display-message) printf 'firstmate\n'; exit 0 ;;
+  list-windows)
+    [ -n "${FM_FAKE_WINDOW:-}" ] && printf '%s\n' "$FM_FAKE_WINDOW"
+    exit 0
+    ;;
+  has-session|new-session|new-window|kill-window|set-window-option) exit 0 ;;
+  capture-pane)
+    if [ "$state" = launching ]; then
+      # The paint lands only after its delay elapses in capture calls.
+      left=$(( $(cat "$D/zcode-tui-paint-left" 2>/dev/null || printf 0) - 1 ))
+      printf '%s' "$left" > "$D/zcode-tui-paint-left"
+      if [ "$left" -le 0 ]; then
+        printf 'ready\n' > "$D/zcode-tui-state"
+        state=ready
+      fi
+    fi
+    fake_screen
+    exit 0
+    ;;
+  send-keys)
+    literal=
+    prev=
+    for arg in "$@"; do
+      if [ "$prev" = -l ]; then literal=$arg; break; fi
+      prev=$arg
+    done
+    if [ -n "$literal" ]; then
+      case "$literal" in
+        *'--mode yolo'*)
+          printf '%s\n' "$literal" >> "$FM_FAKE_LAUNCH_LOG"
+          printf '%s\n' "$literal" > "$D/zcode-tui-launch-line"
+          printf 'launching\n' > "$D/zcode-tui-state"
+          ;;
+        *)
+          printf '%s\n' "$literal" >> "$FM_FAKE_POINTER_LOG"
+          printf '%s\n' "$state" >> "$D/zcode-tui-pointer-states"
+          printf 'pointer-typed\n' > "$D/zcode-tui-state"
+          ;;
+      esac
+      exit 0
+    fi
+    case " $* " in
+      *' Enter '*)
+        case "$state" in
+          launching)
+            # Four capture calls of paint delay: long enough that a gate
+            # matching its own echo types the pointer while the pane still
+            # shows 'launching' even after the submit core's own baseline
+            # capture consumes one tick (the B1 reproduction shape).
+            printf '%s' "${FM_FAKE_ZCODE_TUI_PAINT_POLLS:-4}" > "$D/zcode-tui-paint-left"
+            ;;
+          pointer-typed)
+            # The pre-interactivity swallow the PR#6 review reproduced live:
+            # the first pointer's whole keystroke set is discarded and the
+            # composer comes back empty, so only a verify-and-retry delivery
+            # can recover it.
+            if [ -n "${FM_FAKE_ZCODE_TUI_SWALLOW_FIRST:-}" ] \
+               && [ ! -f "$D/zcode-tui-swallowed" ]; then
+              : > "$D/zcode-tui-swallowed"
+              printf 'ready\n' > "$D/zcode-tui-state"
+              exit 0
+            fi
+            printf 'delivered\n' > "$D/zcode-tui-state"
+            printf '{"hook_event_name":"UserPromptSubmit","session_id":"sess_tui_fake1","cwd":"%s","prompt":"pointer"}\n' \
+              "$FM_FAKE_PANE_PATH" | bash "$HOME/.zcode/cli/fm-turn-end.sh" >/dev/null 2>&1 || true
+            ;;
+        esac
+        ;;
+    esac
+    exit 0
+    ;;
+esac
+exit 0
+SH
+  chmod +x "$fakebin/tmux"
+  fm_fake_exit0 "$fakebin" treehouse zcode
+  ln -s "$JQ_BIN" "$fakebin/jq"
+  printf '%s\n' "$fakebin"
+}
+
+make_zcode_tui_spawn_case() {  # <name> <id>
+  local name=$1 harness=zcode id=$2 case_dir home proj wt fakebin
+  case_dir="$TMP_ROOT/$name"
+  home="$case_dir/home"
+  proj="$case_dir/project"
+  wt="$case_dir/wt"
+  fakebin=$(make_zcode_tui_fakebin "$case_dir/fake")
+  fm_test_spawn_home "$home" "$harness"
+  mkdir -p "$home/user-home/.zcode/cli"
+  printf '{"provider":{"zai":{"kind":"anthropic"}}}\n' > "$home/user-home/.zcode/cli/config.json"
+  fm_git_worktree "$proj" "$wt" "wt-$name"
+  fm_test_spawn_brief "$home" "$id"
+  mkdir -p "$case_dir/fake"
+  : > "$case_dir/launch.log"
+  : > "$case_dir/pointer.log"
+  printf 'shell\n' > "$case_dir/fake/zcode-tui-state"
+  printf '%s\n' "$case_dir|$home|$proj|$wt|$fakebin|$case_dir/launch.log|$case_dir/pointer.log"
+}
+
+read_tui_case_record() {
+  # shellcheck disable=SC2034 # CASE_DIR is part of the shared record shape
+  IFS='|' read -r CASE_DIR HOME_DIR PROJ_DIR WT_DIR FAKEBIN_DIR LAUNCH_LOG POINTER_LOG <<EOF
+$1
+EOF
+}
+
+run_tui_scout_spawn() {  # <record> <spawn-args...>
+  local rec=$1
+  shift
+  read_tui_case_record "$rec"
+  FM_FAKE_LAUNCH_LOG="$LAUNCH_LOG" FM_FAKE_POINTER_LOG="$POINTER_LOG" \
+    FM_FAKE_DIR="$CASE_DIR/fake" \
+    FM_ZCODE_TUI_READY_POLLS=10 FM_ZCODE_TUI_DELIVERY_POLLS=4 \
+    FM_ZCODE_TUI_POLL_INTERVAL=0 FM_ZCODE_TUI_SUBMIT_SLEEP=0 FM_ZCODE_TUI_SUBMIT_SETTLE=0 \
+    fm_test_run_spawn "$HOME_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$@" --scout
+}
+
 test_zcode_spawn_launch_line_records_axes_and_pins_headless() {
   local rec id=zcode-launch-q1 out status launch state
   rec=$(make_zcode_spawn_case launch "$id")
@@ -524,7 +717,176 @@ test_zcode_spawn_launch_line_records_axes_and_pins_headless() {
     *--model*|*--effort*|*--thinking*|*--resume*|*--continue*) \
       fail "zcode launch must not carry model/effort/resume flags: $launch" ;;
   esac
+  # The default spawn stays HEADLESS: no TUI variant line is recorded for it.
+  ! grep -q '^zcode_tui=' "$state/$id.meta" \
+    || fail "a default headless spawn must record no zcode_tui variant line"
   pass "fm-spawn: the zcode launch pins headless yolo, records the axes, and never passes model/effort/resume flags"
+}
+
+test_zcode_tui_flag_maps_to_the_bare_tui_launch_and_delivers_the_pointer() {
+  local rec id=zcode-tui-q5 out status launch state pointer brief_real
+  rec=$(make_zcode_tui_spawn_case tui "$id")
+  read_tui_case_record "$rec"
+  ZCODE_TASK_TMPS+=("/tmp/fm-$id")
+  out=$(run_tui_scout_spawn "$rec" "$id" "$PROJ_DIR" --harness zcode --zcode-tui)
+  status=$?
+  expect_code 0 "$status" "zcode TUI scout spawn should succeed: $out"
+  assert_contains "$out" "spawned $id harness=zcode" "TUI spawn did not report the zcode harness"
+  state="$HOME_DIR/state"
+  launch=$(cat "$LAUNCH_LOG")
+  # The TUI template: the same env boundary, yolo pin, and worktree anchor as
+  # headless, but BARE - no --prompt, because the TUI takes no prompt argument
+  # (verified live on 0.16.5: a positional prompt is parsed as a subcommand and
+  # exits 1) and the brief arrives through the pointer below.
+  assert_contains "$launch" \
+    "env -u CLAUDECODE -u PI_CODING_AGENT -u GROK_AGENT -u FM_PI_HARNESS -u GEMINI_CLI -u CURSOR_AGENT -u CURSOR_INVOKED_AS -u ATLASSIAN_AGENT_TYPE -u ROVODEV_CLI FM_ZCODE_HARNESS=zcode ZCODE_DISABLE_UPDATE_CHECK=1 '$FAKEBIN_DIR/zcode'" \
+    "zcode TUI launch did not keep the headless env boundary"
+  assert_contains "$launch" "--mode yolo --cwd '$WT_DIR'" \
+    "zcode TUI launch did not pin the yolo mode and the working directory"
+  case "$launch" in
+    *--prompt*) fail "the TUI launch must carry no headless --prompt: $launch" ;;
+  esac
+  # The variant rides the task record so a relaunch reuses it.
+  assert_grep 'zcode_tui=1' "$state/$id.meta" "the TUI spawn did not record its variant"
+  # The launch-then-send delivery: the exact one-line brief pointer...
+  brief_real="$(cd "$HOME_DIR/data/$id" && pwd -P)/launch-brief.md"
+  pointer=$(cat "$POINTER_LOG")
+  [ "$pointer" = "Read the brief at $brief_real and follow it exactly." ] \
+    || fail "the zcode TUI pointer was not the exact absolute-path instruction: $pointer"
+  # ...confirmed STRUCTURALLY: the delivered transition fired the real global
+  # UserPromptSubmit hook, so the armed busy record flipped to source=zcode-hook
+  # (the same open the live TUI produces), never a rendered-string guess.
+  assert_grep 'source=zcode-hook' "$state/$id.busy-state" \
+    "the TUI pointer delivery did not flip the busy record through the hook"
+  # The B1 regression net: the pointer was typed exactly once, and only after
+  # the readiness gate saw the painted TUI - never while the pane still showed
+  # the echoed launch command ('launching'), which is the state a gate that
+  # matches its own echo would type into.
+  [ "$(wc -l < "$CASE_DIR/fake/zcode-tui-pointer-states")" -eq 1 ] \
+    || fail "the pointer must be typed exactly once in the happy path: $(cat "$CASE_DIR/fake/zcode-tui-pointer-states")"
+  assert_grep 'ready' "$CASE_DIR/fake/zcode-tui-pointer-states" \
+    "the pointer was typed before the TUI painted (state log: $(cat "$CASE_DIR/fake/zcode-tui-pointer-states"))"
+  pass "fm-spawn: --zcode-tui launches bare, delivers the brief pointer, and proves it through the hook record"
+}
+
+test_zcode_tui_delivery_retries_after_a_pre_interactivity_swallow() {
+  local rec id=zcode-tui-sw-q8 out state pointer_states
+  rec=$(make_zcode_tui_spawn_case swallow "$id")
+  read_tui_case_record "$rec"
+  ZCODE_TASK_TMPS+=("/tmp/fm-$id")
+  # The first pointer's whole keystroke set is discarded (the PR#6 review's
+  # reproduced pre-paint swallow): the delivery ladder must notice the missing
+  # hook flip, probe with one bare Enter (a no-op on the empty composer), and
+  # retype the pointer - not fail the spawn and not fire the hook early.
+  out=$(FM_FAKE_ZCODE_TUI_SWALLOW_FIRST=1 \
+    FM_ZCODE_TUI_DELIVERY_POLLS=2 FM_ZCODE_TUI_SWALLOW_PROBE_POLLS=2 \
+    run_tui_scout_spawn "$rec" "$id" "$PROJ_DIR" --harness zcode --zcode-tui)
+  expect_code 0 $? "a swallowed first pointer must be recovered by the retry ladder: $out"
+  state="$HOME_DIR/state"
+  assert_grep 'source=zcode-hook' "$state/$id.busy-state" \
+    "the retried delivery did not flip the busy record through the hook"
+  pointer_states=$(cat "$CASE_DIR/fake/zcode-tui-pointer-states")
+  [ "$(printf '%s\n' "$pointer_states" | grep -c '^ready$')" -eq 2 ] \
+    || fail "the pointer must be typed exactly twice, both into the painted TUI: $pointer_states"
+  [ -f "$CASE_DIR/fake/zcode-tui-swallowed" ] \
+    || fail "the swallow fixture never engaged"
+  pass "fm-spawn: a pre-interactivity swallow is recovered by the verify-and-retry delivery"
+}
+
+test_zcode_tui_flag_refused_off_zcode() {
+  local rec id=zcode-tui-off-q6 out
+  rec=$(make_zcode_tui_spawn_case offzcode "$id")
+  read_tui_case_record "$rec"
+  out=$(run_tui_scout_spawn "$rec" "$id" "$PROJ_DIR" --harness grok --zcode-tui)
+  expect_code 1 $? "a --zcode-tui spawn on another harness must fail: $out"
+  assert_contains "$out" "--zcode-tui applies only to zcode" \
+    "the refusal must name the flag's zcode-only scope: $out"
+  pass "fm-spawn: --zcode-tui is refused on a non-zcode harness"
+}
+
+test_zcode_tui_flag_refused_on_relaunch() {
+  local rec id=zcode-tui-rl-q7 out
+  rec=$(make_zcode_tui_spawn_case relaunch "$id")
+  read_tui_case_record "$rec"
+  # A relaunch carries no delivery contract and no kind flag (the secondmate
+  # refusal test's shape), so this deliberately bypasses run_tui_scout_spawn's
+  # appended --scout, whose kind refusal would fire first.
+  out=$(FM_FAKE_LAUNCH_LOG="$LAUNCH_LOG" FM_FAKE_POINTER_LOG="$POINTER_LOG" \
+    FM_FAKE_DIR="$CASE_DIR/fake" \
+    fm_test_run_spawn "$HOME_DIR" "$WT_DIR" "$FAKEBIN_DIR" --relaunch --zcode-tui "$id")
+  expect_code 1 $? "a --zcode-tui relaunch must fail: $out"
+  assert_contains "$out" "recorded zcode launch variant" \
+    "the refusal must name the recorded-variant contract: $out"
+  pass "fm-spawn: --zcode-tui cannot override a relaunch, whose variant comes from the record"
+}
+
+write_zcode_relaunch_meta() {  # <home> <proj> <wt> <id> [zcode_tui=1]
+  local home=$1 proj=$2 wt=$3 id=$4
+  {
+    echo "window=firstmate:fm-$id"
+    echo "endpoint_task_id=$id"
+    echo "worktree=$wt"
+    echo "project=$proj"
+    echo "harness=zcode"
+    echo "kind=scout"
+    echo "model=default"
+    echo "effort=default"
+    [ -z "${5:-}" ] || echo "zcode_tui=$5"
+  } > "$home/state/$id.meta"
+}
+
+run_zcode_relaunch() {  # <record> <id>
+  local rec=$1 id=$2
+  read_tui_case_record "$rec"
+  FM_FAKE_LAUNCH_LOG="$LAUNCH_LOG" FM_FAKE_POINTER_LOG="$POINTER_LOG" \
+    FM_FAKE_DIR="$CASE_DIR/fake" FM_FAKE_WINDOW="fm-$id" \
+    FM_ZCODE_TUI_READY_POLLS=10 FM_ZCODE_TUI_DELIVERY_POLLS=4 \
+    FM_ZCODE_TUI_POLL_INTERVAL=0 FM_ZCODE_TUI_SUBMIT_SLEEP=0 FM_ZCODE_TUI_SUBMIT_SETTLE=0 \
+    fm_test_run_spawn "$HOME_DIR" "$WT_DIR" "$FAKEBIN_DIR" --relaunch "$id"
+}
+
+test_zcode_relaunch_reuses_the_recorded_launch_variant() {
+  local rec id=zcode-tui-rr-q9 out launch pointer_states
+  rec=$(make_zcode_tui_spawn_case relaunch-tui "$id")
+  read_tui_case_record "$rec"
+  ZCODE_TASK_TMPS+=("/tmp/fm-$id")
+  # A recorded TUI variant relaunches BARE and re-delivers through the gates.
+  write_zcode_relaunch_meta "$HOME_DIR" "$PROJ_DIR" "$WT_DIR" "$id" 1
+  out=$(run_zcode_relaunch "$rec" "$id")
+  expect_code 0 $? "a zcode TUI relaunch should succeed: $out"
+  assert_contains "$out" "spawned $id harness=zcode" "the TUI relaunch did not report success"
+  launch=$(cat "$LAUNCH_LOG")
+  case "$launch" in
+    *--prompt*) fail "a recorded TUI variant must relaunch bare, got: $launch" ;;
+    *--resume*) fail "a relaunch with no recorded session must carry no resume flag: $launch" ;;
+  esac
+  assert_contains "$launch" "--mode yolo --cwd '$WT_DIR'" \
+    "the TUI relaunch lost the yolo pin or worktree anchor: $launch"
+  assert_grep 'source=zcode-hook' "$HOME_DIR/state/$id.busy-state" \
+    "the TUI relaunch did not re-deliver the brief through the hook"
+  pointer_states=$(cat "$CASE_DIR/fake/zcode-tui-pointer-states")
+  [ "$(printf '%s\n' "$pointer_states" | grep -c '^ready$')" -eq 1 ] \
+    || fail "the relaunch pointer must be typed once into the painted TUI: $pointer_states"
+  assert_grep 'zcode_tui=1' "$HOME_DIR/state/$id.meta" \
+    "the relaunch dropped the recorded variant"
+
+  # A recorded HEADLESS variant relaunches with --prompt and runs no gates:
+  # the pointer log stays empty because the brief rides the launch command.
+  local id2=zcode-tui-rh-qA
+  rec=$(make_zcode_tui_spawn_case relaunch-headless "$id2")
+  read_tui_case_record "$rec"
+  ZCODE_TASK_TMPS+=("/tmp/fm-$id2")
+  write_zcode_relaunch_meta "$HOME_DIR" "$PROJ_DIR" "$WT_DIR" "$id2"
+  out=$(run_zcode_relaunch "$rec" "$id2")
+  expect_code 0 $? "a zcode headless relaunch should succeed: $out"
+  launch=$(cat "$LAUNCH_LOG")
+  assert_contains "$launch" "--prompt " \
+    "a recorded headless variant must relaunch with its brief on the launch command: $launch"
+  [ ! -s "$POINTER_LOG" ] \
+    || fail "a headless relaunch must run no brief-pointer gates: $(cat "$POINTER_LOG")"
+  ! grep -q '^zcode_tui=' "$HOME_DIR/state/$id2.meta" \
+    || fail "a headless relaunch must record no variant line"
+  pass "fm-spawn: a relaunch reuses the recorded zcode launch variant in both directions"
 }
 
 test_zcode_spawn_arms_the_hook_wiring_and_busy_record() {
@@ -750,6 +1112,11 @@ test_zcode_hook_removal_restores_every_observed_pre_install_shape
 test_zcode_hook_fails_closed_on_missing_malformed_or_surprising_config
 test_zcode_hook_install_refuses_without_jq
 test_zcode_spawn_launch_line_records_axes_and_pins_headless
+test_zcode_tui_flag_maps_to_the_bare_tui_launch_and_delivers_the_pointer
+test_zcode_tui_delivery_retries_after_a_pre_interactivity_swallow
+test_zcode_tui_flag_refused_off_zcode
+test_zcode_tui_flag_refused_on_relaunch
+test_zcode_relaunch_reuses_the_recorded_launch_variant
 test_zcode_spawn_arms_the_hook_wiring_and_busy_record
 test_zcode_hook_opens_closes_and_records_only_through_the_token
 test_zcode_spawn_refuses_when_the_hook_cannot_install

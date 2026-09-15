@@ -117,14 +117,14 @@ fm_control_harness_supports_kind() {  # <harness> <kind>
 
 # The key that cancels a running turn. Escape for every adapter except grok
 # and zcode. grok's Esc only moves focus to the scrollback; grok cancels on
-# Ctrl+C. zcode's Phase A workers run HEADLESS (-p), so there is no composer
-# to key into at all: C-c is SIGINT delivered to the pane's foreground process
-# group through the TTY, which is the signal-forwarding shape zcode's host
-# contract documents. Verified live on zcode-runtime 0.16.5 under tmux: a
-# mid-turn C-c cancels the turn and the process exits back to the pane shell
-# (the headless process IS the turn, so unlike every TUI adapter a zcode
-# interrupt legitimately ends the worker process; see the exit-command note
-# below for what that means for the exit verb).
+# Ctrl+C. zcode cancels on Ctrl+C in BOTH launch variants: the headless
+# single-prompt process reads no stdin, so C-c is SIGINT delivered to the
+# pane's foreground process group through the TTY (the signal-forwarding
+# shape zcode's host contract documents), while the opt-in TUI variant
+# renders the key itself - C-c mid-turn prints "Turn cancelled." and keeps
+# the TUI alive (verified live on zcode-runtime 0.16.5 in both shapes), so
+# one key cancels the turn in either variant and only the process outcome
+# differs (see interrupt_ends_process and the exit verbs below).
 # gemini names its own key in the running turn's status row
 # (`(esc to cancel, <n>s)`), and a single Escape was verified to cancel it.
 # rovo cancels on a single Escape too, printing "Agent cancelled" (verified,
@@ -167,8 +167,10 @@ fm_control_interrupt_repeat() {  # <harness>
 fm_control_interrupt_clear_key() {  # <harness>
   case "${1-}" in
     muse) printf 'C-u' ;;
-    # zcode has no composer to clear: its headless -p process reads no stdin
-    # and exits when the turn ends or is cancelled.
+    # zcode needs no clear key in either variant: the headless -p process
+    # reads no stdin, and the TUI's cancelled turn does NOT restore its prompt
+    # into the composer (verified live on 0.16.5: after "Turn cancelled." the
+    # composer is empty and the next prompt submits clean).
     claude|codex|opencode|pi|pi-signed|omp|grok|kimi|cursor|gemini|rovo|agy|zcode) ;;
     *) return 1 ;;
   esac
@@ -184,21 +186,26 @@ fm_control_interrupt_ack_source() {  # <harness>
     # rovo's TUI prints "Agent cancelled" on Escape, but for parity with
     # claude/cursor this stays 'none': the ack is a rendered string, not a
     # recorded state source, and rovo has no busy wiring to confirm against.
-    # zcode's headless SIGINT path prints no acknowledgement at all (verified
-    # live, 0.16.5: the pane shows only the TTY's own ^C echo), so there is
-    # nothing to observe until a recorded source is verified.
+    # zcode stays 'none' for the same reason even though its TUI renders
+    # "Turn cancelled." (verified live, 0.16.5): the headless SIGINT path
+    # prints nothing at all, and neither path writes a recorded ack source -
+    # the busy record is the structured truth, and a cancelled TUI turn
+    # leaving it open is the claude manual-interrupt posture, not an ack.
     claude|codex|opencode|pi|pi-signed|omp|grok|kimi|cursor|gemini|rovo|agy|zcode) printf 'none' ;;
     *) return 1 ;;
   esac
 }
 
-# Whether an interrupt legitimately ENDS the worker process. Every TUI
-# adapter keeps running after its interrupt key cancels the turn; zcode's
-# headless single-prompt worker IS the turn (verified live on zcode-runtime
-# 0.16.5: a mid-turn C-c exits the process with status 130 and the runtime
-# fires no Stop hook on that path), so a dead agent after an interrupt is
-# the documented success shape, not an accident. bin/fm-control.sh's
-# interrupt verification consults this table before requiring alive.
+# Whether an interrupt legitimately ENDS the worker process. The headless
+# zcode worker IS the turn (verified live on zcode-runtime 0.16.5: a mid-turn
+# C-c exits the process with status 130 and the runtime fires no Stop hook on
+# that path), while the opt-in TUI variant survives its interrupt (verified
+# live: C-c cancels the turn, the TUI stays alive) - so this table records
+# that a zcode interrupt MAY legitimately end the worker, and
+# bin/fm-control.sh's interrupt verification accepts BOTH the dead state
+# (the headless shape) and the alive state (every TUI adapter, zcode's TUI
+# variant included) as the documented success shapes. Every other TUI
+# adapter keeps running after its interrupt key cancels the turn.
 fm_control_interrupt_ends_process() {  # <harness>
   case "${1-}" in
     zcode) return 0 ;;
@@ -207,12 +214,17 @@ fm_control_interrupt_ends_process() {  # <harness>
 }
 
 # Whether the exit verb stops the agent through a SIGNAL rather than a typed
-# composer command. zcode's headless worker has no composer and never reads
-# stdin, so its exit is the interrupt key itself: one C-c (SIGINT through the
-# pane's foreground process group, the documented host-contract forwarding
-# shape) ends the process, and the agent-state wait proves it stopped. The
-# executor refuses an exit on a harness that is neither signal-shaped nor
-# carrying an exit command above.
+# composer command. zcode's workers never take a typed exit command: the
+# headless worker has no composer and never reads stdin, so its exit is the
+# interrupt key itself - one C-c (SIGINT through the pane's foreground process
+# group, the documented host-contract forwarding shape) ends the process. The
+# TUI variant exits on the same key at an idle composer (verified live on
+# 0.16.5: a clean shutdown prints the token summary and the resume line), so
+# a mid-turn TUI stops on cancel-then-exit: the first C-c cancels the turn,
+# and bin/fm-control.sh's signal-shaped exit delivers one bounded second key
+# after a settle window to perform the exit. The agent-state wait proves the
+# stop in both shapes. The executor refuses an exit on a harness that is
+# neither signal-shaped nor carrying an exit command above.
 fm_control_exit_is_signal_shutdown() {  # <harness>
   case "${1-}" in
     zcode) return 0 ;;
@@ -221,10 +233,10 @@ fm_control_exit_is_signal_shutdown() {  # <harness>
 }
 
 # The command that exits the agent from its own composer. zcode deliberately
-# has NO entry: its workers are headless (-p), the process neither reads
-# stdin nor offers a composer, and the turn ending IS the process exiting -
-# a finished zcode worker has already stopped, and a mid-turn stop is the
-# signal exit above, not typed text.
+# has NO entry: its headless workers read no stdin and end with the turn,
+# and its TUI variant exits on the C-c signal shape above rather than a
+# typed command - a finished headless worker has already stopped, and a
+# mid-run stop in either variant is that signal exit, not typed text.
 fm_control_exit_command() {  # <harness>
   case "${1-}" in
     claude|opencode|grok|kimi|cursor|muse|rovo) printf '/exit' ;;
