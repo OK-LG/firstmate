@@ -1,0 +1,24 @@
+ok - fm-harness: ancestry detects the wrapper and kernel comm names, not ps artifacts
+ok - fm-harness: ancestry rejects unrelated zcode mentions and claims a bare node only via its zcode path
+ok - fm-harness: FM_ZCODE_HARNESS is a precedence override that needs real zcode ancestry
+ok - fm-agent-process-lib: every zcode surface classifies agent; unrelated node and fragment decoys stay out
+ok - fm-control-lib: zcode control is signal-shaped - C-c interrupt and signal exit, no composer
+ok - fm-busy-lib: zcode classifies busy only through FM_BUSY_ZCODE_REGEX and never falls to idle
+ok - zcode hook install is idempotent and removal restores the pre-install config exactly
+ok - zcode hook removal restores the vendor-default, enabled-true, and enabled-absent shapes exactly
+ok - zcode hook install refuses missing, malformed, symlinked, and surprising config without writing
+ok - zcode hook install refuses without jq before any config write
+ok - fm-spawn: the zcode launch pins headless yolo, records the axes, and never passes model/effort/resume flags
+ok - fm-spawn: --zcode-tui launches bare, delivers the brief pointer, and proves it through the hook record
+ok - fm-spawn: a pre-interactivity swallow is recovered by the verify-and-retry delivery
+ok - fm-spawn: --zcode-tui is refused on a non-zcode harness
+ok - fm-spawn: --zcode-tui cannot override a relaunch, whose variant comes from the record
+ok - fm-spawn: a relaunch reuses the recorded zcode launch variant in both directions
+ok - fm-spawn: zcode installs its hook, arms the busy record, and binds the token
+ok - zcode hook opens, closes, and records only through the firstmate token
+ok - fm-spawn: an unsafe zcode global config refuses the spawn
+ok - fm-spawn: a missing zcode bin refuses the spawn naming the zcode-app-cli package
+ok - zcode is refused as a secondmate because secondmate launches are not verified for it
+ok - fm-teardown: zcode pointer, registry token, and session sidecar are removed
+all fm-zcode-harness tests passed
+exit=0

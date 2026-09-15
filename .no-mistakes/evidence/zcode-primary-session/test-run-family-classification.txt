@@ -1,0 +1,10 @@
+$ bin/fm-test-run.sh --list --family live-harness-optin | grep zcode
+tests/fm-zcode-primary-live-e2e.test.sh
+tests/fm-zcode-signals-live-e2e.test.sh
+
+$ bin/fm-test-run.sh --list --family unclassified | grep zcode
+(no zcode test in unclassified)
+
+# base commit for comparison:
+$ git show 78ab094:bin/fm-test-run.sh > /tmp/fm-test-run-base.sh; bash /tmp/fm-test-run-base.sh --list --family unclassified | grep zcode
+tests/fm-zcode-primary-live-e2e.test.sh

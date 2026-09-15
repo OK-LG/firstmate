@@ -1,0 +1,60 @@
+HOME="/tmp/fm-zcode-manual.OvFwZo/home" zcode --mode yolo --cwd '/tmp/fm-zcode-manual.OvFwZo/workspace' --prompt 'Run this one exact shell command and reply with only its exact output, nothing else: b
+ash /tmp/fm-zcode-manual.OvFwZo/probe.sh 2>&1 | tee /tmp/fm-zcode-manual.OvFwZo/probe.out'
+root@vultr:/tmp/fm-zcode-manual.OvFwZo/workspace# HOME="/tmp/fm-zcode-manual.OvFwZo/home" zcode --mode yolo --cwd '/tmp/fm-zcode-manual.OvFwZo/workspace' --prompt 'Run this one exact shell command and
+ reply with only its exact output, nothing else: bash /tmp/fm-zcode-manual.OvFwZo/probe.sh 2>&1 | tee /tmp/fm-zcode-manual.OvFwZo/probe.out'
+```
+== ancestry of the zcode tool shell (pid ppid comm args) ==
+3280498 3280496 bash            bash /tmp/fm-zcode-manual.OvFwZo/probe.sh
+3280496 3278010 bash            /usr/bin/bash -c . '/tmp/fm-zcode-manual.OvFwZo/home/.zcode/cli/exec/shell-snapshots/snapshot-bash-1789471524493-idfsb
+3278010 3277998 zcode-cli       zcode-cli
+3277998 3277980 node            node /usr/local/bin/zcode --mode yolo --cwd /tmp/fm-zcode-manual.OvFwZo/workspace --prompt Run this one exact shell co
+3277980 3277979 bash            -bash
+3277979 2439782 tmux: server    tmux -L fm-zcode-manual-3277969 new-session -d -s zp -n zcode -x 200 -y 60 -c /tmp/fm-zcode-manual.OvFwZo/workspace
+2439782       1 systemd         /usr/lib/systemd/systemd --user
+== own-harness detection ==
+target fm-harness.sh: zcode
+base   fm-harness.sh: zcode
+== fleet lock, BASE commit 78ab09414421fb64b631fbf92e5ba5a6f612ae93 ==
+error: cannot locate harness process in ancestry
+rc=1
+== fleet lock, TARGET commit ==
+lock acquired: harness pid 3278010
+rc=0
+== lock status, TARGET ==
+lock: held by live harness pid 3278010
+== lock status read by BASE lib on the same lock file ==
+lock: stale (pid 3278010 dead or not a harness)
+== recorded holder: pid 3278010 comm=zcode-cli ==
+```
+root@vultr:/tmp/fm-zcode-manual.OvFwZo/workspace#
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

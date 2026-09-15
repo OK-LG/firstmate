@@ -1,0 +1,2 @@
+ok - a real zcode session detects itself, acquires the fleet lock naming its engine pid, and verifies the holder live
+exit=0

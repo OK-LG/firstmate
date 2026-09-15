@@ -1,0 +1,112 @@
+# Real orphaned process trees driven through bin/fm-harness.sh and bin/fm-lock.sh.
+# Claude env markers are cleared and every tree re-parents to pid 1 before probing, so the ancestry walk never reaches this runner's own harness. Harness-named stages are /bin/bash symlinks (comm = link name), the same technique tests/fm-session-lock-ancestry.test.sh uses.
+
+## 1. zcode-cli engine -> zcode-node-repl MCP kernel -> tool shell (TARGET): lock must name the engine, not the kernel
+### case: engine-kernel
+-- ancestry (pid ppid comm args) --
+3316162 3316161 bash            bash /tmp/fm-zcode-adv.IlVG5Q/tool.sh /tmp/fm-zcode-adv.IlVG5Q/engine-kernel.o
+3316161 3314851 zcode-node-repl /tmp/fm-zcode-adv.IlVG5Q/bin/zcode-node-repl -c /tmp/fm-zcode-adv.IlVG5Q/tool.
+3314851 2439782 zcode-cli       /tmp/fm-zcode-adv.IlVG5Q/bin/zcode-cli -c . /tmp/fm-zcode-adv.IlVG5Q/orphan-wa
+2439782       1 systemd         /usr/lib/systemd/systemd --user
+-- fm-harness.sh --
+zcode
+-- fm-lock.sh --
+lock acquired: harness pid 3314851
+rc=0
+-- fm-lock.sh status --
+lock: held by live harness pid 3314851
+-- lock file --
+3314851
+done
+
+## 2. same tree with the BASE commit's bin/ (regression shape: base must refuse)
+### case: engine-kernel-BASE
+-- ancestry (pid ppid comm args) --
+3317697 3317696 bash            bash /tmp/fm-zcode-adv.IlVG5Q/tool.sh /tmp/fm-zcode-adv.IlVG5Q/engine-kernel-B
+3317696 3316354 zcode-node-repl /tmp/fm-zcode-adv.IlVG5Q/bin/zcode-node-repl -c /tmp/fm-zcode-adv.IlVG5Q/tool.
+3316354 2439782 zcode-cli       /tmp/fm-zcode-adv.IlVG5Q/bin/zcode-cli -c . /tmp/fm-zcode-adv.IlVG5Q/orphan-wa
+2439782       1 systemd         /usr/lib/systemd/systemd --user
+-- fm-harness.sh --
+zcode
+-- fm-lock.sh --
+error: cannot locate harness process in ancestry
+rc=1
+-- fm-lock.sh status --
+lock: free
+-- lock file --
+<absent>
+done
+
+## 3. zcode-node-repl kernel only, no engine above: refused (a per-call kernel is not session identity)
+### case: kernel-only
+-- ancestry (pid ppid comm args) --
+3319188 3317875 bash            bash /tmp/fm-zcode-adv.IlVG5Q/tool.sh /tmp/fm-zcode-adv.IlVG5Q/kernel-only.out
+3317875 2439782 zcode-node-repl /tmp/fm-zcode-adv.IlVG5Q/bin/zcode-node-repl -c . /tmp/fm-zcode-adv.IlVG5Q/orp
+2439782       1 systemd         /usr/lib/systemd/systemd --user
+-- fm-harness.sh --
+zcode
+-- fm-lock.sh --
+error: cannot locate harness process in ancestry
+rc=1
+-- fm-lock.sh status --
+lock: free
+-- lock file --
+<absent>
+done
+
+## 4. decoy named zcodegraph: must never own the lock
+### case: decoy-zcodegraph
+-- ancestry (pid ppid comm args) --
+3320679 3319349 bash            bash /tmp/fm-zcode-adv.IlVG5Q/tool.sh /tmp/fm-zcode-adv.IlVG5Q/decoy-zcodegrap
+3319349 2439782 zcodegraph      /tmp/fm-zcode-adv.IlVG5Q/bin/zcodegraph -c . /tmp/fm-zcode-adv.IlVG5Q/orphan-w
+2439782       1 systemd         /usr/lib/systemd/systemd --user
+-- fm-harness.sh --
+unknown
+-- fm-lock.sh --
+error: cannot locate harness process in ancestry
+rc=1
+-- fm-lock.sh status --
+lock: free
+-- lock file --
+<absent>
+done
+
+## 5. node launcher shape (node <...>/zcode-app-cli/bin/zcode): claimed structurally
+### case: node-launcher
+-- ancestry (pid ppid comm args) --
+3322182 3322173 bash            bash /tmp/fm-zcode-adv.IlVG5Q/tool.sh /tmp/fm-zcode-adv.IlVG5Q/node-launcher.o
+3322173 3320863 node            node /tmp/fm-zcode-adv.IlVG5Q/node_modules/zcode-app-cli/bin/zcode /tmp/fm-zco
+3320863 2439782 bash            bash -c . /tmp/fm-zcode-adv.IlVG5Q/orphan-wait.sh; node /tmp/fm-zcode-adv.IlVG
+2439782       1 systemd         /usr/lib/systemd/systemd --user
+-- fm-harness.sh --
+zcode
+-- fm-lock.sh --
+lock acquired: harness pid 3322173
+rc=0
+-- fm-lock.sh status --
+lock: held by live harness pid 3322173
+-- lock file --
+3322173
+done
+
+## 6. adversarial: unrelated node script that merely mentions zcode in later arguments is NOT zcode
+### case: node-unrelated-mentions-zcode
+-- ancestry (pid ppid comm args) --
+3323704 3323695 bash            bash /tmp/fm-zcode-adv.IlVG5Q/tool.sh /tmp/fm-zcode-adv.IlVG5Q/node-unrelated-
+3323695 3322375 node            node /tmp/fm-zcode-adv.IlVG5Q/other/app.js /tmp/fm-zcode-adv.IlVG5Q/tool.sh /t
+3322375 2439782 bash            bash -c . /tmp/fm-zcode-adv.IlVG5Q/orphan-wait.sh; node /tmp/fm-zcode-adv.IlVG
+2439782       1 systemd         /usr/lib/systemd/systemd --user
+-- fm-harness.sh --
+unknown
+-- fm-lock.sh --
+error: cannot locate harness process in ancestry
+rc=1
+-- fm-lock.sh status --
+lock: free
+-- lock file --
+<absent>
+done
+
+## 7. stale read: after the engine of case 1 has exited, its recorded lock reads stale
+$ FM_HOME=<case-1 home> bin/fm-lock.sh status
+lock: stale (pid 3314851 dead or not a harness)
