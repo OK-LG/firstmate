@@ -199,16 +199,22 @@ fm_control_interrupt_ack_source() {  # <harness>
 # Whether an interrupt legitimately ENDS the worker process. The headless
 # zcode worker IS the turn (verified live on zcode-runtime 0.16.5: a mid-turn
 # C-c exits the process with status 130 and the runtime fires no Stop hook on
-# that path), while the opt-in TUI variant survives its interrupt (verified
-# live: C-c cancels the turn, the TUI stays alive) - so this table records
-# that a zcode interrupt MAY legitimately end the worker, and
-# bin/fm-control.sh's interrupt verification accepts BOTH the dead state
-# (the headless shape) and the alive state (every TUI adapter, zcode's TUI
-# variant included) as the documented success shapes. Every other TUI
-# adapter keeps running after its interrupt key cancels the turn.
-fm_control_interrupt_ends_process() {  # <harness>
+# that path), so a headless zcode incarnation keeps the process-ends answer
+# and bin/fm-control.sh's interrupt verification accepts BOTH the dead state
+# (the verified headless shape) and the alive state as the documented success
+# shapes. The opt-in TUI variant survives its interrupt (verified live: C-c
+# cancels the turn, the TUI stays alive), so the caller passes the recorded
+# launch variant - the task meta's zcode_tui value - and a recorded TUI
+# incarnation answers no: the verification then requires the agent alive and
+# the open busy record is preserved, the claude manual-interrupt posture.
+# Every other TUI adapter keeps running after its interrupt key cancels the
+# turn.
+fm_control_interrupt_ends_process() {  # <harness> [<zcode-tui-meta-value>]
   case "${1-}" in
-    zcode) return 0 ;;
+    zcode)
+      [ "${2-}" = 1 ] && return 1
+      return 0
+      ;;
     *) return 1 ;;
   esac
 }

@@ -3430,6 +3430,9 @@ zcode_tui_wait_for_delivery() {  # [poll-count]
 # whose Enter was swallowed - the core cannot retry Enter for a composer it
 # reads as unknown - and an empty composer ignores that Enter (verified live
 # on 0.16.5: no hook event, no turn), so the probe can never double-submit.
+# Every retry logs one best-effort stderr line: a swallowed pointer is exactly
+# the field regression this ladder exists to recover, so the spawn's output
+# must show the retry instead of riding through it silently.
 zcode_tui_deliver_brief() {  # <pointer-text>
   local pointer=$1 attempt=1 max=${FM_ZCODE_TUI_DELIVER_ATTEMPTS:-3} verdict
   while [ "$attempt" -le "$max" ]; do
@@ -3442,6 +3445,8 @@ zcode_tui_deliver_brief() {  # <pointer-text>
     zcode_tui_wait_for_delivery && return 0
     attempt=$((attempt + 1))
     [ "$attempt" -gt "$max" ] && break
+    printf 'fm-spawn: task %s: zcode TUI brief delivery attempt %s of %s unconfirmed in window %s; retry %s of %s probes a bare Enter, then retypes the pointer\n' \
+      "$ID" "$((attempt - 1))" "$max" "$T" "$attempt" "$max" >&2
     spawn_send_key "$T" Enter
     zcode_tui_wait_for_delivery "${FM_ZCODE_TUI_SWALLOW_PROBE_POLLS:-6}" && return 0
   done
