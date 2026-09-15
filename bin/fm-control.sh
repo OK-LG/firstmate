@@ -91,6 +91,10 @@
 #   FM_CONTROL_EXIT_WAIT         alive->dead wait after the exit command (30)
 #   FM_CONTROL_LAUNCH_WAIT       dead->alive wait after a relaunch (90)
 #   FM_CONTROL_EXIT_RETRIES      Enter retries for the exit command (3)
+#   FM_CONTROL_EXIT_SECOND_KEY_AFTER
+#                               settle before a signal-shaped exit delivers its
+#                               one bounded second interrupt key, the
+#                               cancel-then-exit shape a TUI worker needs (5)
 set -eu
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -141,6 +145,7 @@ POLL=${FM_CONTROL_POLL:-0.5}
 SETTLE_WAIT=${FM_CONTROL_SETTLE_WAIT:-5}
 EXIT_WAIT=${FM_CONTROL_EXIT_WAIT:-30}
 LAUNCH_WAIT=${FM_CONTROL_LAUNCH_WAIT:-90}
+FM_CONTROL_EXIT_SECOND_KEY_AFTER=${FM_CONTROL_EXIT_SECOND_KEY_AFTER:-5}
 EXIT_RETRIES=${FM_CONTROL_EXIT_RETRIES:-3}
 
 die() {  # <message>
@@ -452,6 +457,9 @@ do_interrupt() {
   # live on zcode-runtime 0.16.5: kill -INT mid-turn exits 130 with no Stop
   # event), so the record is retired here exactly as do_exit's signal-shaped
   # stop already does, never left reporting a dead worker as provably busy.
+  # The TUI variant interrupts to agent-alive instead: no Stop fires on the
+  # cancelled turn there either, and the open record is preserved exactly as
+  # claude's manual interrupt preserves it - the next completed turn closes it.
   if [ "$proof" = agent-ended-by-interrupt ]; then
     retire_busy_incarnation
   fi
@@ -468,6 +476,7 @@ retire_busy_incarnation() {
 # `already-stopped` or `stopped`.
 do_exit() {
   local state cmd verdict cancel interrupt_result=not-needed
+  local elapsed=0 exit_second_delivered=0
   require_state_verified_backend exit
   state=$(agent_state)
   case "$state" in
@@ -482,12 +491,34 @@ do_exit() {
   # Signal-shaped exit (fm_control_exit_is_signal_shutdown): a headless
   # single-prompt worker has no composer to type into and never reads stdin,
   # so the interrupt key IS the stop - one C-c ends the process, and the same
-  # agent-state wait that proves a typed exit proves this one.
+  # agent-state wait that proves a typed exit proves this one. A TUI worker
+  # does not die on that first key: C-c cancels the running turn and leaves
+  # the TUI alive (verified live on zcode-runtime 0.16.5), so once a settle
+  # window has passed with the agent still alive one more C-c is delivered -
+  # the idle-composer exit key - and the wait keeps running inside the same
+  # EXIT_WAIT budget. Bounded to a single extra delivery, so a worker that
+  # keeps starting new turns still ends in the unconfirmed refusal below.
   if fm_control_exit_is_signal_shutdown "$HARNESS"; then
     cancel=$(deliver_interrupt) || return $?
-    state=$(wait_agent_state "$EXIT_WAIT" dead) || {
-      die "exit-delivered $ID interrupt=signal cancel=$cancel agent-state=$state exit=unconfirmed; the agent did not stop within ${EXIT_WAIT}s"
-    }
+    while :; do
+      state=$(agent_state)
+      [ "$state" = dead ] && break
+      case "$state" in
+        alive) ;;
+        missing) die "task $ID's recorded endpoint disappeared after the exit signal, so exit cannot prove whether the agent stopped" ;;
+        *) die "task $ID's endpoint reads '$state' after the exit signal rather than a positively classified state; exit cannot prove whether the agent stopped" ;;
+      esac
+      awk -v e="$elapsed" -v t="$EXIT_WAIT" 'BEGIN{exit !(e < t)}' || {
+        die "exit-delivered $ID interrupt=signal cancel=$cancel agent-state=$state exit=unconfirmed; the agent did not stop within ${EXIT_WAIT}s"
+      }
+      if [ "$exit_second_delivered" -eq 0 ] \
+         && awk -v e="$elapsed" -v s="$FM_CONTROL_EXIT_SECOND_KEY_AFTER" 'BEGIN{exit !(e >= s)}'; then
+        send_interrupt_keys
+        exit_second_delivered=1
+      fi
+      sleep "$POLL"
+      elapsed=$(awk -v e="$elapsed" -v p="$POLL" 'BEGIN{printf "%.3f", e + p}')
+    done
     retire_busy_incarnation
     printf 'stopped'
     return 0

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Spawn a direct report: a crewmate in a treehouse or Orca worktree, or a
 # secondmate in its isolated firstmate home.
-# Usage: fm-spawn.sh <task-id> <project-dir> --mode <no-mistakes|direct-PR|local-only> --yolo <on|off> [--harness <name>|harness|launch-command] [--model <name>] [--effort <level>] [--backend <name>]
+# Usage: fm-spawn.sh <task-id> <project-dir> --mode <no-mistakes|direct-PR|local-only> --yolo <on|off> [--harness <name>|harness|launch-command] [--model <name>] [--effort <level>] [--backend <name>] [--zcode-tui]
 #        fm-spawn.sh <task-id> <project-dir> --scout [--harness <name>|harness|launch-command] [--model <name>] [--effort <level>] [--backend <name>]
 #        fm-spawn.sh <task-id> [<firstmate-home>] [--harness <name>|harness|launch-command] [--model <name>] [--effort <level>] [--backend <name>] --secondmate
 #   --mode and --yolo are this task's delivery contract, REQUIRED for every ship
@@ -195,6 +195,23 @@
 #   nothing may trust exit status - the blindness posture stands because the
 #   research-era record once mis-measured these codes and a release can
 #   change them. zcode is crewmate/scout only.
+#   --zcode-tui opts ONE spawn into the visible TUI variant (headless stays
+#   the supervision-proven default; verified live on zcode-runtime 0.16.5,
+#   2026-09-15): a bare launch with no prompt argument opens the full-screen
+#   TUI - a positional prompt is NOT this shape, because the CLI parses it as
+#   a subcommand name and exits 1 with "Unknown command" and the help dump -
+#   --mode yolo and --cwd keep their headless meanings there, and the brief
+#   arrives through the kimi/rovo launch-then-send gates (readiness signals,
+#   one-line brief pointer, delivery proven by the busy record flipping to
+#   source=zcode-hook, since the same global UserPromptSubmit hook fires for
+#   a TUI submit). Interrupt and exit stay signal-shaped in both variants:
+#   C-c cancels a running TUI turn and leaves the TUI alive (no Stop fires,
+#   the claude manual-interrupt posture), while C-c at an idle TUI composer
+#   exits it cleanly; a busy TUI therefore exits on cancel-then-exit, which
+#   bin/fm-control.sh's signal-shaped exit delivers as a bounded second key.
+#   The variant is recorded as zcode_tui=1 in the task meta and a relaunch
+#   reuses the recorded variant; --zcode-tui on a relaunch or a non-zcode
+#   harness is a refusal.
 #   config/secondmate-harness may also carry an optional model and effort as extra
 #   whitespace-separated tokens ("<harness> [<model>] [<effort>]"). For a
 #   --secondmate spawn, those tokens apply only when this spawn also resolves its
@@ -254,6 +271,7 @@
 #   source of truth; shared --scout/--harness/--model/--effort/--backend/--mode/--yolo
 #   applies to every pair. A ship batch therefore carries one delivery contract, and each
 #   pair still checks it against its own brief; a batch spanning modes is two invocations.
+#   Shared --zcode-tui applies to every pair exactly like the other shared flags.
 #   If config/crew-dispatch.json exists, shared --harness is required for crewmate
 #   and scout batches. The loop lives here, in bash, so callers never hand-write a
 #   multi-task shell loop (the tool shell is zsh, which does not word-split unquoted
@@ -548,6 +566,7 @@ BACKEND_ARG=
 MODE=
 YOLO=
 TRACEPARENT_ARG=
+ZCODE_TUI=0
 HARNESS_SET=0
 MODEL_SET=0
 EFFORT_SET=0
@@ -555,6 +574,7 @@ BACKEND_SET=0
 MODE_SET=0
 YOLO_SET=0
 TRACEPARENT_SET=0
+ZCODE_TUI_SET=0
 RELAUNCH=0
 POS=()
 want_value=
@@ -580,6 +600,7 @@ for a in "$@"; do
     --scout) KIND=scout; KIND_SET=1 ;;
     --secondmate) KIND=secondmate; KIND_SET=1 ;;
     --relaunch) RELAUNCH=1 ;;
+    --zcode-tui) ZCODE_TUI=1; ZCODE_TUI_SET=1 ;;
     --harness) want_value=harness ;;
     --harness=*) HARNESS_ARG=${a#--harness=}; HARNESS_SET=1 ;;
     --model) want_value=model ;;
@@ -632,6 +653,7 @@ if [ "$RELAUNCH" -eq 1 ]; then
   [ "$KIND_SET" -eq 0 ] || { echo "error: --relaunch reuses the task's recorded kind; --scout/--secondmate cannot override it" >&2; exit 1; }
   [ "$MODE_SET" -eq 0 ] || { echo "error: --relaunch reuses the task's recorded delivery mode; --mode cannot override it" >&2; exit 1; }
   [ "$YOLO_SET" -eq 0 ] || { echo "error: --relaunch reuses the task's recorded yolo posture; --yolo cannot override it" >&2; exit 1; }
+  [ "$ZCODE_TUI_SET" -eq 0 ] || { echo "error: --relaunch reuses the task's recorded zcode launch variant; --zcode-tui cannot override it" >&2; exit 1; }
 else
   # Delivery contract (AGENTS.md section 7). A ship task's mode and yolo are
   # firstmate's per-task decision, so they are required and closed-set validated
@@ -1223,6 +1245,7 @@ if [ "${#POS[@]}" -gt 0 ] && [ "${POS[0]}" != "$idpart" ] && case "$idpart" in *
   # spanning several modes is two invocations rather than a silent mixed dispatch.
   [ "$MODE_SET" -eq 0 ] || shared_args+=(--mode "$MODE")
   [ "$YOLO_SET" -eq 0 ] || shared_args+=(--yolo "$YOLO")
+  [ "$ZCODE_TUI_SET" -eq 0 ] || shared_args+=(--zcode-tui)
   for pair in "${POS[@]}"; do
     case "$pair" in
       *=*) : ;;
@@ -1439,6 +1462,14 @@ if [ "$RELAUNCH" -eq 1 ]; then
     echo "error: task $ID has no recorded harness; pass --harness to relaunch it" >&2
     exit 1
   }
+  # The zcode TUI variant rides the same durable record: a task spawned with
+  # --zcode-tui relaunches as TUI and a headless task relaunches headless,
+  # guarded on the prior harness being zcode so a switch away and back can
+  # never resurrect a stale variant line from the other harness's incarnation.
+  if [ "$(fm_control_harness_family "$RELAUNCH_PRIOR_HARNESS" 2>/dev/null || true)" = zcode ] \
+     && [ "$(fm_meta_get "$RELAUNCH_META" zcode_tui)" = 1 ]; then
+    ZCODE_TUI=1
+  fi
 elif [ "$KIND" = secondmate ]; then
   case "${POS[1]:-}" in
     ''|claude|codex|opencode|pi|pi-signed|grok|kimi|cursor|gemini|muse|rovo|omp|agy|zcode)
@@ -1647,7 +1678,7 @@ launch_template() {
     # agy exposes no hook surface, so busy state is a rendered-tail fallback
     # (bin/fm-busy-lib.sh) and nothing is armed below.
     agy) printf '%s' 'env -u CLAUDECODE -u PI_CODING_AGENT -u GROK_AGENT -u FM_PI_HARNESS __AGYBIN__ --prompt-interactive "$(__OPINPUT__ encode launch-brief < __BRIEF__)" __MODELFLAG____EFFORTFLAG__--dangerously-skip-permissions' ;;
-    # zcode (Z.AI coding agent, Linux via zcode-app-cli): the worker is
+    # zcode (Z.AI coding agent, Linux via zcode-app-cli): the default worker is
     # the HEADLESS single-prompt run, so the brief rides the launch command as
     # --prompt and the process IS the turn - it exits when the turn ends, which
     # is why there is no TUI readiness or delivery gate here (there is no
@@ -1673,7 +1704,25 @@ launch_template() {
     # zcode incarnation recorded its session (verified live: --resume restores
     # context headless; an unresumable session prints to stderr and exits 1, so
     # the flag never rides an unrecorded guess).
-    zcode) printf '%s' 'env -u CLAUDECODE -u PI_CODING_AGENT -u GROK_AGENT -u FM_PI_HARNESS -u GEMINI_CLI -u CURSOR_AGENT -u CURSOR_INVOKED_AS -u ATLASSIAN_AGENT_TYPE -u ROVODEV_CLI FM_ZCODE_HARNESS=zcode ZCODE_DISABLE_UPDATE_CHECK=1 __ZCODEBIN__ --mode yolo --cwd __WORKTREE__ __RESUMEFLAG__ --prompt "$(__OPINPUT__ encode launch-brief < __BRIEF__)"' ;;
+    # --zcode-tui swaps in the opt-in TUI variant (verified live on 0.16.5,
+    # 2026-09-15): a bare launch with NO prompt argument opens the full-screen
+    # TUI - a positional prompt is NOT this shape, because the CLI parses it as
+    # a subcommand name and exits 1 with "Unknown command" and the help dump -
+    # and --mode yolo plus --cwd keep their meaning (the TUI status row pins
+    # the mode and anchors the workspace). The brief cannot ride the launch
+    # command there, so the TUI variant uses the kimi/rovo launch-then-send
+    # shape below: a readiness gate, a one-line brief pointer submitted into
+    # the composer, and delivery confirmed by the Phase B hook record flipping
+    # to source=zcode-hook (the same global UserPromptSubmit event headless
+    # mode fires). --resume restores prior context in the TUI too (verified
+    # live), so __RESUMEFLAG__ rides both variants unchanged.
+    zcode)
+      if [ "$ZCODE_TUI" -eq 1 ]; then
+        printf '%s' 'env -u CLAUDECODE -u PI_CODING_AGENT -u GROK_AGENT -u FM_PI_HARNESS -u GEMINI_CLI -u CURSOR_AGENT -u CURSOR_INVOKED_AS -u ATLASSIAN_AGENT_TYPE -u ROVODEV_CLI FM_ZCODE_HARNESS=zcode ZCODE_DISABLE_UPDATE_CHECK=1 __ZCODEBIN__ --mode yolo --cwd __WORKTREE__ __RESUMEFLAG__'
+      else
+        printf '%s' 'env -u CLAUDECODE -u PI_CODING_AGENT -u GROK_AGENT -u FM_PI_HARNESS -u GEMINI_CLI -u CURSOR_AGENT -u CURSOR_INVOKED_AS -u ATLASSIAN_AGENT_TYPE -u ROVODEV_CLI FM_ZCODE_HARNESS=zcode ZCODE_DISABLE_UPDATE_CHECK=1 __ZCODEBIN__ --mode yolo --cwd __WORKTREE__ __RESUMEFLAG__ --prompt "$(__OPINPUT__ encode launch-brief < __BRIEF__)"'
+      fi
+      ;;
     # grok (Grok Build TUI): a positional prompt starts the supervised interactive
     # session. --always-approve auto-approves every tool execution (verified: the
     # crewmate runs fully autonomously, no permission gate), which an unattended
@@ -1848,6 +1897,15 @@ esac
 # refused rather than stood up on an unverified supervision path.
 if [ "$KIND" = secondmate ] && { [ "$HARNESS" = muse ] || [ "$HARNESS" = gemini ] || [ "$HARNESS" = agy ] || [ "$HARNESS" = zcode ]; }; then
   echo "error: $HARNESS is a verified crewmate/scout adapter only and cannot run a secondmate; it has no primary supervision protocol. Select a harness verified for secondmates." >&2
+  exit 1
+fi
+
+# --zcode-tui selects the per-spawn TUI launch variant (below); it is a zcode
+# axis, so a resolved harness of anything else - including a raw launch command
+# and a --secondmate default - is a concrete refusal rather than a silently
+# ignored flag.
+if [ "$ZCODE_TUI_SET" -eq 1 ] && [ "$HARNESS" != zcode ]; then
+  echo "error: --zcode-tui applies only to zcode crewmate/scout spawns; the resolved harness is '$HARNESS'" >&2
   exit 1
 fi
 
@@ -3279,6 +3337,79 @@ rovo_endpoint_cleanup() {
   fm_backend_kill "$BACKEND" "$T" "$tab_id" "fm-$ID" 2>/dev/null || true
 }
 
+# The opt-in zcode TUI variant (launch_template's --zcode-tui branch) has no
+# prompt on its launch command, so its brief arrives through the same
+# launch-then-send shape kimi and rovo use: a readiness gate on the rendered
+# TUI, a one-line brief pointer submitted into the composer, and delivery
+# confirmed STRUCTURALLY - the Phase B global UserPromptSubmit hook fires for
+# a TUI submit exactly as it does headless (verified live on zcode-runtime
+# 0.16.5, 2026-09-15: the busy record flips to source=zcode-hook), which is
+# stronger than any rendered confirmation and keeps the gate honest about the
+# one thing that matters: the submitted pointer started a real supervised
+# turn. The readiness half reads three independent rendered signals, any one
+# of which carries the verdict (the verified composer box placeholder, the
+# composer box's own /help footer title, and the TUI identity row), because a
+# single vendor string is exactly what a zcode release could silently rename;
+# zcode's composer shape is deliberately NOT taught to
+# bin/fm-composer-lib.sh here, so fm_backend_composer_state keeps answering
+# unknown and no readiness or submit verdict ever rests on an unverified shape.
+zcode_tui_capture() {
+  fm_backend_capture "$BACKEND" "$T" 120 "$W" 2>/dev/null || true
+}
+
+zcode_tui_is_ready() {  # <plain-pane-capture>
+  local pane=$1
+  if printf '%s\n' "$pane" | grep -Fq 'Ask a task about this workspace' \
+     || printf '%s\n' "$pane" | grep -Fq '/help commands' \
+     || printf '%s\n' "$pane" | grep -Fq 'ZCODE'; then
+    return 0
+  fi
+  return 1
+}
+
+zcode_tui_wait_for_ready() {
+  local pane i=0 max=${FM_ZCODE_TUI_READY_POLLS:-60} interval=${FM_ZCODE_TUI_POLL_INTERVAL:-0.5}
+  while [ "$i" -lt "$max" ]; do
+    pane=$(zcode_tui_capture)
+    zcode_tui_is_ready "$pane" && return 0
+    i=$((i + 1))
+    [ "$i" -ge "$max" ] || sleep "$interval"
+  done
+  return 1
+}
+
+zcode_tui_delivery_is_confirmed() {
+  # The armed record's source flips from the seeded fm-spawn line to zcode-hook
+  # when the TUI's UserPromptSubmit fires for the submitted pointer, so the
+  # delivery proof is the hook wiring itself, never a rendered string.
+  grep -q 'source=zcode-hook' "$STATE/$ID.busy-state" 2>/dev/null
+}
+
+zcode_tui_wait_for_delivery() {
+  local i=0 max=${FM_ZCODE_TUI_DELIVERY_POLLS:-40} interval=${FM_ZCODE_TUI_POLL_INTERVAL:-0.5}
+  while [ "$i" -lt "$max" ]; do
+    zcode_tui_delivery_is_confirmed && return 0
+    i=$((i + 1))
+    [ "$i" -ge "$max" ] || sleep "$interval"
+  done
+  return 1
+}
+
+zcode_tui_spawn_fail() {  # <detail>
+  printf 'failed: %s\n' "$1" >> "$STATE/$ID.status"
+  echo "error: $1; inspect window $T" >&2
+  # Same ownership contract as rovo's gate failure: the gates run after the
+  # task record is published, so the launched TUI must be closed here or it
+  # keeps running as an orphaned autonomous agent outside task control.
+  if [ "$BACKEND" = orca ]; then
+    fm_backend_kill orca "$T" 2>/dev/null || true
+    return 0
+  fi
+  local tab_id=
+  [ "$BACKEND" = zellij ] && tab_id=$ZELLIJ_TAB_ID
+  fm_backend_kill "$BACKEND" "$T" "$tab_id" "fm-$ID" 2>/dev/null || true
+}
+
 # agy carries its brief on the launch command, so it needs no delivery gate,
 # but a worktree agy does not trust parks the TUI on the folder-trust dialog
 # and an unanswered dialog sends the turn into agy's scratch directory instead
@@ -4051,7 +4182,7 @@ SPAWN_META_PATH=$SPAWN_META_TMP
 preserve_relaunch_meta() {
   awk -F= '
     BEGIN {
-      split("window endpoint_task_id worktree project harness kind mode yolo tasktmp model effort busy_gen spawn_gen traceparent backend herdr_session herdr_workspace_id herdr_tab_id herdr_pane_id zellij_session zellij_tab_id zellij_pane_id orca_worktree_id terminal cmux_workspace_id cmux_surface_id home projects control_relaunch_tx", keys, " ")
+      split("window endpoint_task_id worktree project harness kind mode yolo tasktmp model effort busy_gen spawn_gen traceparent backend herdr_session herdr_workspace_id herdr_tab_id herdr_pane_id zellij_session zellij_tab_id zellij_pane_id orca_worktree_id terminal cmux_workspace_id cmux_surface_id home projects control_relaunch_tx zcode_tui", keys, " ")
       for (i in keys) owned[keys[i]] = 1
     }
     !($1 in owned)
@@ -4070,6 +4201,11 @@ preserve_relaunch_meta() {
   echo "model=${MODEL:-default}"
   echo "effort=${EFFORT:-default}"
   [ -z "${BUSY_GEN:-}" ] || echo "busy_gen=$BUSY_GEN"
+  # The opt-in zcode TUI launch variant rides the record so a relaunch reuses
+  # it (the relaunch block reads it back, guarded on the prior zcode harness);
+  # every other harness writes no line, and the owned key rewrites on relaunch
+  # so a harness switch can never inherit the other harness's variant.
+  [ "$HARNESS" = zcode ] && [ "$ZCODE_TUI" -eq 1 ] && echo "zcode_tui=1"
   echo "spawn_gen=$SPAWN_GEN"
   # Default-off writes no traceparent= line.
   # backend= is written only for a non-default (non-tmux) backend, so the
@@ -4410,6 +4546,33 @@ if [ "$HARNESS" = rovo ]; then
   fi
   if ! rovo_wait_for_delivery; then
     rovo_spawn_fail "rovo brief pointer delivery was not confirmed in window $T"
+    exit 1
+  fi
+fi
+if [ "$HARNESS" = zcode ] && [ "$ZCODE_TUI" -eq 1 ]; then
+  if ! zcode_tui_wait_for_ready; then
+    zcode_tui_spawn_fail "the zcode TUI did not show a verified ready signal before brief delivery in window $T"
+    exit 1
+  fi
+  ZCODE_TUI_POINTER="Read the brief at $BRIEF_REAL and follow it exactly."
+  ZCODE_TUI_SUBMIT_RETRIES=${FM_ZCODE_TUI_SUBMIT_RETRIES:-3}
+  ZCODE_TUI_SUBMIT_SLEEP=${FM_ZCODE_TUI_SUBMIT_SLEEP:-${FM_ZCODE_TUI_POLL_INTERVAL:-0.5}}
+  ZCODE_TUI_SUBMIT_SETTLE=${FM_ZCODE_TUI_SUBMIT_SETTLE:-0}
+  # The submit verdict itself is accepted as anything but send-failed: the
+  # zcode composer is unverified shape, so the core honestly answers unknown,
+  # and the structural delivery gate below is the confirmation that counts.
+  if ! ZCODE_TUI_SUBMIT_VERDICT=$(fm_backend_send_text_submit \
+      "$BACKEND" "$T" "$ZCODE_TUI_POINTER" "$ZCODE_TUI_SUBMIT_RETRIES" \
+      "$ZCODE_TUI_SUBMIT_SLEEP" "$ZCODE_TUI_SUBMIT_SETTLE" "$W"); then
+    zcode_tui_spawn_fail "the zcode TUI brief pointer could not be submitted into window $T"
+    exit 1
+  fi
+  if [ "$ZCODE_TUI_SUBMIT_VERDICT" = send-failed ]; then
+    zcode_tui_spawn_fail "the zcode TUI brief pointer could not be submitted into window $T"
+    exit 1
+  fi
+  if ! zcode_tui_wait_for_delivery; then
+    zcode_tui_spawn_fail "the zcode TUI brief pointer delivery was not confirmed through the turn hook in window $T"
     exit 1
   fi
 fi
