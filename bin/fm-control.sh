@@ -423,10 +423,22 @@ verify_interrupt_running() {
   if fm_control_backend_state_verified "$BACKEND"; then
     # An interrupt cancels a turn; it must never have stopped the agent. This
     # is the postcondition that separates a landed interrupt from an accident.
+    # One documented exception: a harness whose interrupt legitimately ENDS
+    # the worker process (fm_control_interrupt_ends_process - a headless
+    # single-prompt worker whose process IS the turn) accepts the dead state
+    # as the verified success shape instead.
     after=$(agent_state)
-    [ "$after" = alive ] \
-      || die "task $ID's agent is '$after' after its interrupt key; an interrupt must leave the agent running"
-    proof=agent-alive
+    if fm_control_interrupt_ends_process "$HARNESS"; then
+      case "$after" in
+        dead) proof=agent-ended-by-interrupt ;;
+        alive) proof=agent-alive ;;
+        *) die "task $ID's agent is '$after' after its interrupt key; an interrupt must leave the agent running or cleanly ended" ;;
+      esac
+    else
+      [ "$after" = alive ] \
+        || die "task $ID's agent is '$after' after its interrupt key; an interrupt must leave the agent running"
+      proof=agent-alive
+    fi
   fi
   printf '%s' "$proof"
 }
@@ -459,6 +471,19 @@ do_exit() {
     missing) die "task $ID's recorded endpoint is gone, so there is no agent to stop; reconcile the task before any further control action" ;;
     *) die "task $ID's endpoint reads '$state' rather than a positively classified state; refusing to send a lifecycle command into an unattributed endpoint" ;;
   esac
+  # Signal-shaped exit (fm_control_exit_is_signal_shutdown): a headless
+  # single-prompt worker has no composer to type into and never reads stdin,
+  # so the interrupt key IS the stop - one C-c ends the process, and the same
+  # agent-state wait that proves a typed exit proves this one.
+  if fm_control_exit_is_signal_shutdown "$HARNESS"; then
+    cancel=$(deliver_interrupt) || return $?
+    state=$(wait_agent_state "$EXIT_WAIT" dead) || {
+      die "exit-delivered $ID interrupt=signal cancel=$cancel agent-state=$state exit=unconfirmed; the agent did not stop within ${EXIT_WAIT}s"
+    }
+    retire_busy_incarnation
+    printf 'stopped'
+    return 0
+  fi
   # A busy agent is interrupted first before the exit command is submitted.
   case "$(busy_verdict)" in
     busy*)
