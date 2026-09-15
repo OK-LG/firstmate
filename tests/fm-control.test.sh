@@ -109,6 +109,13 @@ case "${1:-}" in
          && { [ "$payload" = Escape ] || [ "$payload" = C-c ]; }; then
         printf 'zsh' > "$D/command"
       fi
+      # The lingering shutdown: the process is still the pane's foreground
+      # command when the key returns and only leaves on the next poll (the
+      # fake sleep performs the death), the real zcode TUI's ~0.6s exit.
+      if [ -n "${FM_FAKE_INTERRUPT_STOPS_AGENT_LATER:-}" ] \
+         && { [ "$payload" = Escape ] || [ "$payload" = C-c ]; }; then
+        : > "$D/interrupt-death-pending"
+      fi
       # The zcode TUI survivor: the first C-c cancels a turn and the TUI stays
       # alive, the second (the idle-composer exit key) stops it - the verified
       # cancel-then-exit shape a signal-shaped exit must deliver bounded.
@@ -147,6 +154,10 @@ SH
   chmod +x "$fb/tmux"
   cat > "$fb/sleep" <<'SH'
 #!/usr/bin/env bash
+if [ -e "$FM_FAKE_DIR/interrupt-death-pending" ]; then
+  rm -f "$FM_FAKE_DIR/interrupt-death-pending"
+  printf 'zsh' > "$FM_FAKE_DIR/command"
+fi
 if [ -n "${FM_FAKE_MUSE_DISAPPEAR_BEFORE_ACK:-}" ] \
    && [ -e "$FM_FAKE_DIR/muse-ack-pending" ]; then
   rm -f "$FM_FAKE_DIR/muse-ack-pending"
@@ -210,6 +221,7 @@ run_control() {
     FM_FAKE_MUSE_LOG="${FM_FAKE_MUSE_LOG:-}" \
     FM_FAKE_MUSE_DISAPPEAR_BEFORE_ACK="${FM_FAKE_MUSE_DISAPPEAR_BEFORE_ACK:-}" \
     FM_FAKE_INTERRUPT_STOPS_AGENT="${FM_FAKE_INTERRUPT_STOPS_AGENT:-}" \
+    FM_FAKE_INTERRUPT_STOPS_AGENT_LATER="${FM_FAKE_INTERRUPT_STOPS_AGENT_LATER:-}" \
     FM_FAKE_CC_DIES_ON_SECOND="${FM_FAKE_CC_DIES_ON_SECOND:-}" \
     "$CONTROL" "$@" 2>&1
 }
@@ -764,7 +776,7 @@ test_interrupt_retires_busy_wiring_when_it_ends_the_agent() {
 # dies under its interrupt key is refused as an accident, never reported as
 # a landed interrupt.
 test_zcode_interrupt_postcondition_follows_the_recorded_variant() {
-  local dir out rc
+  local dir out rc gen
   # Headless, process survives the C-c: the headless shape still accepts the
   # alive state, unchanged.
   dir=$(new_case zcode-headless-alive)
@@ -797,6 +809,23 @@ test_zcode_interrupt_postcondition_follows_the_recorded_variant() {
   expect_code 1 "$rc" "a TUI-variant interrupt must not accept a dead agent"$'\n'"$out"
   assert_contains "$out" "an interrupt must leave the agent running" \
     "the TUI refusal must state the surviving-agent postcondition: $out"
+
+  # TUI variant, process lingers under the key and exits a moment later (the
+  # real TUI at an idle composer takes ~0.6s to leave the pane): the
+  # postcondition must settle on the surviving agent, not be read once
+  # while the dying process is still in the foreground.
+  dir=$(new_case zcode-tui-dies-later)
+  add_task "$dir" t1 zcode
+  printf 'zcode_tui=1\n' >> "$dir/home/state/t1.meta"
+  alive_as "$dir" zcode
+  gen=$("$ROOT/bin/fm-busy-event.sh" arm "$dir/home/state" t1)
+  printf 'busy_gen=%s\n' "$gen" >> "$dir/home/state/t1.meta"
+  out=$(FM_FAKE_INTERRUPT_STOPS_AGENT_LATER=1 run_control "$dir" t1 interrupt); rc=$?
+  expect_code 1 "$rc" "a TUI-variant interrupt must not report a lingering-then-dead agent as alive"$'\n'"$out"
+  assert_contains "$out" "an interrupt must leave the agent running" \
+    "the settled TUI refusal must state the surviving-agent postcondition: $out"
+  assert_not_contains "$out" "interrupt-delivered" \
+    "a liveness proof read before the TUI finished exiting must not be published: $out"
   pass "fm-control interrupt: the zcode interrupt postcondition follows the recorded launch variant"
 }
 

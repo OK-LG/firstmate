@@ -87,7 +87,8 @@
 #
 # Environment knobs (all bounded waits, seconds):
 #   FM_CONTROL_POLL              poll interval for postcondition waits (0.5)
-#   FM_CONTROL_SETTLE_WAIT       adapter acknowledgement wait after interrupt (5)
+#   FM_CONTROL_SETTLE_WAIT       adapter acknowledgement and agent-state settle
+#                               wait after interrupt (5)
 #   FM_CONTROL_EXIT_WAIT         alive->dead wait after the exit command (30)
 #   FM_CONTROL_LAUNCH_WAIT       dead->alive wait after a relaunch (90)
 #   FM_CONTROL_EXIT_RETRIES      Enter retries for the exit command (3)
@@ -434,7 +435,13 @@ verify_interrupt_running() {
     # as the verified success shape instead. zcode's recorded TUI variant
     # survives its interrupt, so the recorded launch variant rides along and
     # only the headless shape takes the exception.
-    after=$(agent_state)
+    # The state is settled, not read once: a TUI that exits under the key is
+    # still the pane's foreground process for a moment after delivery
+    # (verified live on zcode 3.11.2-24: ~0.6s from the key to a bare shell),
+    # so a single immediate read would publish a dead worker as alive. The
+    # bounded poll returns as soon as a death is observed and otherwise
+    # holds the alive state through the whole settle window.
+    after=$(wait_agent_state "$SETTLE_WAIT" dead) || :
     if fm_control_interrupt_ends_process "$HARNESS" "$(fm_meta_get "$META" zcode_tui)"; then
       case "$after" in
         dead) proof=agent-ended-by-interrupt ;;
