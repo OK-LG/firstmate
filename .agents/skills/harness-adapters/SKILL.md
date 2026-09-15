@@ -35,8 +35,8 @@ For recovery and control, use the exact `harness=` in `state/<id>.meta`; never i
 Deliver lifecycle actions only through `../../../bin/fm-control.sh <task-id> interrupt|exit|relaunch`.
 Never type an interrupt key or exit command through `fm-send`, where routing-marked lifecycle text becomes chat.
 Trust handling is complete only when inspection proves the target started processing its instructions; delivery success alone is not proof.
-Muse, Gemini, AGY, and zcode are verified only for crewmate and scout work, never a secondmate or primary.
-zcode's dated 2026-09-14 live verification pass and its `ZCODE_API_KEY` credential precondition live in `references/harness/zcode.md`.
+Muse, Gemini, and AGY are verified only for crewmate and scout work, never a secondmate or primary.
+zcode is verified for the primary session and for crewmate and scout work, but not yet a secondmate; its dated 2026-09-14 crew pass, its 2026-09-15 primary pass, its `ZCODE_API_KEY` credential precondition, and the `docs/supervision-protocols/zcode.md` wake protocol it hosts are recorded in `references/harness/zcode.md`.
 
 ## Detection
 

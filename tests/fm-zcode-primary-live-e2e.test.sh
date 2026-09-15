@@ -113,7 +113,7 @@ if LOCK_COMM=$(ps -o comm= -p "$LOCK_PID" 2>/dev/null); then
     node)
       LOCK_ARGS=$(ps -o args= -p "$LOCK_PID" 2>/dev/null)
       # shellcheck source=/dev/null
-      . "$ROOT/bin/fm-agent-process-lib.sh"
+      . "$ROOT/bin/fm-zcode-lib.sh"
       fm_zcode_args_are_zcode "$LOCK_ARGS" \
         || fail "the lock holder is a node process that is not the zcode launcher: $LOCK_ARGS"
       ;;
