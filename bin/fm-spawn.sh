@@ -2,7 +2,7 @@
 # Spawn a direct report: a crewmate in a treehouse or Orca worktree, or a
 # secondmate in its isolated firstmate home.
 # Usage: fm-spawn.sh <task-id> <project-dir> --mode <no-mistakes|direct-PR|local-only> --yolo <on|off> [--harness <name>|harness|launch-command] [--model <name>] [--effort <level>] [--backend <name>] [--zcode-tui]
-#        fm-spawn.sh <task-id> <project-dir> --scout [--harness <name>|harness|launch-command] [--model <name>] [--effort <level>] [--backend <name>]
+#        fm-spawn.sh <task-id> <project-dir> --scout [--harness <name>|harness|launch-command] [--model <name>] [--effort <level>] [--backend <name>] [--zcode-tui]
 #        fm-spawn.sh <task-id> [<firstmate-home>] [--harness <name>|harness|launch-command] [--model <name>] [--effort <level>] [--backend <name>] --secondmate
 #   --mode and --yolo are this task's delivery contract, REQUIRED for every ship
 #   spawn and refused on --scout and --secondmate spawns. Firstmate resolves both
@@ -3346,32 +3346,49 @@ rovo_endpoint_cleanup() {
 # 0.16.5, 2026-09-15: the busy record flips to source=zcode-hook), which is
 # stronger than any rendered confirmation and keeps the gate honest about the
 # one thing that matters: the submitted pointer started a real supervised
-# turn. The readiness half reads three independent rendered signals, any one
-# of which carries the verdict (the verified composer box placeholder, the
-# composer box's own /help footer title, and the TUI identity row), because a
-# single vendor string is exactly what a zcode release could silently rename;
-# zcode's composer shape is deliberately NOT taught to
-# bin/fm-composer-lib.sh here, so fm_backend_composer_state keeps answering
-# unknown and no readiness or submit verdict ever rests on an unverified shape.
+# turn. The readiness half reads only signals that exist once the TUI has
+# actually painted, because the pane's own echo of the launch command is NOT
+# readiness: the launch line carries FM_ZCODE_HARNESS=zcode and the quoted
+# worktree path, and review PR#6 live-reproduced a bare identity grep
+# matching exactly that echo ~2.5s before the paint (zcode takes 2.49-2.50s
+# to paint here), so a pointer typed in that window is silently discarded
+# with no path back. Every positive signal below was verified live absent
+# from the pre-paint echo capture and present in the painted TUI, the echo
+# rejection names the launch marker itself, and a positive must hold on two
+# consecutive captures before the gate opens; zcode's composer shape is
+# deliberately NOT taught to bin/fm-composer-lib.sh here, so
+# fm_backend_composer_state keeps answering unknown and no readiness or
+# submit verdict ever rests on an unverified shape.
 zcode_tui_capture() {
   fm_backend_capture "$BACKEND" "$T" 120 "$W" 2>/dev/null || true
 }
 
 zcode_tui_is_ready() {  # <plain-pane-capture>
   local pane=$1
+  # The echoed launch command is a shell line, not a painted TUI, whatever
+  # else the capture holds.
+  printf '%s\n' "$pane" | grep -Fq 'FM_ZCODE_HARNESS=' && return 1
   if printf '%s\n' "$pane" | grep -Fq 'Ask a task about this workspace' \
      || printf '%s\n' "$pane" | grep -Fq '/help commands' \
-     || printf '%s\n' "$pane" | grep -Fq 'ZCODE'; then
+     || printf '%s\n' "$pane" | grep -Fq '◆ ZCODE'; then
     return 0
   fi
   return 1
 }
 
 zcode_tui_wait_for_ready() {
-  local pane i=0 max=${FM_ZCODE_TUI_READY_POLLS:-60} interval=${FM_ZCODE_TUI_POLL_INTERVAL:-0.5}
+  local pane='' confirmed=0 i=0 max=${FM_ZCODE_TUI_READY_POLLS:-60} interval=${FM_ZCODE_TUI_POLL_INTERVAL:-0.5}
+  # Two consecutive positive captures: the alternate-screen transition can
+  # flash partial content once, and a stable paint is what makes the composer
+  # accept input.
   while [ "$i" -lt "$max" ]; do
     pane=$(zcode_tui_capture)
-    zcode_tui_is_ready "$pane" && return 0
+    if zcode_tui_is_ready "$pane"; then
+      confirmed=$((confirmed + 1))
+      [ "$confirmed" -ge 2 ] && return 0
+    else
+      confirmed=0
+    fi
     i=$((i + 1))
     [ "$i" -ge "$max" ] || sleep "$interval"
   done
@@ -3385,12 +3402,39 @@ zcode_tui_delivery_is_confirmed() {
   grep -q 'source=zcode-hook' "$STATE/$ID.busy-state" 2>/dev/null
 }
 
-zcode_tui_wait_for_delivery() {
-  local i=0 max=${FM_ZCODE_TUI_DELIVERY_POLLS:-40} interval=${FM_ZCODE_TUI_POLL_INTERVAL:-0.5}
+zcode_tui_wait_for_delivery() {  # [poll-count]
+  local i=0 max=${1:-${FM_ZCODE_TUI_DELIVERY_POLLS:-40}} interval=${FM_ZCODE_TUI_POLL_INTERVAL:-0.5}
   while [ "$i" -lt "$max" ]; do
     zcode_tui_delivery_is_confirmed && return 0
     i=$((i + 1))
     [ "$i" -ge "$max" ] || sleep "$interval"
+  done
+  return 1
+}
+
+# Brief delivery is verify-and-retry, never a single fire-and-forget type:
+# the submit core types the pointer exactly once and retries only Enter, so a
+# pointer that lands before the composer truly accepts input is discarded
+# with no path back (the PR#6 review's reproduced failure). Each attempt
+# submits and then waits for the structural hook flip; before every retry
+# after the first, one bare Enter first submits a pointer that typed fine but
+# whose Enter was swallowed - the core cannot retry Enter for a composer it
+# reads as unknown - and an empty composer ignores that Enter (verified live
+# on 0.16.5: no hook event, no turn), so the probe can never double-submit.
+zcode_tui_deliver_brief() {  # <pointer-text>
+  local pointer=$1 attempt=1 max=${FM_ZCODE_TUI_DELIVER_ATTEMPTS:-3} verdict
+  while [ "$attempt" -le "$max" ]; do
+    if ! verdict=$(fm_backend_send_text_submit \
+        "$BACKEND" "$T" "$pointer" "$ZCODE_TUI_SUBMIT_RETRIES" \
+        "$ZCODE_TUI_SUBMIT_SLEEP" "$ZCODE_TUI_SUBMIT_SETTLE" "$W"); then
+      return 1
+    fi
+    [ "$verdict" = send-failed ] && return 1
+    zcode_tui_wait_for_delivery && return 0
+    attempt=$((attempt + 1))
+    [ "$attempt" -gt "$max" ] && break
+    spawn_send_key "$T" Enter
+    zcode_tui_wait_for_delivery "${FM_ZCODE_TUI_SWALLOW_PROBE_POLLS:-6}" && return 0
   done
   return 1
 }
@@ -4558,21 +4602,14 @@ if [ "$HARNESS" = zcode ] && [ "$ZCODE_TUI" -eq 1 ]; then
   ZCODE_TUI_SUBMIT_RETRIES=${FM_ZCODE_TUI_SUBMIT_RETRIES:-3}
   ZCODE_TUI_SUBMIT_SLEEP=${FM_ZCODE_TUI_SUBMIT_SLEEP:-${FM_ZCODE_TUI_POLL_INTERVAL:-0.5}}
   ZCODE_TUI_SUBMIT_SETTLE=${FM_ZCODE_TUI_SUBMIT_SETTLE:-0}
-  # The submit verdict itself is accepted as anything but send-failed: the
-  # zcode composer is unverified shape, so the core honestly answers unknown,
-  # and the structural delivery gate below is the confirmation that counts.
-  if ! ZCODE_TUI_SUBMIT_VERDICT=$(fm_backend_send_text_submit \
-      "$BACKEND" "$T" "$ZCODE_TUI_POINTER" "$ZCODE_TUI_SUBMIT_RETRIES" \
-      "$ZCODE_TUI_SUBMIT_SLEEP" "$ZCODE_TUI_SUBMIT_SETTLE" "$W"); then
-    zcode_tui_spawn_fail "the zcode TUI brief pointer could not be submitted into window $T"
-    exit 1
-  fi
-  if [ "$ZCODE_TUI_SUBMIT_VERDICT" = send-failed ]; then
-    zcode_tui_spawn_fail "the zcode TUI brief pointer could not be submitted into window $T"
-    exit 1
-  fi
-  if ! zcode_tui_wait_for_delivery; then
-    zcode_tui_spawn_fail "the zcode TUI brief pointer delivery was not confirmed through the turn hook in window $T"
+  # Delivery is the verify-and-retry ladder (zcode_tui_deliver_brief): each
+  # submit is followed by the structural hook-flip wait, and a bare Enter
+  # probes for a swallowed submit before any retype. Only a failed tmux send
+  # or the exhausted ladder fails the spawn; the composer verdict itself is
+  # accepted as anything but send-failed, because the zcode composer is
+  # unverified shape and honestly answers unknown.
+  if ! zcode_tui_deliver_brief "$ZCODE_TUI_POINTER"; then
+    zcode_tui_spawn_fail "the zcode TUI brief pointer could not be confirmed delivered through the turn hook in window $T"
     exit 1
   fi
 fi
