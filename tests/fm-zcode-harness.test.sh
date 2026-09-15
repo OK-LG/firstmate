@@ -34,9 +34,10 @@
 #      rendered-tail classifier stays as the no-record fallback: no default
 #      busy signature ships, and even with FM_BUSY_ZCODE_REGEX configured a
 #      non-matching tail is unknown, never idle.
-#   5. zcode is a crewmate/scout adapter only: a secondmate launch is refused,
-#      and a missing zcode bin refuses the spawn instead of launching a pane
-#      that dies on command-not-found.
+#   5. zcode is verified for primary sessions and crewmate/scout launches, but
+#      a secondmate launch is still refused (its own surface, no dated live
+#      pass yet), and a missing zcode bin refuses the spawn instead of
+#      launching a pane that dies on command-not-found.
 #   6. Control is signal-shaped: interrupt is C-c (SIGINT through the pane's
 #      foreground process group, verified live to cancel a mid-turn run and
 #      end the process with status 130 and no Stop hook), there is no composer
@@ -1070,11 +1071,11 @@ test_zcode_is_refused_as_a_secondmate() {
   # bypasses run_scout_spawn's --scout flag.
   out=$(FM_FAKE_LAUNCH_LOG="$LAUNCH_LOG" \
     fm_test_run_spawn "$HOME_DIR" "$WT_DIR" "$FAKEBIN_DIR" --secondmate "$id" zcode) && {
-    fail "a zcode secondmate must be refused, it has no primary supervision protocol: $out"
+    fail "a zcode secondmate must be refused, secondmate launches are not verified for zcode: $out"
   }
-  assert_contains "$out" 'crewmate/scout adapter only' \
-    "refusing a zcode secondmate must name the crewmate/scout boundary: $out"
-  pass "zcode is refused as a secondmate because it has no primary supervision protocol"
+  assert_contains "$out" 'secondmate launches are not verified for zcode' \
+    "refusing a zcode secondmate must name the unverified secondmate surface: $out"
+  pass "zcode is refused as a secondmate because secondmate launches are not verified for it"
 }
 
 test_zcode_teardown_removes_pointer_token_and_registry_entry() {
