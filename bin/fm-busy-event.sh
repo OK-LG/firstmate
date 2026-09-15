@@ -46,7 +46,13 @@
 # or idle, a task whose <state-dir>/<id>.meta records backend=herdr and whose
 # harness is zcode is also reported to herdr's agent view so its pane lists
 # the worker (`herdr pane report-agent <pane> --source firstmate --agent fm-<id>
-# --state working|idle --seq <record-seq> --session <session>`). <session>
+# --state working|idle --seq <wire-seq> --session <session>`). <wire-seq> is
+# <gen epoch seconds> * 1e9 + <record seq>: herdr 0.9.0 orders reports by
+# seq per pane and silently drops a lower one (verified live: a re-arm's raw
+# seq=1 after seq=3 on the same pane left the agent idle), and a relaunch
+# re-seeds the record at seq=1 into the same pane, so the wire value must
+# grow across incarnations, at the same nanosecond scale herdr's own
+# reporters use. <session>
 # is the part of meta `window=` before the first colon and <pane> the part
 # after it (a herdr pane id itself contains colons; see docs/herdr-backend.md
 # "Endpoint metadata"). The report routes by the recorded session exactly
@@ -187,18 +193,22 @@ meta_field() {  # <meta-file> <key>
 # no meta, a meta without backend=herdr, a <harness> other than zcode, no
 # colon in window= or an empty side of it, no herdr on PATH, a failing report
 # - returns without touching the caller's exit code, stdout, or stderr.
-# <busy-state> is the state the record just landed in (busy|idle); <seq> is
-# that record's seq; <harness> is the harness the caller vouches for (the
-# arm's --harness, or the meta's harness= for an apply).
-fm_herdr_agent_report() {  # <state-dir> <id> <busy-state> <seq> <harness>
-  local state_dir=$1 id=$2 busy_state=$3 seq=$4 harness=$5
-  local meta window session pane herdr_state
+# <busy-state> is the state the record just landed in (busy|idle); <gen> and
+# <seq> are that record's gen and seq; <harness> is the harness the caller
+# vouches for (the arm's --harness, or the meta's harness= for an apply).
+fm_herdr_agent_report() {  # <state-dir> <id> <busy-state> <gen> <seq> <harness>
+  local state_dir=$1 id=$2 busy_state=$3 gen=$4 seq=$5 harness=$6
+  local meta window session pane herdr_state epoch wire_seq
   case "$busy_state" in
     busy) herdr_state=working ;;
     idle) herdr_state=idle ;;
     *) return 0 ;;
   esac
   [ "$harness" = zcode ] || return 0
+  epoch=${gen#g}
+  epoch=${epoch%%.*}
+  case "$epoch" in ''|*[!0-9]*) return 0 ;; esac
+  wire_seq=$((epoch * 1000000000 + seq))
   meta="$state_dir/$id.meta"
   [ -f "$meta" ] || return 0
   [ "$(meta_field "$meta" backend)" = herdr ] || return 0
@@ -210,7 +220,7 @@ fm_herdr_agent_report() {  # <state-dir> <id> <busy-state> <seq> <harness>
   [ -n "$session" ] && [ -n "$pane" ] || return 0
   command -v herdr >/dev/null 2>&1 || return 0
   HERDR_SESSION="$session" herdr pane report-agent "$pane" --source firstmate \
-    --agent "fm-$id" --state "$herdr_state" --seq "$seq" --session "$session" \
+    --agent "fm-$id" --state "$herdr_state" --seq "$wire_seq" --session "$session" \
     >/dev/null 2>&1 || true
   return 0
 }
@@ -228,7 +238,7 @@ if [ "$CMD" = arm ]; then
   lock_release
   umask "$old_umask"
   printf '%s\n' "$GEN"
-  fm_herdr_agent_report "$STATE" "$ID" "$NEW_STATE" 1 "$ARM_HARNESS"
+  fm_herdr_agent_report "$STATE" "$ID" "$NEW_STATE" "$GEN" 1 "$ARM_HARNESS"
   exit 0
 fi
 
@@ -311,5 +321,5 @@ write_record "$GEN" "$NEW_SEQ" || {
 }
 lock_release
 umask "$old_umask"
-fm_herdr_agent_report "$STATE" "$ID" "$NEW_STATE" "$NEW_SEQ" "$(meta_field "$STATE/$ID.meta" harness)"
+fm_herdr_agent_report "$STATE" "$ID" "$NEW_STATE" "$GEN" "$NEW_SEQ" "$(meta_field "$STATE/$ID.meta" harness)"
 exit 0

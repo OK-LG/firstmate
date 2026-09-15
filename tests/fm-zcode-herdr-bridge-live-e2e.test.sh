@@ -15,7 +15,12 @@
 #      default one) is running,
 #   2. `herdr agent list` and `herdr agent get` then list the worker, and the
 #      arm (working) and apply (idle) flips arrive as real agent_status
-#      transitions.
+#      transitions,
+#   3. a re-arm into the SAME pane (the relaunch shape, record re-seeded at
+#      seq=1) still flips the agent back to working. Herdr 0.9.0 orders
+#      reports by seq per pane and silently drops a lower one (observed
+#      2026-09-15: a raw seq=1 re-arm after seq=3 left the agent idle), which
+#      is why the bridge puts gen-epoch * 1e9 + record-seq on the wire.
 #
 # It fails naming the Herdr version when either fact drifts. No model
 # credential and no zcode process are involved: the busy events run the real
@@ -137,7 +142,34 @@ bridge apply "$SCRATCH/state" "$ID" idle \
 STATUS=$(agent_status)
 [ "$STATUS" = idle ] \
   || version_fail "the idle apply must flip agent_status to idle, got '${STATUS:-agent_not_found}'"
-note "herdr $HERDR_VERSION: fm-$ID bound on $PANE_ID, flipped working->idle through the real busy record"
+
+# Relaunch shape: a second arm into the SAME pane re-seeds the record at
+# seq=1 while herdr has already seen three reports for this pane/source/agent.
+# Herdr 0.9.0 drops a report whose seq is not above the last one it saw, so
+# the re-arm's working report only lands through the monotonic wire seq; the
+# next epoch second guarantees the new gen's epoch exceeds the old one.
+bridge apply "$SCRATCH/state" "$ID" busy \
+  --gen "$GEN" --source zcode-hook --event user-prompt-submit \
+  || version_fail "real busy apply against the fixture failed"
+bridge apply "$SCRATCH/state" "$ID" idle \
+  --gen "$GEN" --source zcode-hook --event stop \
+  || version_fail "second real idle apply against the fixture failed"
+[ "$(agent_status)" = idle ] \
+  || version_fail "the pane must read idle before the re-arm"
+ARM_EPOCH=${GEN#g}
+ARM_EPOCH=${ARM_EPOCH%%.*}
+while [ "$(date +%s)" -le "$ARM_EPOCH" ]; do sleep 0.2; done
+GEN2=$(bridge arm "$SCRATCH/state" "$ID" --harness zcode) \
+  || version_fail "real re-arm against the fixture failed"
+[ "$GEN2" != "$GEN" ] || version_fail "the re-arm must mint a fresh gen"
+case "$(cat "$SCRATCH/state/$ID.busy-state")" in
+  *"gen=$GEN2 seq=1 state=busy source=fm-spawn event=launch-brief"*) : ;;
+  *) version_fail "the re-arm did not re-seed the record at seq=1: $(cat "$SCRATCH/state/$ID.busy-state")" ;;
+esac
+STATUS=$(agent_status)
+[ "$STATUS" = working ] \
+  || version_fail "the re-arm's report (record seq 1 after 3) must flip agent_status back to working, got '${STATUS:-agent_not_found}'; the wire seq no longer outruns herdr's per-pane ordering"
+note "herdr $HERDR_VERSION: fm-$ID bound on $PANE_ID, flipped working->idle through the real busy record, and a re-arm at record seq 1 after 3 read working again"
 
 # Close the scratch tab; the lab teardown tripwire then verifies the default
 # session was never touched.

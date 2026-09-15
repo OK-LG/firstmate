@@ -1341,6 +1341,8 @@ A stale-registration pane is never a husk: create, reclaim, presentation recover
 The zcode agent-view bridge (`bin/fm-busy-event.sh`'s report to `herdr pane report-agent`, docs/herdr-backend.md "Agent view bridge") was verified live on 2026-09-15 on Linux x64 with Herdr 0.9.0, protocol 22, in an isolated `fm-lab-` session while the default server was also running.
 The arm report, sent from a shell with no `HERDR_SESSION` and no `HERDR_SOCKET_PATH` at all (the captain-side shape of `fm-spawn --relaunch`), bound the fixture task as agent `fm-zcode-herdr-bridge-e2e` on the scratch pane and read `agent_status=working`, and the idle apply flipped the same record to `agent_status=idle` through `herdr agent list` and `herdr agent get`.
 The report routed to the recorded session through its explicit `--session` flag and never reached the default server, which is the misroute hazard a second running server creates; the exact invocation is pinned by the portable test.
+Herdr 0.9.0 orders reports by seq per pane and silently drops one that is not above the last it saw: with the raw record seq on the wire, a re-arm into the same pane (record re-seeded at seq 1 after reports at seq 1 to 3) left `agent_status=idle`, which is why the bridge now sends the gen's epoch seconds times 1e9 plus the record seq.
+With that wire seq the same re-arm flipped the agent back to `agent_status=working`; the guard exercises arm, idle, busy, idle, and re-arm on one pane so a Herdr that changes this ordering rule fails it by name.
 
 ```sh
 tests/fm-zcode-herdr-bridge-live-e2e.test.sh
@@ -1349,7 +1351,7 @@ tests/fm-zcode-herdr-bridge-live-e2e.test.sh
 Observed 2026-09-15:
 
 ```text
-# herdr 0.9.0: fm-zcode-herdr-bridge-e2e bound on w1:p1, flipped working->idle through the real busy record
+# herdr 0.9.0: fm-zcode-herdr-bridge-e2e bound on w1:p1, flipped working->idle through the real busy record, and a re-arm at record seq 1 after 3 read working again
 ok - real herdr 0.9.0: the busy-record bridge binds the agent and tracks its flips live
 ```
 
