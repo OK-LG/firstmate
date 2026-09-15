@@ -431,9 +431,11 @@ verify_interrupt_running() {
     # One documented exception: a harness whose interrupt legitimately ENDS
     # the worker process (fm_control_interrupt_ends_process - a headless
     # single-prompt worker whose process IS the turn) accepts the dead state
-    # as the verified success shape instead.
+    # as the verified success shape instead. zcode's recorded TUI variant
+    # survives its interrupt, so the recorded launch variant rides along and
+    # only the headless shape takes the exception.
     after=$(agent_state)
-    if fm_control_interrupt_ends_process "$HARNESS"; then
+    if fm_control_interrupt_ends_process "$HARNESS" "$(fm_meta_get "$META" zcode_tui)"; then
       case "$after" in
         dead) proof=agent-ended-by-interrupt ;;
         alive) proof=agent-alive ;;

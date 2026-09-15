@@ -13,7 +13,9 @@
 #      and a record bound to another task are all refused.
 #   4. Verb allowlist: no arbitrary text, no raw keys, no resume.
 #   5. Lifecycle states: busy interrupts first, idle does not, already-stopped
-#      is idempotent success, and an agent that does not stop fails closed.
+#      is idempotent success, and an agent that does not stop fails closed;
+#      zcode's dead-state interrupt acceptance follows the recorded launch
+#      variant (headless ends, zcode_tui=1 requires the agent alive).
 #   6. Marker non-regression: a control command to a kind=secondmate task
 #      carries NO from-firstmate marker and opens no pending-reply expectation,
 #      while fm-send's marking of the same task is untouched.
@@ -755,6 +757,49 @@ test_interrupt_retires_busy_wiring_when_it_ends_the_agent() {
   pass "fm-control interrupt: an interrupt that ends the agent retires the busy record"
 }
 
+# The headless-dead cell of this truth table is the ends-process test above
+# (its meta records no zcode_tui line). The remaining cells pin the recorded
+# TUI variant: zcode_tui=1 means the interrupt cancels the turn and the TUI
+# survives, so the alive proof is required there - and a TUI process that
+# dies under its interrupt key is refused as an accident, never reported as
+# a landed interrupt.
+test_zcode_interrupt_postcondition_follows_the_recorded_variant() {
+  local dir out rc
+  # Headless, process survives the C-c: the headless shape still accepts the
+  # alive state, unchanged.
+  dir=$(new_case zcode-headless-alive)
+  add_task "$dir" t1 zcode
+  alive_as "$dir" zcode
+  out=$(run_control "$dir" t1 interrupt); rc=$?
+  expect_code 0 "$rc" "a headless zcode interrupt accepts the alive state"$'\n'"$out"
+  assert_contains "$out" "verified=agent-alive" \
+    "the headless alive acceptance must be unchanged: $out"
+
+  # TUI variant, turn cancelled with the TUI alive: the recorded variant
+  # makes the surviving agent the required proof.
+  dir=$(new_case zcode-tui-alive)
+  add_task "$dir" t1 zcode
+  printf 'zcode_tui=1\n' >> "$dir/home/state/t1.meta"
+  alive_as "$dir" zcode
+  out=$(run_control "$dir" t1 interrupt); rc=$?
+  expect_code 0 "$rc" "a TUI-variant interrupt must verify the surviving agent"$'\n'"$out"
+  assert_contains "$out" "verified=agent-alive" \
+    "the TUI variant's interrupt must land on the alive proof: $out"
+
+  # TUI variant, process dies under the key anyway: an interrupt that
+  # stopped the agent is an accident, so it refuses instead of reporting
+  # the headless dead shape as landed.
+  dir=$(new_case zcode-tui-dead)
+  add_task "$dir" t1 zcode
+  printf 'zcode_tui=1\n' >> "$dir/home/state/t1.meta"
+  alive_as "$dir" zcode
+  out=$(FM_FAKE_INTERRUPT_STOPS_AGENT=1 run_control "$dir" t1 interrupt); rc=$?
+  expect_code 1 "$rc" "a TUI-variant interrupt must not accept a dead agent"$'\n'"$out"
+  assert_contains "$out" "an interrupt must leave the agent running" \
+    "the TUI refusal must state the surviving-agent postcondition: $out"
+  pass "fm-control interrupt: the zcode interrupt postcondition follows the recorded launch variant"
+}
+
 test_zcode_signal_exit_stops_headless_worker_on_one_key() {
   local dir out rc gen
   dir=$(new_case zcode-headless-exit)
@@ -1004,6 +1049,7 @@ test_busy_agent_is_interrupted_before_the_exit_command
 test_idle_agent_is_not_interrupted
 test_interrupt_without_acknowledgement_preserves_busy_state
 test_interrupt_retires_busy_wiring_when_it_ends_the_agent
+test_zcode_interrupt_postcondition_follows_the_recorded_variant
 test_zcode_signal_exit_stops_headless_worker_on_one_key
 test_zcode_signal_exit_stops_tui_worker_on_cancel_then_exit
 test_zcode_signal_exit_fails_closed_on_a_never_stopping_survivor

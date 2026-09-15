@@ -40,11 +40,15 @@
 #      launching a pane that dies on command-not-found.
 #   6. Control is signal-shaped: interrupt is C-c (SIGINT through the pane's
 #      foreground process group, verified live to cancel a mid-turn run and
-#      end the process with status 130 and no Stop hook), there is no composer
-#      to clear, no cancellation acknowledgement to observe, no typed exit
-#      command - and the interrupt legitimately ENDS the worker process, so
-#      both the interrupt verification and the exit verb accept the dead
-#      state as the documented success shape (one C-c is the exit).
+#      end the HEADLESS process with status 130 and no Stop hook), there is
+#      no composer to clear, no cancellation acknowledgement to observe, no
+#      typed exit command - and the headless interrupt legitimately ENDS the
+#      worker process, so both the interrupt verification and the exit verb
+#      accept the dead state as the documented success shape (one C-c is the
+#      exit). The interrupt record is variant-shaped: a meta recording
+#      zcode_tui=1 - the TUI variant, whose C-c cancels the turn and leaves
+#      the TUI alive - answers no, so the verification requires the agent
+#      alive there.
 #   7. The pane-liveness classifier (bin/fm-agent-process-lib.sh) knows the
 #      same anchored name set plus the wrapper's node-launcher shapes - the
 #      install path and the npm-global lib path - because fm-control's
@@ -66,7 +70,9 @@
 #      state log is the regression net. Delivery is verify-and-retry, never a
 #      single fire-and-forget type: a swallowed first pointer is recovered by
 #      one bare-Enter probe (a verified no-op on an empty composer) and a
-#      retype. The flag is refused off zcode and refused on a relaunch, whose
+#      retype, and every retry logs one best-effort stderr line so a field
+#      swallow is observable in the spawn's output, not only here. The flag
+#      is refused off zcode and refused on a relaunch, whose
 #      variant comes from the task's own record - and a relaunch reuses that
 #      variant in both directions.
 set -u
@@ -262,9 +268,16 @@ test_zcode_control_mechanics_are_the_verified_ones() {
     && fail "zcode has no composer and no typed exit command; the table must refuse to name one" || true
   # The headless process IS the turn: a C-c interrupt ends the worker process
   # (verified live: exit 130, no Stop hook), and the exit verb is that same
-  # signal, not a typed command.
+  # signal, not a typed command. The record is variant-shaped: an empty
+  # variant value is the headless meta (no zcode_tui line) and keeps the
+  # process-ends answer, while a recorded TUI incarnation survives its
+  # interrupt and must not answer process-ends.
   fm_control_interrupt_ends_process zcode \
     || fail "zcode's interrupt must be recorded as legitimately ending the worker process"
+  fm_control_interrupt_ends_process zcode '' \
+    || fail "a zcode meta with no variant line is the headless shape and must keep the process-ends answer"
+  fm_control_interrupt_ends_process zcode 1 \
+    && fail "a recorded TUI variant survives its interrupt and must not answer process-ends" || true
   fm_control_interrupt_ends_process claude \
     && fail "a TUI adapter's interrupt must never claim to end the process" || true
   fm_control_exit_is_signal_shutdown zcode \
@@ -762,11 +775,14 @@ test_zcode_tui_flag_maps_to_the_bare_tui_launch_and_delivers_the_pointer() {
   # The B1 regression net: the pointer was typed exactly once, and only after
   # the readiness gate saw the painted TUI - never while the pane still showed
   # the echoed launch command ('launching'), which is the state a gate that
-  # matches its own echo would type into.
+  # matches its own echo would type into. A clean delivery also logs no retry.
   [ "$(wc -l < "$CASE_DIR/fake/zcode-tui-pointer-states")" -eq 1 ] \
     || fail "the pointer must be typed exactly once in the happy path: $(cat "$CASE_DIR/fake/zcode-tui-pointer-states")"
   assert_grep 'ready' "$CASE_DIR/fake/zcode-tui-pointer-states" \
     "the pointer was typed before the TUI painted (state log: $(cat "$CASE_DIR/fake/zcode-tui-pointer-states"))"
+  case "$out" in
+    *"unconfirmed in window"*) fail "a confirmed first delivery must log no retry: $out" ;;
+  esac
   pass "fm-spawn: --zcode-tui launches bare, delivers the brief pointer, and proves it through the hook record"
 }
 
@@ -778,11 +794,19 @@ test_zcode_tui_delivery_retries_after_a_pre_interactivity_swallow() {
   # The first pointer's whole keystroke set is discarded (the PR#6 review's
   # reproduced pre-paint swallow): the delivery ladder must notice the missing
   # hook flip, probe with one bare Enter (a no-op on the empty composer), and
-  # retype the pointer - not fail the spawn and not fire the hook early.
+  # retype the pointer - not fail the spawn and not fire the hook early. The
+  # retry is also OBSERVABLE: each attempt that misses the hook flip logs one
+  # stderr line naming the failed attempt and the retry, so a field swallow
+  # never rides through silently.
   out=$(FM_FAKE_ZCODE_TUI_SWALLOW_FIRST=1 \
     FM_ZCODE_TUI_DELIVERY_POLLS=2 FM_ZCODE_TUI_SWALLOW_PROBE_POLLS=2 \
     run_tui_scout_spawn "$rec" "$id" "$PROJ_DIR" --harness zcode --zcode-tui)
   expect_code 0 $? "a swallowed first pointer must be recovered by the retry ladder: $out"
+  assert_contains "$out" \
+    "zcode TUI brief delivery attempt 1 of 3 unconfirmed" \
+    "the swallowed first attempt must log its retry to stderr: $out"
+  assert_contains "$out" "retry 2 of 3 probes a bare Enter" \
+    "the retry log must name the bare-Enter probe it is about to run: $out"
   state="$HOME_DIR/state"
   assert_grep 'source=zcode-hook' "$state/$id.busy-state" \
     "the retried delivery did not flip the busy record through the hook"
@@ -791,7 +815,7 @@ test_zcode_tui_delivery_retries_after_a_pre_interactivity_swallow() {
     || fail "the pointer must be typed exactly twice, both into the painted TUI: $pointer_states"
   [ -f "$CASE_DIR/fake/zcode-tui-swallowed" ] \
     || fail "the swallow fixture never engaged"
-  pass "fm-spawn: a pre-interactivity swallow is recovered by the verify-and-retry delivery"
+  pass "fm-spawn: a pre-interactivity swallow is recovered by the verify-and-retry delivery, loudly"
 }
 
 test_zcode_tui_flag_refused_off_zcode() {
