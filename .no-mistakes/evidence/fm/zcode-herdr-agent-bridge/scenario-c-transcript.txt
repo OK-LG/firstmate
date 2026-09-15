@@ -1,0 +1,29 @@
+# herdr lab pane w1:p1 transcript (herdr pane read) after the real zcode headless turn
+root@vultr:/tmp/fm-zbridge-nm.fgWc4e/workspace# HOME=/tmp/fm-zbridge-nm.fgWc4e/home XDG_CONFIG_HOME=/root/.config FM_ZC
+ODE_HARNESS=zcode ZCODE_DISABLE_UPDATE_CHECK=1 zcode --mode yolo --cwd /tmp/fm-zbridge-nm.fgWc4e/workspace --prompt Add
+\ 12345\ and\ 67890.\ Reply\ with\ exactly\ the\ sum\ and\ nothing\ else
+80235
+root@vultr:/tmp/fm-zbridge-nm.fgWc4e/workspace#
+
+# herdr agent get w1:p1 after the real Stop hook
+{
+  "id": "cli:agent:get",
+  "result": {
+    "agent": {
+      "agent": "fm-zcode-nm-live",
+      "agent_status": "idle",
+      "cwd": "/tmp/fm-zbridge-nm.fgWc4e/workspace",
+      "focused": true,
+      "foreground_cwd": "/tmp/fm-zbridge-nm.fgWc4e/workspace",
+      "pane_id": "w1:p1",
+      "revision": 1,
+      "state_change_seq": 5,
+      "tab_id": "w1:t1",
+      "terminal_id": "term_65b8943c20f3e1",
+      "terminal_title": "root@vultr: /tmp/fm-zbridge-nm.fgWc4e/workspace",
+      "terminal_title_stripped": "root@vultr: /tmp/fm-zbridge-nm.fgWc4e/workspace",
+      "workspace_id": "w1"
+    },
+    "type": "agent_info"
+  }
+}

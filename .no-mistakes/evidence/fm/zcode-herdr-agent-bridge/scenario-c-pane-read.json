@@ -1,0 +1,5 @@
+root@vultr:/tmp/fm-zbridge-nm.fgWc4e/workspace# HOME=/tmp/fm-zbridge-nm.fgWc4e/home XDG_CONFIG_HOME=/root/.config FM_ZC
+ODE_HARNESS=zcode ZCODE_DISABLE_UPDATE_CHECK=1 zcode --mode yolo --cwd /tmp/fm-zbridge-nm.fgWc4e/workspace --prompt Add
+\ 12345\ and\ 67890.\ Reply\ with\ exactly\ the\ sum\ and\ nothing\ else
+80235
+root@vultr:/tmp/fm-zbridge-nm.fgWc4e/workspace#

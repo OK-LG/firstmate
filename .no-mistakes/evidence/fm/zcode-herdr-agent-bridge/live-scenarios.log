@@ -1,0 +1,14 @@
+# SCENARIO A: herdr herdr 0.9.0 drops a report whose seq is not above the last it saw (raw vendor fact)
+ok - A: herdr herdr 0.9.0 silently drops seq<=last (2 and 5 after 5 left working) and applies seq 6 (unfocused pane reads 'done'); the monotonic wire seq is necessary
+# SCENARIO B: relaunch harness switch - a herdr+zcode record armed for claude / no harness never reports; armed for zcode reports
+ok - B: claude/no-harness arms over a zcode record leave the pane agent_not_found; the zcode arm binds fm-zcode-switch-probe working
+# SCENARIO C: real zcode headless turn inside a herdr lab pane; the real Stop hook reports through the bridge (fresh-spawn shape)
+# busy record after the real turn: v1 gen=g1789494966.2846.22502 seq=3 state=idle source=zcode-hook event=stop ts=1789494976
+# observed transient agent_status=working during the turn (UserPromptSubmit hook report)
+ok - C: real zcode turn in herdr pane w1:p1 -> real Stop hook -> bridge -> herdr lists fm-zcode-nm-live idle (saw_working=1)
+ok - C2: the default herdr server never saw fm-zcode-nm-live
+# SCENARIO D: relaunch shape - re-arm into the same pane flips the agent back to working at record seq 1
+ok - D: re-arm (record seq 1 after the hook's seq 3) flipped fm-zcode-nm-live back to working via the monotonic wire seq
+# SCENARIO E: exit-code/record contract intact when herdr is absent from PATH
+ok - E: without herdr on PATH the writer still arms/applies with exit 0 and the record intact
+ok - all manual live scenarios passed on herdr herdr 0.9.0

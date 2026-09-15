@@ -1,0 +1,2 @@
+# herdr 0.9.0: fm-zcode-herdr-bridge-e2e bound on w1:p1, flipped working->idle through the real busy record, and a re-arm at record seq 1 after 3 read working again
+ok - real herdr 0.9.0: the busy-record bridge binds the agent and tracks its flips live
