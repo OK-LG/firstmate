@@ -6,9 +6,10 @@
 # successful arm or apply, and is best-effort ALWAYS: a missing herdr, a
 # missing meta, an unusable window=, or a failing report is a silent no-op
 # that leaves the exit code, the busy record, and stdout untouched. These
-# tests run the REAL writer against a fake herdr that captures argv, so the
-# exact report invocation, the scoping guards, and the seq/session-id
-# threading are pinned without a live harness.
+# tests run the REAL writer against a fake herdr that captures argv plus the
+# HERDR_SESSION it was handed, so the exact report invocation, its routing by
+# the recorded session rather than the inherited env, the scoping guards,
+# and the seq threading are pinned without a live harness.
 set -u
 
 # shellcheck source=tests/lib.sh
@@ -28,7 +29,7 @@ make_case() {  # <name> -> "state|capture|fakebin"
   fakebin=$(fm_fakebin "$dir")
   cat > "$fakebin/herdr" <<SH
 #!/usr/bin/env bash
-printf '%s\n' "\$*" >> "$capture"
+printf '%s [HERDR_SESSION=%s]\n' "\$*" "\${HERDR_SESSION-unset}" >> "$capture"
 exit \${FAKE_HERDR_EXIT:-0}
 SH
   chmod +x "$fakebin/herdr"
@@ -55,13 +56,13 @@ bridge_calls() {  # <capture>
   cat "$1"
 }
 
-test_arm_reports_working_at_seq1_with_session_id() {
+test_arm_reports_working_at_seq1_routed_by_recorded_session() {
   local rec out expected
   rec=$(make_case arm-report)
   read_case "$rec"
   write_bridge_meta "$STATE" t1 herdr zcode 'fm-lab-x:w1:p7'
-  printf 'session_id=sess_abc123\n' > "$STATE/t1.zcode-session"
-  out=$(PATH="$FAKEBIN:$BASE_PATH" "$EV" arm "$STATE" t1)
+  # The captain-side relaunch shape: no herdr env inherited at all.
+  out=$(env -u HERDR_SESSION -u HERDR_SOCKET_PATH PATH="$FAKEBIN:$BASE_PATH" "$EV" arm "$STATE" t1)
   expect_code 0 $? "arm must succeed"
   case "$out" in
     g[0-9]*) : ;;
@@ -70,18 +71,35 @@ test_arm_reports_working_at_seq1_with_session_id() {
   [ "$(printf '%s\n' "$out" | wc -l)" -eq 1 ] || fail "arm stdout grew a second line: '$out'"
   assert_grep 'seq=1 state=busy source=fm-spawn event=launch-brief' "$STATE/t1.busy-state" \
     "arm must keep its exact seed record"
-  expected="pane report-agent w1:p7 --source firstmate --agent fm-t1 --state working --seq 1 --agent-session-id sess_abc123"
+  expected="pane report-agent w1:p7 --source firstmate --agent fm-t1 --state working --seq 1 --session fm-lab-x [HERDR_SESSION=fm-lab-x]"
   [ "$(bridge_calls "$CAPTURE")" = "$expected" ] \
     || fail "arm report invocation mismatch: got '$(bridge_calls "$CAPTURE")'"
-  pass "arm reports working at seq 1 with the recorded session id and a clean stdout"
+  pass "arm reports working at seq 1 routed by the recorded session and a clean stdout"
 }
 
-test_apply_flips_thread_seq_and_session_id() {
+test_report_ignores_inherited_session_env() {
+  local rec gen expected
+  rec=$(make_case foreign-env)
+  read_case "$rec"
+  write_bridge_meta "$STATE" t1 herdr zcode 'fm-lab-x:w1:p7'
+  # A shell bound to another server must not steer the report there.
+  gen=$(HERDR_SESSION=default HERDR_SOCKET_PATH=/nonexistent/default.sock \
+    PATH="$FAKEBIN:$BASE_PATH" "$EV" arm "$STATE" t1) || fail "arm failed"
+  HERDR_SESSION=default HERDR_SOCKET_PATH=/nonexistent/default.sock \
+    PATH="$FAKEBIN:$BASE_PATH" "$EV" apply "$STATE" t1 idle \
+    --gen "$gen" --source zcode-hook --event stop
+  expect_code 0 $? "idle apply must succeed"
+  expected="pane report-agent w1:p7 --source firstmate --agent fm-t1 --state idle --seq 2 --session fm-lab-x [HERDR_SESSION=fm-lab-x]"
+  [ "$(sed -n 2p "$CAPTURE")" = "$expected" ] \
+    || fail "a report under a foreign HERDR_SESSION must still route by the recorded session: '$(sed -n 2p "$CAPTURE")'"
+  pass "an inherited HERDR_SESSION naming another server never routes the report"
+}
+
+test_apply_flips_thread_seq() {
   local rec gen expected
   rec=$(make_case apply-flips)
   read_case "$rec"
   write_bridge_meta "$STATE" t1 herdr zcode 'fm-lab-x:w1:p7'
-  printf 'session_id=sess_live_1\n' > "$STATE/t1.zcode-session"
   gen=$(PATH="$FAKEBIN:$BASE_PATH" "$EV" arm "$STATE" t1) || fail "arm failed"
   PATH="$FAKEBIN:$BASE_PATH" "$EV" apply "$STATE" t1 busy \
     --gen "$gen" --source zcode-hook --event user-prompt-submit
@@ -90,11 +108,11 @@ test_apply_flips_thread_seq_and_session_id() {
     --gen "$gen" --source zcode-hook --event stop
   expect_code 0 $? "idle apply must succeed"
   [ "$(wc -l < "$CAPTURE")" -eq 3 ] || fail "expected arm+busy+idle reports, got $(wc -l < "$CAPTURE")"
-  expected="pane report-agent w1:p7 --source firstmate --agent fm-t1 --state working --seq 2 --agent-session-id sess_live_1"
+  expected="pane report-agent w1:p7 --source firstmate --agent fm-t1 --state working --seq 2 --session fm-lab-x [HERDR_SESSION=fm-lab-x]"
   [ "$(sed -n 2p "$CAPTURE")" = "$expected" ] || fail "busy apply report mismatch: '$(sed -n 2p "$CAPTURE")'"
-  expected="pane report-agent w1:p7 --source firstmate --agent fm-t1 --state idle --seq 3 --agent-session-id sess_live_1"
+  expected="pane report-agent w1:p7 --source firstmate --agent fm-t1 --state idle --seq 3 --session fm-lab-x [HERDR_SESSION=fm-lab-x]"
   [ "$(sed -n 3p "$CAPTURE")" = "$expected" ] || fail "idle apply report mismatch: '$(sed -n 3p "$CAPTURE")'"
-  pass "busy and idle applies thread the record seq and session id into exact reports"
+  pass "busy and idle applies thread the record seq into exact reports"
 }
 
 test_refused_apply_reports_nothing() {
@@ -167,9 +185,9 @@ test_missing_meta_and_unsplittable_window_report_nothing() {
     --gen "$gen" --source zcode-hook --event stop
   expect_code 0 $? "apply with late meta must succeed"
   [ "$(bridge_calls "$CAPTURE")" = "$(printf '%s\n' \
-    'pane report-agent w1:p7 --source firstmate --agent fm-t1 --state idle --seq 2')" ] \
-    || fail "a no-session-file report must omit --agent-session-id exactly: '$(bridge_calls "$CAPTURE")'"
-  # A window= with no colon has no pane part to bind.
+    'pane report-agent w1:p7 --source firstmate --agent fm-t1 --state idle --seq 2 --session fm-lab-x [HERDR_SESSION=fm-lab-x]')" ] \
+    || fail "the first apply after a late meta must report exactly: '$(bridge_calls "$CAPTURE")'"
+  # A window= with no colon has no session or pane part to bind.
   rec=$(make_case no-colon)
   read_case "$rec"
   write_bridge_meta "$STATE" t2 herdr zcode barewindow
@@ -187,7 +205,6 @@ test_apply_succeeds_without_herdr_on_path() {
   rec=$(make_case no-herdr)
   read_case "$rec"
   write_bridge_meta "$STATE" t1 herdr zcode 'fm-lab-x:w1:p7'
-  printf 'session_id=sess_abc123\n' > "$STATE/t1.zcode-session"
   sans_path=$(fm_test_base_path_sans "$BASE_PATH" herdr)
   gen=$(PATH="$sans_path" "$EV" arm "$STATE" t1)
   expect_code 0 $? "arm without herdr must succeed"
@@ -208,7 +225,6 @@ test_report_failure_is_silent_noop() {
   rec=$(make_case report-fails)
   read_case "$rec"
   write_bridge_meta "$STATE" t1 herdr zcode 'fm-lab-x:w1:p7'
-  printf 'session_id=sess_abc123\n' > "$STATE/t1.zcode-session"
   gen=$(FAKE_HERDR_EXIT=1 PATH="$FAKEBIN:$BASE_PATH" "$EV" arm "$STATE" t1) || fail "arm failed"
   FAKE_HERDR_EXIT=1 PATH="$FAKEBIN:$BASE_PATH" "$EV" apply "$STATE" t1 idle \
     --gen "$gen" --source zcode-hook --event stop
@@ -219,8 +235,9 @@ test_report_failure_is_silent_noop() {
   pass "a failing herdr report is a silent no-op with the exit-code contract intact"
 }
 
-test_arm_reports_working_at_seq1_with_session_id
-test_apply_flips_thread_seq_and_session_id
+test_arm_reports_working_at_seq1_routed_by_recorded_session
+test_report_ignores_inherited_session_env
+test_apply_flips_thread_seq
 test_refused_apply_reports_nothing
 test_unknown_apply_reports_nothing
 test_tmux_backend_meta_reports_nothing

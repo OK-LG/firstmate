@@ -8,14 +8,14 @@
 # send; this guard proves the vendor half of the contract, which no fixture
 # can prove:
 #
-#   1. a report-agent invocation carrying only the pane-side environment a
-#      real herdr-hosted worker is launched with (HERDR_SESSION plus
-#      HERDR_SOCKET_PATH, no --session flag) binds the agent on the right
-#      server even while another herdr server (the default one) is running,
+#   1. a report-agent invocation issued from a shell with NO herdr
+#      environment at all (the captain-side shape of `fm-spawn --relaunch`)
+#      binds the agent on the recorded session's server through its
+#      explicit --session flag, even while another herdr server (the
+#      default one) is running,
 #   2. `herdr agent list` and `herdr agent get` then list the worker, and the
 #      arm (working) and apply (idle) flips arrive as real agent_status
-#      transitions, with the fixture's recorded --agent-session-id riding the
-#      wire (herdr 0.9.0 accepts the flag without surfacing it in the views).
+#      transitions.
 #
 # It fails naming the Herdr version when either fact drifts. No model
 # credential and no zcode process are involved: the busy events run the real
@@ -69,8 +69,6 @@ lab() { fm_herdr_lab_cli "$SESSION" "$@"; }
 # prepare only records the tripwire; the adapter's own server-ensure starts
 # the lab session's server exactly as a spawn would.
 fm_backend_herdr_server_ensure "$SESSION" || fail "could not start the isolated Herdr lab server"
-LAB_SOCKET=$(lab status --json | jq -er '.server.socket // empty') \
-  || fail "could not read the lab server socket path"
 
 # The scratch tab the fixture worker will be bound to.
 SCRATCH=$(mktemp -d "${TMPDIR:-/tmp}/fm-zcode-bridge.XXXXXX")
@@ -88,11 +86,10 @@ PANE_ID=$(printf '%s' "$WS" | jq -er '.result.root_pane.pane_id // empty') \
 ID=zcode-herdr-bridge-e2e
 printf 'backend=herdr\nwindow=%s:%s\nendpoint_task_id=%s\nharness=zcode\n' \
   "$SESSION" "$PANE_ID" "$ID" > "$SCRATCH/state/$ID.meta"
-printf 'session_id=sess_zcode_bridge_live_probe\n' > "$SCRATCH/state/$ID.zcode-session"
 
-# Pane-side environment: what herdr injects into a real worker's processes
-# (herdr-test-safety.sh), and the ONLY routing the bridge's bare herdr call has.
-declare -a BRIDGE_ENV=(HERDR_SESSION="$SESSION" HERDR_SOCKET_PATH="$LAB_SOCKET")
+# Captain-side environment: no herdr routing inherited at all, so the ONLY
+# thing that can reach the lab server is the recorded session in the meta.
+bridge() { env -u HERDR_SESSION -u HERDR_SOCKET_PATH "$ROOT/bin/fm-busy-event.sh" "$@"; }
 
 agent_label() {
   lab agent list | jq -er --arg label "$1" \
@@ -112,7 +109,7 @@ default_session_lists_label() {
     >/dev/null 2>&1
 }
 
-GEN=$(env "${BRIDGE_ENV[@]}" "$ROOT/bin/fm-busy-event.sh" arm "$SCRATCH/state" "$ID") \
+GEN=$(bridge arm "$SCRATCH/state" "$ID") \
   || version_fail "real arm against the fixture failed"
 RECORD=$(cat "$SCRATCH/state/$ID.busy-state")
 case "$RECORD" in
@@ -126,22 +123,15 @@ AGENT=$(agent_label "fm-$ID") \
   || version_fail "the arm report must bind agent_status working, got '$(printf '%s' "$AGENT" | jq -r .agent_status)'"
 [ "$(printf '%s' "$AGENT" | jq -r .pane_id)" = "$PANE_ID" ] \
   || version_fail "the agent bound pane $(printf '%s' "$AGENT" | jq -r .pane_id) rather than the fixture pane $PANE_ID"
-# The arm report rides --agent-session-id (the fixture sidecar holds one), so
-# this binding also proves the flag is accepted on the wire. Herdr 0.9.0 does
-# not surface the id back through agent list/get (verified: the record's keys
-# are agent, agent_status, cwd, focused, foreground_cwd, pane_id, revision,
-# state_change_seq, tab_id, terminal_id, terminal_title, terminal_title_stripped,
-# workspace_id), so the exact invocation itself is pinned by the portable
-# tests/fm-zcode-herdr-bridge.test.sh instead of here.
-# Scoping proof where the hazard actually exists: while another herdr server
-# is running, the env-routed report must still land on the worker's own
+# Routing proof where the hazard actually exists: while another herdr server
+# is running, the env-less report must still land on the recorded session's
 # server, never the default one.
 if default_session_active; then
   default_session_lists_label \
-    || version_fail "the default session's agent list shows fm-$ID; the pane-side report routed to the wrong server"
+    || version_fail "the default session's agent list shows fm-$ID; the --session-routed report landed on the wrong server"
 fi
 
-env "${BRIDGE_ENV[@]}" "$ROOT/bin/fm-busy-event.sh" apply "$SCRATCH/state" "$ID" idle \
+bridge apply "$SCRATCH/state" "$ID" idle \
   --gen "$GEN" --source zcode-hook --event stop \
   || version_fail "real idle apply against the fixture failed"
 STATUS=$(agent_status)

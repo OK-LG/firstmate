@@ -43,14 +43,17 @@
 # or idle, a task whose <state-dir>/<id>.meta records BOTH backend=herdr and
 # harness=zcode is also reported to herdr's agent view so its pane lists the
 # worker (`herdr pane report-agent <pane> --source firstmate --agent fm-<id>
-# --state working|idle --seq <record-seq>`, plus --agent-session-id when
-# <state-dir>/<id>.zcode-session holds a session_id). <pane> is the part of
-# meta `window=` after the first colon (a herdr pane id itself contains
-# colons; see docs/herdr-backend.md "Endpoint metadata"). The bridge is
-# best-effort ALWAYS and outside the writer lock: a missing herdr on PATH, a
-# missing meta, a missing pane, or any report failure is a silent no-op that
-# never changes the exit code, the record, or stdout. herdr detects tmux-side
-# and other-harness agents natively, so the report is scoped to exactly
+# --state working|idle --seq <record-seq> --session <session>`). <session>
+# is the part of meta `window=` before the first colon and <pane> the part
+# after it (a herdr pane id itself contains colons; see docs/herdr-backend.md
+# "Endpoint metadata"). The report routes by the recorded session exactly
+# like fm_backend_herdr_cli, never by inherited HERDR_SESSION: the arm-time
+# report from `fm-spawn --relaunch` runs in the captain's shell, where the
+# env may be unset or name another server. The bridge is best-effort ALWAYS
+# and outside the writer lock: a missing herdr on PATH, a missing meta, a
+# missing pane, or any report failure is a silent no-op that never changes
+# the exit code, the record, or stdout. herdr detects tmux-side and
+# other-harness agents natively, so the report is scoped to exactly
 # herdr+zcode tasks.
 set -u
 
@@ -169,12 +172,13 @@ write_record() {  # <gen> <seq>
 # fm_herdr_agent_report: the one herdr agent-view bridge call (see the header).
 # Runs OUTSIDE the writer lock and best-effort ALWAYS: every failure mode -
 # no meta, a meta without backend=herdr AND harness=zcode, no colon in
-# window=, no herdr on PATH, a failing report - returns without touching the
-# caller's exit code, stdout, or stderr. <busy-state> is the state the record
-# just landed in (busy|idle); <seq> is that record's seq.
+# window= or an empty side of it, no herdr on PATH, a failing report -
+# returns without touching the caller's exit code, stdout, or stderr.
+# <busy-state> is the state the record just landed in (busy|idle); <seq> is
+# that record's seq.
 fm_herdr_agent_report() {  # <state-dir> <id> <busy-state> <seq>
   local state_dir=$1 id=$2 busy_state=$3 seq=$4
-  local meta backend harness window pane session herdr_state
+  local meta backend harness window session pane herdr_state
   case "$busy_state" in
     busy) herdr_state=working ;;
     idle) herdr_state=idle ;;
@@ -187,21 +191,14 @@ fm_herdr_agent_report() {  # <state-dir> <id> <busy-state> <seq>
   [ "$backend" = herdr ] && [ "$harness" = zcode ] || return 0
   window=$(sed -n 's/^window=//p' "$meta" | head -n 1)
   case "$window" in
-    *:*) pane=${window#*:} ;;
+    *:*) session=${window%%:*}; pane=${window#*:} ;;
     *) return 0 ;;
   esac
-  [ -n "$pane" ] || return 0
+  [ -n "$session" ] && [ -n "$pane" ] || return 0
   command -v herdr >/dev/null 2>&1 || return 0
-  session=$(sed -n 's/^session_id=//p' "$state_dir/$id.zcode-session" 2>/dev/null | head -n 1)
-  if [ -n "$session" ]; then
-    herdr pane report-agent "$pane" --source firstmate --agent "fm-$id" \
-      --state "$herdr_state" --seq "$seq" --agent-session-id "$session" \
-      >/dev/null 2>&1 || true
-  else
-    herdr pane report-agent "$pane" --source firstmate --agent "fm-$id" \
-      --state "$herdr_state" --seq "$seq" \
-      >/dev/null 2>&1 || true
-  fi
+  HERDR_SESSION="$session" herdr pane report-agent "$pane" --source firstmate \
+    --agent "fm-$id" --state "$herdr_state" --seq "$seq" --session "$session" \
+    >/dev/null 2>&1 || true
   return 0
 }
 

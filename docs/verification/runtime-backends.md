@@ -1339,9 +1339,8 @@ A stale-registration pane is never a husk: create, reclaim, presentation recover
 ### Agent view bridge
 
 The zcode agent-view bridge (`bin/fm-busy-event.sh`'s report to `herdr pane report-agent`, docs/herdr-backend.md "Agent view bridge") was verified live on 2026-09-15 on Linux x64 with Herdr 0.9.0, protocol 22, in an isolated `fm-lab-` session while the default server was also running.
-The arm report, sent with only the pane-side environment a real herdr-hosted worker inherits (`HERDR_SESSION` and `HERDR_SOCKET_PATH`, never an explicit `--session` flag), bound the fixture task as agent `fm-zcode-herdr-bridge-e2e` on the scratch pane and read `agent_status=working`, and the idle apply flipped the same record to `agent_status=idle` through `herdr agent list` and `herdr agent get`.
-Herdr 0.9.0 accepts `--agent-session-id` on the report without surfacing it back through the agent views, so the exact invocation is pinned by the portable test instead.
-The env-routed report landed on the worker's own server, never the default one, which is the misroute hazard a second running server creates.
+The arm report, sent from a shell with no `HERDR_SESSION` and no `HERDR_SOCKET_PATH` at all (the captain-side shape of `fm-spawn --relaunch`), bound the fixture task as agent `fm-zcode-herdr-bridge-e2e` on the scratch pane and read `agent_status=working`, and the idle apply flipped the same record to `agent_status=idle` through `herdr agent list` and `herdr agent get`.
+The report routed to the recorded session through its explicit `--session` flag and never reached the default server, which is the misroute hazard a second running server creates; the exact invocation is pinned by the portable test.
 
 ```sh
 tests/fm-zcode-herdr-bridge-live-e2e.test.sh
