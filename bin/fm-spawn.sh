@@ -194,7 +194,9 @@
 #   sessions, credential not-configured, and request-signing errors), so
 #   nothing may trust exit status - the blindness posture stands because the
 #   research-era record once mis-measured these codes and a release can
-#   change them. zcode is crewmate/scout only.
+#   change them. zcode is also verified as a PRIMARY session harness
+#   (docs/supervision-protocols/zcode.md owns its wake protocol); a zcode
+#   --secondmate is refused below until a dated secondmate live pass exists.
 #   --zcode-tui opts ONE spawn into the visible TUI variant (headless stays
 #   the supervision-proven default; verified live on zcode-runtime 0.16.5,
 #   2026-09-15): a bare launch with no prompt argument opens the full-screen
@@ -354,8 +356,9 @@
 # registry, and a gitignored .fm-zcode-turnend worktree pointer plus a state
 # token. The hook is both busy writer (UserPromptSubmit opens, Stop closes,
 # source zcode-hook) and turn-end touch, and it records the zcode session id
-# that a zcode relaunch reuses through --resume. zcode is crewmate/scout
-# only and is refused for --secondmate, like muse.
+# that a zcode relaunch reuses through --resume. zcode is also a verified
+# primary session harness; --secondmate is refused for its own reason below
+# (no dated secondmate live pass), not muse's missing primary protocol.
 # agy installs no hook either - it exposes no hook surface at all - so it
 # carries no busy-source wiring and no turn-end hook. Its brief rides the launch
 # command, but a fresh worktree would park it on a folder-trust dialog, so the
