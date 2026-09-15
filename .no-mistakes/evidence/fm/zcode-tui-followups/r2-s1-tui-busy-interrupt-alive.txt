@@ -1,0 +1,59 @@
+# Round 2 / Scenario 1: fm-control interrupt on a REAL zcode TUI (zcode-app-cli 3.11.2-24 / zcode-runtime 0.16.5) MID-TURN; task meta records zcode_tui=1.
+# Target commit de98782: the interrupt postcondition now SETTLES (bounded poll over FM_CONTROL_SETTLE_WAIT=5s default) instead of a single immediate read.
+# Lab: isolated tmux server (TMUX_TMPDIR), isolated FM_HOME, staged zcode HOME with a dummy key pointed at a local never-answering provider (no external calls). FM_GATE_REFUSE_BYPASS=1 is the guard's documented test-harness escape hatch.
+## task meta
+window=fmlab:fm-t1
+endpoint_task_id=t1
+worktree=/tmp/fm-zcode-tui-lab-r2.7YZnR3/ws
+project=/tmp/fm-zcode-tui-lab-r2.7YZnR3/ws
+harness=zcode
+kind=ship
+mode=no-mistakes
+yolo=off
+model=default
+effort=default
+zcode_tui=1
+busy_gen=g1789502760.630365.23672
+## busy record before
+v1 gen=g1789502760.630365.23672 seq=1 state=busy source=fm-spawn event=launch-brief ts=1789502760
+## pane before (real tmux capture)
+╭─ ◆ ZCODE  v3.11.2-24 ────────────────────────────────────────────────────╮
+│ /tmp/fm-zcode-tui-lab-r2.7YZnR3/ws · master                              │
+│ Ask a task about this workspace                                          │
+╰─ /help commands · /status details ───────────────────────────────────────╯
+ › Describe this workspace in one sentence.
+ waiting for model… ── [ 🕐 13s ]
+────────────────────────────────────────────────────────────────────────────────
+────────────────────────────────────────────────────────────────────────────────
+ ◈ zai/glm-5.3-flash ─ ◉ yolo ─ ⚡ max ─ ctx 100% left ─ session 0 tokens
+## foreground process group before (pid pgid tpgid comm)
+    PID    PGID   TPGID COMMAND
+ 630119  630119  630133 bash
+ 630133  630133  630133 node
+ 630150  630133  630133 zcode-cli
+ 630392  630133  630133 zcode-node-repl
+## $ fm-control.sh t1 interrupt   (defaults: FM_CONTROL_SETTLE_WAIT=5 FM_CONTROL_POLL=0.5)
+interrupt-delivered t1 harness=zcode backend=tmux verified=agent-alive cancel=unconfirmed
+exit=0
+elapsed=6.54s (the alive state must be HELD through the whole settle window, so ~5s is the expected shape)
+## pane after
+╭─ ◆ ZCODE  v3.11.2-24 ────────────────────────────────────────────────────╮
+│ /tmp/fm-zcode-tui-lab-r2.7YZnR3/ws · master                              │
+│ Ask a task about this workspace                                          │
+╰─ /help commands · /status details ───────────────────────────────────────╯
+ › Describe this workspace in one sentence.
+ Turn cancelled.
+ [ ✓ 14s ]
+────────────────────────────────────────────────────────────────────────────────
+────────────────────────────────────────────────────────────────────────────────
+ ◈ zai/glm-5.3-flash ─ ◉ yolo ─ ⚡ max ─ ctx 100% left ─ session 0 tokens
+## foreground process group after (TUI must still be alive)
+    PID    PGID   TPGID COMMAND
+ 630119  630119  630133 bash
+ 630133  630133  630133 node
+ 630150  630133  630133 zcode-cli
+ 630392  630133  630133 zcode-node-repl
+## busy files after (TUI variant must preserve the open record)
+t1.busy-gen
+t1.busy-state
+v1 gen=g1789502760.630365.23672 seq=1 state=busy source=fm-spawn event=launch-brief ts=1789502760

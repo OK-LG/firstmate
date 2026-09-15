@@ -1,0 +1,33 @@
+# Round 2 / Scenario 4: REAL fm-spawn --zcode-tui scout against a real isolated tmux server and the real zcode TUI; default delivery window. A confirmed first delivery must log NO retry line.
+## $ fm-spawn.sh s1 <proj> --scout --harness zcode --zcode-tui   (stdout+stderr)
+spawned s1 harness=zcode kind=scout window=firstmate:fm-s1 worktree=/tmp/fm-zcode-tui-lab-r2.7YZnR3/home/.treehouse/proj-80a7e0/1/proj
+exit=0
+## retry lines in output:
+0
+## task meta
+window=firstmate:fm-s1
+endpoint_task_id=s1
+worktree=/tmp/fm-zcode-tui-lab-r2.7YZnR3/home/.treehouse/proj-80a7e0/1/proj
+project=/tmp/fm-zcode-tui-lab-r2.7YZnR3/proj
+harness=zcode
+kind=scout
+tasktmp=/tmp/fm-s1
+model=default
+effort=default
+busy_gen=g1789502896.634096.21403
+zcode_tui=1
+spawn_gen=s1789502896.633785.31372
+## busy record (delivery proof is the hook flip to source=zcode-hook)
+v1 gen=g1789502896.634096.21403 seq=2 state=busy source=zcode-hook event=user-prompt-submit ts=1789502902
+## pane (real tmux capture)
+╭─ ◆ ZCODE  v3.11.2-24 ────────────────────────────────────────────────────╮
+│ ~/.treehouse/proj-80a7e0/1/proj                                          │
+│ Ask a task about this workspace                                          │
+╰─ /help commands · /status details ───────────────────────────────────────╯
+ › Read the brief at
+ /tmp/fm-zcode-tui-lab-r2.7YZnR3/spawnhome/data/s1/launch-brief.md and follow
+ it exactly.
+ working… ── [ 🕛 0s ]
+────────────────────────────────────────────────────────────────────────────────
+────────────────────────────────────────────────────────────────────────────────
+ ◈ zai/glm-5.3-flash ─ ◉ yolo ─ ⚡ max ─ ctx 100% left ─ session 0 tokens

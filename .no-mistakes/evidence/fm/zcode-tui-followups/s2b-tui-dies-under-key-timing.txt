@@ -1,0 +1,80 @@
+# Scenario 2 re-drive with process sampling: idle REAL zcode TUI, meta zcode_tui=1, fm-control interrupt (C-c on the idle composer exits the TUI).
+## pane before
+╭─ ◆ ZCODE  v3.11.2-24 ────────────────────────────────────────────────────╮
+│ /tmp/fm-zcode-tui-lab.UKmavm/ws                                          │
+│ Ask a task about this workspace                                          │
+╰─ /help commands · /status details ───────────────────────────────────────╯
+────────────────────────────────────────────────────────────────────────────────
+## foreground before
+ 409221  409221  415708 bash
+ 415708  415708  415708 node
+ 415719  415708  415708 zcode-cli
+ 415751  415708  415708 zcode-cli
+## $ fm-control.sh t1 interrupt
+interrupt-delivered t1 harness=zcode backend=tmux verified=agent-alive cancel=unconfirmed
+exit=0
+## foreground-process-group samples every 50ms around the interrupt (time since sampler start; blank = only a shell / no foreground agent)
+0.00s node zcode-cli zcode-cli 
+0.09s node zcode-cli zcode-cli 
+0.18s node zcode-cli zcode-cli 
+0.27s node zcode-cli zcode-cli 
+0.35s node zcode-cli zcode-cli 
+0.44s node zcode-cli zcode-cli 
+0.53s node zcode-cli zcode-cli 
+0.62s node zcode-cli 
+0.72s bash 
+0.80s bash 
+0.89s bash 
+0.97s bash 
+1.05s bash 
+1.13s bash 
+1.22s bash 
+1.30s bash 
+1.39s bash 
+1.48s bash 
+1.56s bash 
+1.64s bash 
+1.73s bash 
+1.81s bash 
+1.90s bash 
+1.98s bash 
+2.06s bash 
+2.15s bash 
+2.23s bash 
+2.31s bash 
+2.39s bash 
+2.47s bash 
+2.56s bash 
+2.65s bash 
+2.73s bash 
+2.81s bash 
+2.90s bash 
+2.98s bash 
+3.06s bash 
+3.14s bash 
+3.23s bash 
+3.31s bash 
+3.39s bash 
+3.48s bash 
+3.57s bash 
+3.65s bash 
+3.74s bash 
+3.82s bash 
+3.90s bash 
+3.98s bash 
+4.06s bash 
+4.15s bash 
+4.23s bash 
+4.31s bash 
+4.40s bash 
+4.47s bash 
+4.55s bash 
+4.63s bash 
+4.72s bash 
+4.81s bash 
+4.89s bash 
+4.97s bash 
+## pane after (tail)
+To continue this session, run zcode --resume sess_e92ce9f4-7ad4-46b0-ba70-c8a786
+bb1870
+root@vultr:/tmp/fm-zcode-tui-lab.UKmavm/ws#

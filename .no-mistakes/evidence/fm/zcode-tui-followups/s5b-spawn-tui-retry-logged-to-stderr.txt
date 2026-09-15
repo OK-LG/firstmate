@@ -1,0 +1,17 @@
+# Scenario 5 (second attempt): REAL fm-spawn --zcode-tui, first delivery window = one immediate check and the submit core's own sleeps zeroed, so the check runs before the real UserPromptSubmit hook can flip the record.
+## $ FM_ZCODE_TUI_DELIVERY_POLLS=1 FM_ZCODE_TUI_SUBMIT_SLEEP=0 FM_ZCODE_TUI_SUBMIT_SETTLE=0 FM_ZCODE_TUI_SUBMIT_RETRIES=1 fm-spawn.sh s3 <proj> --scout --harness zcode --zcode-tui
+spawned s3 harness=zcode kind=scout window=firstmate:fm-s3 worktree=/tmp/fm-zcode-tui-lab.UKmavm/home/.treehouse/proj-3a5d9e/3/proj
+exit=0
+## busy record
+v1 gen=g1789501609.419800.26477 seq=2 state=busy source=zcode-hook event=user-prompt-submit ts=1789501615
+## pane (real tmux capture): pointer submitted once, TUI working
+╭─ ◆ ZCODE  v3.11.2-24 ────────────────────────────────────────────────────╮
+│ ~/.treehouse/proj-3a5d9e/3/proj                                          │
+│ Ask a task about this workspace                                          │
+╰─ /help commands · /status details ───────────────────────────────────────╯
+ › Read the brief at
+ /tmp/fm-zcode-tui-lab.UKmavm/spawnhome/data/s3/launch-brief.md and follow it
+ exactly.
+ working… ── [ 🕛 0s ]
+────────────────────────────────────────────────────────────────────────────────
+────────────────────────────────────────────────────────────────────────────────

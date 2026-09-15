@@ -1,0 +1,28 @@
+# Scenario 2 (adversarial): the same REAL zcode TUI, now idle after scenario 1's cancel; task meta still records zcode_tui=1.
+# On zcode 3.11.2-24 a C-c on the idle composer EXITS the TUI, so the interrupt key kills the agent: with the TUI variant recorded this must be refused, never reported as a landed headless-shaped interrupt.
+## pane before
+╭─ ◆ ZCODE  v3.11.2-24 ────────────────────────────────────────────────────╮
+│ /tmp/fm-zcode-tui-lab.UKmavm/ws                                          │
+│ Ask a task about this workspace                                          │
+╰─ /help commands · /status details ───────────────────────────────────────╯
+ › Describe this workspace in one sentence.
+ Turn cancelled.
+ [ ✓ 1m 14s ]
+────────────────────────────────────────────────────────────────────────────────
+────────────────────────────────────────────────────────────────────────────────
+ ◈ zai/glm-5.3-flash ─ ◉ yolo ─ ⚡ max ─ ctx 100% left ─ session 0 tokens
+## busy record before
+v1 gen=g1789501260.411320.24042 seq=1 state=busy source=fm-spawn event=launch-brief ts=1789501260
+## $ fm-control.sh t1 interrupt
+interrupt-delivered t1 harness=zcode backend=tmux verified=agent-alive cancel=unconfirmed
+exit=0
+## pane after (tail)
+─ Worked for 1m 14s ────────────────────────────────────────────────────────────
+To continue this session, run zcode --resume sess_bf8a8f9c-dc4b-4341-9170-c6c3d5
+deec9a
+root@vultr:/tmp/fm-zcode-tui-lab.UKmavm/ws#
+## foreground process group after
+ 409221  409221  409221 bash
+## busy files after (a refused interrupt does not retire the record)
+t1.busy-gen
+t1.busy-state

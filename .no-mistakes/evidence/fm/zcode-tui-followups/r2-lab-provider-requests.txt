@@ -1,0 +1,14 @@
+# local never-answering provider log: every model call from the round-2 lab went to 127.0.0.1 (no external endpoint, dummy key)
+20:05:34 hanging provider listening on 51025
+20:06:00 request from 127.0.0.1:58398: POST /api/anthropic/v1/messages HTTP/1.1
+20:06:03 request from 127.0.0.1:56942: POST /api/anthropic/v1/messages HTTP/1.1
+20:06:18 request from 127.0.0.1:41542: 
+20:08:22 request from 127.0.0.1:37390: POST /api/anthropic/v1/messages HTTP/1.1
+20:08:25 request from 127.0.0.1:37396: POST /api/anthropic/v1/messages HTTP/1.1
+20:08:54 request from 127.0.0.1:42210: 
+20:09:25 request from 127.0.0.1:51028: POST /api/anthropic/v1/messages HTTP/1.1
+20:09:26 request from 127.0.0.1:51026: 
+20:09:26 request from 127.0.0.1:51038: POST /api/anthropic/v1/messages HTTP/1.1
+20:09:37 request from 127.0.0.1:60716: POST /api/anthropic/v1/messages HTTP/1.1
+20:10:00 request from 127.0.0.1:53596: POST /api/anthropic/v1/messages HTTP/1.1
+20:10:01 request from 127.0.0.1:53602: POST /api/anthropic/v1/messages HTTP/1.1

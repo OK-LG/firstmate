@@ -1,0 +1,37 @@
+# Scenario 5 (third attempt): REAL fm-spawn --zcode-tui with a SLOW UserPromptSubmit hook (the staged lab hook script is wrapped with 'sleep 2' after fm-spawn installs it), first window = one immediate check.
+# Expected: attempt 1 unconfirmed -> ONE stderr retry line -> bare-Enter probe -> the delayed real hook flip confirms delivery -> spawn lands.
+## $ FM_ZCODE_TUI_DELIVERY_POLLS=1 FM_ZCODE_TUI_SUBMIT_SLEEP=0 FM_ZCODE_TUI_SUBMIT_SETTLE=0 FM_ZCODE_TUI_SUBMIT_RETRIES=1 fm-spawn.sh s4 <proj> --scout --harness zcode --zcode-tui
+fm-spawn: task s4: zcode TUI brief delivery attempt 1 of 3 unconfirmed in window firstmate:fm-s4; retry 2 of 3 probes a bare Enter, then retypes the pointer
+spawned s4 harness=zcode kind=scout window=firstmate:fm-s4 worktree=/tmp/fm-zcode-tui-lab.UKmavm/home/.treehouse/proj-3a5d9e/4/proj
+exit=0
+## busy record
+v1 gen=g1789501671.426331.24395 seq=2 state=busy source=zcode-hook event=user-prompt-submit ts=1789501679
+## pane (real tmux capture): pointer submitted once; the bare-Enter probe was a no-op on the empty composer
+╭─ ◆ ZCODE  v3.11.2-24 ────────────────────────────────────────────────────╮
+│ ~/.treehouse/proj-3a5d9e/4/proj                                          │
+│ Ask a task about this workspace                                          │
+╰─ /help commands · /status details ───────────────────────────────────────╯
+ › Read the brief at
+ /tmp/fm-zcode-tui-lab.UKmavm/spawnhome/data/s4/launch-brief.md and follow it
+ exactly.
+ working… ── [ 🕑 2s ]
+────────────────────────────────────────────────────────────────────────────────
+────────────────────────────────────────────────────────────────────────────────
+
+# Scenario 7 (adversarial): same, but the hook is wrapped with 'sleep 30' (beyond zcode's 10s hook timeout), so the flip NEVER lands: the ladder must log every retry and fail the spawn closed rather than ride through silently.
+## $ FM_ZCODE_TUI_DELIVERY_POLLS=2 FM_ZCODE_TUI_SWALLOW_PROBE_POLLS=2 FM_ZCODE_TUI_SUBMIT_SLEEP=0 FM_ZCODE_TUI_SUBMIT_SETTLE=0 FM_ZCODE_TUI_SUBMIT_RETRIES=1 fm-spawn.sh s5 <proj> --scout --harness zcode --zcode-tui
+fm-spawn: task s5: zcode TUI brief delivery attempt 1 of 3 unconfirmed in window firstmate:fm-s5; retry 2 of 3 probes a bare Enter, then retypes the pointer
+fm-spawn: task s5: zcode TUI brief delivery attempt 2 of 3 unconfirmed in window firstmate:fm-s5; retry 3 of 3 probes a bare Enter, then retypes the pointer
+error: the zcode TUI brief pointer could not be confirmed delivered through the turn hook in window firstmate:fm-s5; inspect window firstmate:fm-s5
+warning: leaving task s5's slot claim on /tmp/fm-zcode-tui-lab.UKmavm/home/.treehouse/proj-3a5d9e/5/proj in place; the Treehouse project lock is no longer held, so the next spawn's claim replaces it
+exit=1
+## status record
+failed: the zcode TUI brief pointer could not be confirmed delivered through the turn hook in window firstmate:fm-s5
+## busy record (never flipped)
+(none)
+## windows left on the spawn server (the failed TUI window must have been closed by the spawn failure path)
+keep
+fm-s1
+fm-s2
+fm-s3
+fm-s4

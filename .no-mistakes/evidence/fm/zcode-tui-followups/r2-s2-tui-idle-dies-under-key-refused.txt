@@ -1,0 +1,66 @@
+# Round 2 / Scenario 2 (adversarial, the round-1 FAIL): the same REAL zcode TUI, now IDLE after scenario 1's cancel; meta still records zcode_tui=1.
+# On zcode 3.11.2-24 a C-c on the idle composer EXITS the TUI (~0.6s after the key). With the TUI variant recorded, fm-control must REFUSE (exit 1, 'an interrupt must leave the agent running'), never print interrupt-delivered, and must not retire the open busy record.
+## pane before
+╭─ ◆ ZCODE  v3.11.2-24 ────────────────────────────────────────────────────╮
+│ /tmp/fm-zcode-tui-lab-r2.7YZnR3/ws · master                              │
+│ Ask a task about this workspace                                          │
+╰─ /help commands · /status details ───────────────────────────────────────╯
+ › Describe this workspace in one sentence.
+ Turn cancelled.
+ [ ✓ 14s ]
+────────────────────────────────────────────────────────────────────────────────
+────────────────────────────────────────────────────────────────────────────────
+ ◈ zai/glm-5.3-flash ─ ◉ yolo ─ ⚡ max ─ ctx 100% left ─ session 0 tokens
+## foreground before
+    PID    PGID   TPGID COMMAND
+ 630119  630119  630133 bash
+ 630133  630133  630133 node
+ 630150  630133  630133 zcode-cli
+ 630392  630133  630133 zcode-node-repl
+## busy record before
+v1 gen=g1789502760.630365.23672 seq=1 state=busy source=fm-spawn event=launch-brief ts=1789502760
+## $ fm-control.sh t1 interrupt   (defaults)
+error: task t1's agent is 'dead' after its interrupt key; an interrupt must leave the agent running
+exit=1
+elapsed=1.80s
+## foreground-process-group samples every 50ms from just before the interrupt (blank/bash = no foreground agent)
+0.00s node zcode-cli zcode-node-repl 
+0.12s node zcode-cli zcode-node-repl 
+0.22s node zcode-cli zcode-node-repl 
+0.31s node zcode-cli zcode-node-repl 
+0.42s node zcode-cli zcode-node-repl 
+0.51s node zcode-cli zcode-node-repl 
+0.61s node zcode-cli 
+0.71s node zcode-cli 
+0.80s node zcode-cli 
+0.90s node zcode-cli 
+1.00s node zcode-cli 
+1.09s node zcode-cli 
+1.19s node zcode-cli 
+1.29s node zcode-cli 
+1.38s node zcode-cli 
+1.48s node zcode-cli 
+1.58s node zcode-cli 
+1.68s bash 
+1.78s bash 
+1.87s bash 
+1.96s bash 
+2.06s bash 
+2.16s bash 
+2.25s bash 
+...
+2.74s bash 
+2.84s bash 
+2.94s bash 
+## pane after (tail)
+ ◈ zai/glm-5.3-flash ─ ◉ yolo ─ ⚡ max ─ ctx 100% left ─ session 0 tokens
+To continue this session, run zcode --resume sess_89d7ac1c-6a58-453c-9ed0-58d292
+95f04d
+root@vultr:/tmp/fm-zcode-tui-lab-r2.7YZnR3/ws#
+## foreground after
+    PID    PGID   TPGID COMMAND
+ 630119  630119  630119 bash
+## busy files after (a refused interrupt must NOT retire the record)
+t1.busy-gen
+t1.busy-state
+v1 gen=g1789502760.630365.23672 seq=1 state=busy source=fm-spawn event=launch-brief ts=1789502760

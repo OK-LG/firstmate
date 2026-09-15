@@ -1,0 +1,18 @@
+# Scenario 5: REAL fm-spawn --zcode-tui with the first delivery window shrunk to a single immediate check (FM_ZCODE_TUI_DELIVERY_POLLS=1), so attempt 1 cannot be confirmed before the real hook flips: the ladder must log the retry to stderr, probe a bare Enter, and still land the spawn.
+## $ FM_ZCODE_TUI_DELIVERY_POLLS=1 fm-spawn.sh s2 <proj> --scout --harness zcode --zcode-tui   (stdout+stderr)
+spawned s2 harness=zcode kind=scout window=firstmate:fm-s2 worktree=/tmp/fm-zcode-tui-lab.UKmavm/home/.treehouse/proj-3a5d9e/2/proj
+exit=0
+## busy record
+v1 gen=g1789501549.418394.10567 seq=2 state=busy source=zcode-hook event=user-prompt-submit ts=1789501554
+## pane (real tmux capture): the pointer must appear submitted exactly once (the bare-Enter probe is a no-op on the empty composer)
+╭─ ◆ ZCODE  v3.11.2-24 ────────────────────────────────────────────────────╮
+│ ~/.treehouse/proj-3a5d9e/2/proj                                          │
+│ Ask a task about this workspace                                          │
+╰─ /help commands · /status details ───────────────────────────────────────╯
+ › Read the brief at
+ /tmp/fm-zcode-tui-lab.UKmavm/spawnhome/data/s2/launch-brief.md and follow it
+ exactly.
+ working… ── [ 🕛 0s ]
+────────────────────────────────────────────────────────────────────────────────
+────────────────────────────────────────────────────────────────────────────────
+ ◈ zai/glm-5.3-flash ─ ◉ yolo ─ ⚡ max ─ ctx 100% left ─ session 0 tokens

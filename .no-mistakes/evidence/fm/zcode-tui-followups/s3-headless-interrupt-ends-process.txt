@@ -1,0 +1,34 @@
+# Scenario 3: fm-control interrupt on a REAL HEADLESS zcode worker (--prompt) mid-turn; task meta has NO zcode_tui line
+## task meta
+window=fmlab:fm-t2
+endpoint_task_id=t2
+worktree=/tmp/fm-zcode-tui-lab.UKmavm/ws
+project=/tmp/fm-zcode-tui-lab.UKmavm/ws
+harness=zcode
+kind=ship
+mode=no-mistakes
+yolo=off
+model=default
+effort=default
+busy_gen=g1789501315.413812.31951
+## busy record before
+v1 gen=g1789501315.413812.31951 seq=1 state=busy source=fm-spawn event=launch-brief ts=1789501315
+## foreground process group before
+ 411614  411614  411629 bash
+ 411629  411629  411629 node
+ 411640  411629  411629 zcode-cli
+ 412138  411629  411629 zcode-node-repl
+## $ fm-control.sh t2 interrupt
+interrupt-delivered t2 harness=zcode backend=tmux verified=agent-ended-by-interrupt cancel=unconfirmed
+exit=0
+## pane after (tail)
+root@vultr:/tmp/fm-zcode-tui-lab.UKmavm/ws# HOME='/tmp/fm-zcode-tui-lab.UKmavm/h
+ome' ZCODE_DISABLE_UPDATE_CHECK=1 FM_ZCODE_HARNESS=zcode zcode --mode yolo --cwd
+ '/tmp/fm-zcode-tui-lab.UKmavm/ws' --prompt 'Describe this workspace in one sent
+ence.'; echo "HEADLESS_EXIT=$?"
+^CHEADLESS_EXIT=130
+root@vultr:/tmp/fm-zcode-tui-lab.UKmavm/ws#
+## foreground process group after
+ 411614  411614  411614 bash
+## busy files after (headless dead shape must retire the record)
+(no t2.busy-* files)

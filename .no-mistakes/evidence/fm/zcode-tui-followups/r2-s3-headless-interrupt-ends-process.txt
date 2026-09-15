@@ -1,0 +1,40 @@
+# Round 2 / Scenario 3: fm-control interrupt on a REAL HEADLESS zcode worker (--prompt) mid-turn; task meta has NO zcode_tui line (the headless shape keeps the process-ends answer).
+# With the settle poll, the dead state must be returned as soon as it is observed (well inside the 5s window) and the busy record retired.
+## task meta
+window=fmlab:fm-t2
+endpoint_task_id=t2
+worktree=/tmp/fm-zcode-tui-lab-r2.7YZnR3/ws
+project=/tmp/fm-zcode-tui-lab-r2.7YZnR3/ws
+harness=zcode
+kind=ship
+mode=no-mistakes
+yolo=off
+model=default
+effort=default
+busy_gen=g1789502826.632159.10929
+## busy record before
+v1 gen=g1789502826.632159.10929 seq=1 state=busy source=fm-spawn event=launch-brief ts=1789502827
+## pane before (tail)
+root@vultr:/tmp/fm-zcode-tui-lab-r2.7YZnR3/ws# ZCODE_DISABLE_UPDATE_CHECK=1 FM_Z
+CODE_HARNESS=zcode zcode --mode yolo --cwd '/tmp/fm-zcode-tui-lab-r2.7YZnR3/ws'
+--prompt 'Describe this workspace in one sentence.'; echo "HEADLESS_EXIT=$?"
+## foreground process group before
+    PID    PGID   TPGID COMMAND
+ 632081  632081  632094 bash
+ 632094  632094  632094 node
+ 632111  632094  632094 zcode-cli
+ 632146  632094  632094 node
+## $ fm-control.sh t2 interrupt   (defaults)
+interrupt-delivered t2 harness=zcode backend=tmux verified=agent-ended-by-interrupt cancel=unconfirmed
+exit=0
+elapsed=1.55s
+## pane after (tail)
+--prompt 'Describe this workspace in one sentence.'; echo "HEADLESS_EXIT=$?"
+^CError: Turn was cancelled. (traceId: 0ef88681-b11a-4163-9c73-19d392f93871)
+HEADLESS_EXIT=130
+root@vultr:/tmp/fm-zcode-tui-lab-r2.7YZnR3/ws#
+## foreground process group after
+    PID    PGID   TPGID COMMAND
+ 632081  632081  632081 bash
+## busy files after (headless dead shape must retire the record)
+(no t2.busy-* files)

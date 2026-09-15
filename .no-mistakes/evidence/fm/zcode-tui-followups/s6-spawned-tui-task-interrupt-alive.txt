@@ -1,0 +1,34 @@
+# Scenario 6: fm-control interrupt on the task fm-spawn itself created in scenario 4 (real record: zcode_tui=1, busy source=zcode-hook, real TUI mid-turn).
+## record
+window=firstmate:fm-s1
+harness=zcode
+busy_gen=g1789501518.417118.4556
+zcode_tui=1
+v1 gen=g1789501518.417118.4556 seq=2 state=busy source=zcode-hook event=user-prompt-submit ts=1789501524
+## pane before
+ › Read the brief at
+ /tmp/fm-zcode-tui-lab.UKmavm/spawnhome/data/s1/launch-brief.md and follow it
+ exactly.
+ waiting for model… ── [ 🕖 31s ]
+────────────────────────────────────────────────────────────────────────────────
+## $ fm-control.sh s1 interrupt
+interrupt-delivered s1 harness=zcode backend=tmux verified=agent-alive cancel=unconfirmed
+exit=0
+## pane after
+ › Read the brief at
+ /tmp/fm-zcode-tui-lab.UKmavm/spawnhome/data/s1/launch-brief.md and follow it
+ exactly.
+ Turn cancelled.
+ [ ✓ 31s ]
+────────────────────────────────────────────────────────────────────────────────
+## foreground after
+ 417005  417005  417450 bash
+ 417014  417014  417450 treehouse
+ 417054  417054  417450 bash
+ 417450  417450  417450 node
+ 417466  417450  417450 zcode-cli
+ 417976  417450  417450 zcode-node-repl
+## busy record after (preserved, the claude manual-interrupt posture)
+s1.busy-gen
+s1.busy-state
+v1 gen=g1789501518.417118.4556 seq=2 state=busy source=zcode-hook event=user-prompt-submit ts=1789501524

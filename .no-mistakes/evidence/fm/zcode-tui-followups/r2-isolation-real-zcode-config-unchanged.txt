@@ -1,0 +1,13 @@
+# Isolation check: the operator's REAL ~/.zcode config and hook script are byte-identical before and after the whole round-2 lab (sha256).
+## before
+d19d919c4700a77730e01c92a7910f2f03a720627eaa2318384406680a5c2977  /root/.zcode/cli/config.json
+22571b0c56a8633a55cbb768a46741aee769ec5395a33236c5db3d7f52684225  /root/.zcode/cli/fm-turn-end.sh
+## after
+d19d919c4700a77730e01c92a7910f2f03a720627eaa2318384406680a5c2977  /root/.zcode/cli/config.json
+22571b0c56a8633a55cbb768a46741aee769ec5395a33236c5db3d7f52684225  /root/.zcode/cli/fm-turn-end.sh
+## verdict
+/root/.zcode/cli/config.json: OK
+/root/.zcode/cli/fm-turn-end.sh: OK
+## the real registry gained no lab tokens (lab tokens live in the staged home only)
+real:   4 tokens
+staged: 8 tokens

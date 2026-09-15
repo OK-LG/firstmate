@@ -1,0 +1,20 @@
+# local never-answering provider log: every model call from the lab went to 127.0.0.1 (no external endpoint, dummy key)
+19:40:02 hanging provider listening on 47311
+19:40:34 request from 127.0.0.1:56834: POST /api/anthropic/v1/messages HTTP/1.1
+19:40:34 request from 127.0.0.1:56844: POST /api/anthropic/v1/messages HTTP/1.1
+19:41:12 request from 127.0.0.1:56540: POST /api/anthropic/v1/messages HTTP/1.1
+19:41:38 request from 127.0.0.1:57722: 
+19:41:52 request from 127.0.0.1:42694: 
+19:45:24 request from 127.0.0.1:53048: POST /api/anthropic/v1/messages HTTP/1.1
+19:45:28 request from 127.0.0.1:53058: POST /api/anthropic/v1/messages HTTP/1.1
+19:45:54 request from 127.0.0.1:58526: POST /api/anthropic/v1/messages HTTP/1.1
+19:45:58 request from 127.0.0.1:58532: POST /api/anthropic/v1/messages HTTP/1.1
+19:45:59 request from 127.0.0.1:58528: 
+19:46:28 request from 127.0.0.1:41626: 
+19:46:55 request from 127.0.0.1:35426: POST /api/anthropic/v1/messages HTTP/1.1
+19:46:58 request from 127.0.0.1:35428: POST /api/anthropic/v1/messages HTTP/1.1
+19:46:58 request from 127.0.0.1:35418: 
+19:47:59 request from 127.0.0.1:37570: 
+19:48:00 request from 127.0.0.1:37586: POST /api/anthropic/v1/messages HTTP/1.1
+19:48:01 request from 127.0.0.1:37766: POST /api/anthropic/v1/messages HTTP/1.1
+19:48:12 request from 127.0.0.1:35028: POST /api/anthropic/v1/messages HTTP/1.1

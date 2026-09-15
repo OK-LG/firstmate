@@ -1,0 +1,51 @@
+# Scenario 1: fm-control interrupt on a REAL zcode TUI (zcode-app-cli 3.11.2-24 / zcode-runtime 0.16.5) mid-turn; task meta records zcode_tui=1
+# Lab: isolated tmux server (TMUX_TMPDIR), isolated FM_HOME, staged zcode HOME with a dummy key pointed at a local never-answering provider (no external calls).
+# FM_GATE_REFUSE_BYPASS=1 is the guard's documented test-harness escape hatch (bin/fm-gate-refuse-lib.sh), used here exactly as tests/lib.sh does for a sandbox fleet.
+## task meta
+window=fmlab:fm-t1
+endpoint_task_id=t1
+worktree=/tmp/fm-zcode-tui-lab.UKmavm/ws
+project=/tmp/fm-zcode-tui-lab.UKmavm/ws
+harness=zcode
+kind=ship
+mode=no-mistakes
+yolo=off
+model=default
+effort=default
+zcode_tui=1
+busy_gen=g1789501260.411320.24042
+## busy record before
+v1 gen=g1789501260.411320.24042 seq=1 state=busy source=fm-spawn event=launch-brief ts=1789501260
+## pane before (real tmux capture)
+╭─ ◆ ZCODE  v3.11.2-24 ────────────────────────────────────────────────────╮
+│ /tmp/fm-zcode-tui-lab.UKmavm/ws                                          │
+│ Ask a task about this workspace                                          │
+╰─ /help commands · /status details ───────────────────────────────────────╯
+ › Describe this workspace in one sentence.
+ working… ── [ 🕑 1m 14s ]
+────────────────────────────────────────────────────────────────────────────────
+────────────────────────────────────────────────────────────────────────────────
+ ◈ zai/glm-5.3-flash ─ ◉ yolo ─ ⚡ max ─ ctx 100% left ─ session 0 tokens
+## $ fm-control.sh t1 interrupt
+interrupt-delivered t1 harness=zcode backend=tmux verified=agent-alive cancel=unconfirmed
+exit=0
+## pane after
+╭─ ◆ ZCODE  v3.11.2-24 ────────────────────────────────────────────────────╮
+│ /tmp/fm-zcode-tui-lab.UKmavm/ws                                          │
+│ Ask a task about this workspace                                          │
+╰─ /help commands · /status details ───────────────────────────────────────╯
+ › Describe this workspace in one sentence.
+ Turn cancelled.
+ [ ✓ 1m 14s ]
+────────────────────────────────────────────────────────────────────────────────
+────────────────────────────────────────────────────────────────────────────────
+ ◈ zai/glm-5.3-flash ─ ◉ yolo ─ ⚡ max ─ ctx 100% left ─ session 0 tokens
+## foreground process group after (pid pgid tpgid comm)
+ 409221  409221  409238 bash
+ 409238  409238  409238 node
+ 409250  409238  409238 zcode-cli
+ 409373  409238  409238 zcode-node-repl
+## busy record after (TUI variant must preserve the open record)
+t1.busy-gen
+t1.busy-state
+v1 gen=g1789501260.411320.24042 seq=1 state=busy source=fm-spawn event=launch-brief ts=1789501260

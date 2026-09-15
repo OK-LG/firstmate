@@ -1,0 +1,38 @@
+# Round 2 / Scenario 5: fm-control interrupt on the task fm-spawn itself created in scenario 4 (real meta with zcode_tui=1 written by fm-spawn, real hook-flipped busy record, real TUI mid-turn).
+## meta (zcode_tui line as recorded by fm-spawn)
+1:window=firstmate:fm-s1
+5:harness=zcode
+11:zcode_tui=1
+## busy record before
+v1 gen=g1789502896.634096.21403 seq=2 state=busy source=zcode-hook event=user-prompt-submit ts=1789502902
+## pane before (tail)
+ › Read the brief at
+ /tmp/fm-zcode-tui-lab-r2.7YZnR3/spawnhome/data/s1/launch-brief.md and follow
+ it exactly.
+## foreground before
+    PID    PGID   TPGID COMMAND
+ 633981  633981  634460 bash
+ 633990  633990  634460 treehouse
+ 634031  634031  634460 bash
+ 634460  634460  634460 node
+ 634476  634460  634460 zcode-cli
+ 634725  634460  634460 zcode-node-repl
+## $ fm-control.sh s1 interrupt   (defaults)
+interrupt-delivered s1 harness=zcode backend=tmux verified=agent-alive cancel=unconfirmed
+exit=0
+elapsed=6.44s
+## pane after (tail)
+ › Read the brief at
+ /tmp/fm-zcode-tui-lab-r2.7YZnR3/spawnhome/data/s1/launch-brief.md and follow
+ it exactly.
+ Turn cancelled.
+## foreground after (TUI alive)
+    PID    PGID   TPGID COMMAND
+ 633981  633981  634460 bash
+ 633990  633990  634460 treehouse
+ 634031  634031  634460 bash
+ 634460  634460  634460 node
+ 634476  634460  634460 zcode-cli
+ 634725  634460  634460 zcode-node-repl
+## busy record after (preserved)
+v1 gen=g1789502896.634096.21403 seq=2 state=busy source=zcode-hook event=user-prompt-submit ts=1789502902

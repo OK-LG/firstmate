@@ -1,0 +1,9 @@
+# Round 2 / Scenario 8: the delivery-retry line is written to STDERR (intent item 1), with stdout and stderr captured to SEPARATE files. Same slow-hook setup as scenario 6.
+## $ FM_ZCODE_TUI_DELIVERY_POLLS=1 ... fm-spawn.sh s4 <proj> --scout --harness zcode --zcode-tui  >stdout 2>stderr
+exit=0
+## stdout:
+spawned s4 harness=zcode kind=scout window=firstmate:fm-s4 worktree=/tmp/fm-zcode-tui-lab-r2.7YZnR3/home/.treehouse/proj-80a7e0/3/proj
+## stderr:
+fm-spawn: task s4: zcode TUI brief delivery attempt 1 of 3 unconfirmed in window firstmate:fm-s4; retry 2 of 3 probes a bare Enter, then retypes the pointer
+## busy record
+v1 gen=g1789502992.638575.19024 seq=2 state=busy source=zcode-hook event=user-prompt-submit ts=1789503000
