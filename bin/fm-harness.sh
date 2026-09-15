@@ -126,10 +126,13 @@ harness_marker() {
   # a PRECEDENCE override, never evidence on its own: it wins over an inherited
   # CLAUDECODE only when a real zcode process is in the ancestry. The wrapper
   # runs as a node launcher (comm `node`) whose runtime children rename
-  # themselves (verified live on zcode-runtime 0.16.5 under tmux: comm values
-  # `zcode-c` and `zco` with process title `zcode-cli`), so the anchored name
-  # set below covers the launcher's own name plus those observed runtime
-  # names, and the args fallback in harness_process_verdict covers the bare
+  # themselves (verified live on zcode-runtime 0.16.5 by reading
+  # /proc/<pid>/comm under tmux: kernel comm values `zcode-cli` and
+  # `zcode-node-repl`; note `ps --forest` misprints those as `zco` and
+  # `zcode-c` because its tree indentation eats the fixed-width comm column,
+  # so /proc is the authoritative source), so the anchored name
+  # set below covers the launcher's own name plus those kernel comm values,
+  # and the args fallback in harness_process_verdict covers the bare
   # node launcher via its zcode bin path.
   if [ "${FM_ZCODE_HARNESS:-}" = zcode ] && ancestry_names_zcode; then
     echo zcode
@@ -179,17 +182,18 @@ ancestry_names_omp() {
 # True when an exact `zcode`-family process sits within eight parents of this
 # one. The same anchored match as the ancestry walk below, kept separate so the
 # marker precedence above can demand real process evidence before trusting
-# FM_ZCODE_HARNESS. The observed live names are the wrapper's own `zcode` and
-# the runtime's renamed children `zcode-cli`, `zcode-c`, and `zco`
-# (zcode-runtime 0.16.5); `zco` is short, so it is anchored EXACTLY like omp's
-# and agy's names rather than globbed, and no longer name claiming to start
-# with these prefixes matches.
+# FM_ZCODE_HARNESS. The names are the wrapper's own `zcode` and the kernel
+# comm values of its runtime children, `zcode-cli` and `zcode-node-repl`
+# (verified live on zcode-runtime 0.16.5 via /proc/<pid>/comm; `ps --forest`
+# prints `zco`/`zcode-c` artifacts that no real process carries). Every name
+# is anchored EXACTLY like omp's and agy's rather than globbed, so no longer
+# name claiming to start with these prefixes matches.
 ancestry_names_zcode() {
   local pid=$$ comm
   for _ in 1 2 3 4 5 6 7 8; do
     comm=$(ps -o comm= -p "$pid" 2>/dev/null) || return 1
     case "$(basename -- "$comm")" in
-      zcode|zcode-cli|zcode-c|zco) return 0 ;;
+      zcode|zcode-cli|zcode-node-repl) return 0 ;;
     esac
     pid=$(ps -o ppid= -p "$pid" 2>/dev/null | tr -d ' ')
     [ -n "$pid" ] && [ "$pid" -gt 1 ] || return 1
@@ -267,14 +271,15 @@ harness_process_verdict() {  # <pid>
     # detected by ancestry alone.
     agy) echo "comm agy"; return ;;
     # zcode's wrapper bin is a node launcher (comm `node`), but its runtime
-    # children rename themselves, so the anchored names observed live
-    # (zcode-runtime 0.16.5) are `zcode-cli`, `zcode-c`, and `zco` beside the
-    # wrapper's own `zcode`. Every name is anchored exactly, never *zcode*:
-    # a glob would claim unrelated commands such as zcodegraph, and the short
-    # runtime names make an unanchored match unsafe. It sits above the
+    # children rename themselves, so the anchored kernel comm names verified
+    # live (zcode-runtime 0.16.5, /proc/<pid>/comm) are `zcode-cli` and
+    # `zcode-node-repl` beside the wrapper's own `zcode`. Every name is
+    # anchored exactly, never *zcode*: a glob would claim unrelated commands
+    # such as zcodegraph, and the short runtime names make an unanchored match
+    # unsafe. It sits above the
     # node*|python* interpreter fallback deliberately so the node launcher
     # running the zcode bin is never claimed by another harness's args glob.
-    zcode|zcode-cli|zcode-c|zco) echo "comm zcode"; return ;;
+    zcode|zcode-cli|zcode-node-repl) echo "comm zcode"; return ;;
     node*|python*)
       # Bare interpreter: match the harness name in its script path.
       args=$(ps -o args= -p "$pid" 2>/dev/null)

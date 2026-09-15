@@ -24,7 +24,14 @@ FM_HARNESS_RE='claude|codex|opencode|grok|kimi|^pi$|^pi-signed$|^omp$'
 # The same harnesses as exact executable names, plus the crewmate/scout-only
 # zcode: it is deliberately absent from FM_HARNESS_RE because it is never a
 # primary session, but bin/fm-agent-process-lib.sh matches its bin path as
-# pane-liveness component evidence. Keep the rest in sync with FM_HARNESS_RE.
+# pane-liveness component evidence. This array has TWO consumers and the
+# zcode entry is visible to both: the pane-liveness path evidence above, and
+# fm_harness_process_matches below, whose session-lock ancestry walk can
+# therefore match a zcode path component as harness evidence. That is
+# acceptable because a match there is not a lock grant on its own (the
+# recorded lock pid must also be in the ancestry), and zcode's real live
+# process names are `node` and `zcode-cli`, neither of which the basename
+# rule claims. Keep the rest in sync with FM_HARNESS_RE.
 # Used only for the stricter path evidence below, where the loose regex would
 # also match ordinary firstmate paths such as bin/fm-claude-stop-autoarm.sh.
 FM_HARNESS_NAMES=(claude codex opencode grok kimi pi-signed pi omp zcode)

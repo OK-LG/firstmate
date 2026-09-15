@@ -724,6 +724,26 @@ test_interrupt_without_acknowledgement_preserves_busy_state() {
   pass "fm-control interrupt: unconfirmed delivery preserves observed busy state"
 }
 
+test_interrupt_retires_busy_wiring_when_it_ends_the_agent() {
+  local dir out rc gen
+  dir=$(new_case interrupt-ends)
+  add_task "$dir" t1 zcode
+  alive_as "$dir" zcode
+  gen=$("$ROOT/bin/fm-busy-event.sh" arm "$dir/home/state" t1)
+  printf 'busy_gen=%s\n' "$gen" >> "$dir/home/state/t1.meta"
+  # A headless single-prompt worker ends on its interrupt key, and the vendor
+  # fires no Stop hook on SIGINT (verified live on zcode-runtime 0.16.5), so
+  # nothing else can close the busy record: the interrupt verb must retire
+  # it itself, exactly as the exit verb's signal path already does.
+  out=$(FM_FAKE_INTERRUPT_STOPS_AGENT=1 run_control "$dir" t1 interrupt); rc=$?
+  expect_code 0 "$rc" "interrupt on a harness whose interrupt ends the worker should succeed"$'\n'"$out"
+  assert_contains "$out" "verified=agent-ended-by-interrupt" \
+    "the ended-agent interrupt shape should be reported as its own proof"
+  [ ! -e "$dir/home/state/t1.busy-gen" ] && [ ! -e "$dir/home/state/t1.busy-state" ] \
+    || fail "an interrupt that ends the worker must retire its busy wiring: a dead worker must never stay recorded as provably busy"
+  pass "fm-control interrupt: an interrupt that ends the agent retires the busy record"
+}
+
 test_muse_interrupt_confirms_adapter_acknowledgement() {
   local dir root log out rc
   dir=$(new_case confirmed)
@@ -910,6 +930,7 @@ test_ambiguous_endpoint_refuses
 test_busy_agent_is_interrupted_before_the_exit_command
 test_idle_agent_is_not_interrupted
 test_interrupt_without_acknowledgement_preserves_busy_state
+test_interrupt_retires_busy_wiring_when_it_ends_the_agent
 test_muse_interrupt_confirms_adapter_acknowledgement
 test_interrupt_revalidates_agent_after_acknowledgement_wait
 test_exit_accepts_agent_stopped_by_busy_interrupt

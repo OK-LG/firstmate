@@ -1359,6 +1359,35 @@ The current catch-up reporting boundary is pinned by `tests/fm-afk-return.test.s
 The fixture captures submitted input through Pi's `input` extension hook, so the lab agent directory needs no provider credentials.
 The daemon injection transport into a live composer keeps its coverage in `tests/fm-afk-inject-herdr-e2e.test.sh` for the harnesses that still run the daemon, and the dedicated Herdr daemon workspace topology is covered by `tests/fm-afk-launch.test.sh` and preserves the captain tab's pane count.
 
+## zcode
+
+The zcode adapter's vendor-controlled facts and their refresh guard: `FM_ZCODE_SIGNALS_LIVE=1 tests/fm-zcode-signals-live-e2e.test.sh` re-proves the hook pair, the session record, the resume contract, the kernel comm set, the error-path exit codes, and the installer round-trip against the installed harness; it is opt-in because it submits a real model prompt against the GLM Coding Plan credential.
+Rerun it after any zcode-app-cli or zcode-runtime upgrade and update the versions below rather than trusting this record across releases.
+
+### 2026-09-14 Phase B live pass
+
+Observed against `zcode-app-cli` 3.11.2-24 wrapping `zcode-runtime` 0.16.5 on Linux with Node 22.22.3, using the guarded hook install and real headless turns:
+
+| Fact | Observed |
+| --- | --- |
+| Headless hook firing | user-config `hooks.events` entries fire in `--prompt` mode with a Claude-compatible stdin payload (`hook_event_name`, `cwd`, `session_id`, `permission_mode`), gated on `hooks.enabled=true`; a project-level `.zcode/config.json` hook did NOT fire without zcode's workspace-hook trust grant |
+| Busy open/close | `UserPromptSubmit` opens and `Stop` closes the record through source `zcode-hook` on real wiring; the live guard classified `idle zcode-hook` after a real turn |
+| Interrupt | a mid-turn SIGINT to the foreground group ends the process with status 130 and fires NO Stop hook; the headless process IS the turn |
+| Kernel comm names | `/proc/<pid>/comm`: wrapper `node`, runtime child `zcode-cli`, MCP grandchild `zcode-node-repl`; `ps --forest` prints `zco`/`zcode-c` artifacts for the same processes |
+| Resume | `--resume <sessionId>` restored cross-turn context headless (recalled the session's secret numbers); `-c` resumed the latest session for the cwd (and in a two-session cwd it resumed the WRONG one - direct evidence for never using it); both error paths printed to stderr and exited 1 (re-verified 2026-09-15 piped and under a real PTY) |
+| Effort flags | `--model`, `--effort`, and `--reasoning-effort` are all rejected headless with the help dump on stderr, exit 1 (re-verified 2026-09-15 piped and under a real PTY); no headless flag exists for either axis |
+| Quota windows | `GET https://api.z.ai/api/monitor/usage/quota/limit` with the plan key returned two `CREDIT_LIMIT` windows (`unit=3,number=5` 5-hour and `unit=6,number=1` weekly) with `percentage` and `nextResetTime` plus plan `level`; quota-axi 0.1.42's `zai` provider reads exactly that endpoint and normalizes exactly those windows |
+
+### 2026-09-15 Phase B review correction pass
+
+Observed against the same installed `zcode-app-cli` 3.11.2-24 wrapping `zcode-runtime` 0.16.5, re-verified piped and under a real PTY (`script -qec`) after the independent review falsified the exit-0 wording the Phase B pass had shipped:
+
+| Fact | Observed |
+| --- | --- |
+| Exit codes on error paths | every probed headless error path prints to stderr and EXITS 1: unknown options (`--model`, `--effort`, `--reasoning-effort`, bare and with `--prompt`), unresumable sessions (`--resume <bad id>`, `-c` with no session), the credential not-configured refusal, and the dummy-key request-signing error (the last two re-verified credential-less against a key-stripped staged config); `--help` exits 0 with its output on stdout, and a rejected option's help dump goes to stderr - the research-era record had claimed exit-0 failures for the credential paths and exit-0 for the option/resume paths, both corrected by re-measurement, which is why the supervisor-side blindness posture (never trust exit status) stands on policy rather than on any one observation |
+| Hook removal fidelity | `install` then `remove` against the real vendor-default config (`hooks.enabled:false`, all seven event keys present but empty, plus `timeoutMs`/`maxOutputBytes`) restored the config semantically exactly, including `hooks.enabled:false` and the present-but-empty `UserPromptSubmit`/`Stop` keys, via the install-state record written beside the hook; the same round trip is exact through a double install and for `enabled:true` and `enabled`-absent shapes |
+| Interrupt busy lifecycle | a mid-turn SIGINT still ends the process (130, no `Stop` hook), so nothing on the vendor side ever closes the busy record; the interrupt verb must retire it itself, pinned in `tests/fm-control.test.sh` |
+
 ## Zellij
 
 The current compatibility floor and latest verification are Zellij 0.44.0 with `jq` on macOS aarch64.

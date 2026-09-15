@@ -34,6 +34,8 @@
 #   claude-hook      Claude lifecycle hooks (UserPromptSubmit/Stop/StopFailure/SessionEnd)
 #   gemini-hook      Gemini agent hooks (BeforeAgent opens; AfterAgent and
 #                    SessionEnd close)
+#   zcode-hook       zcode runtime hooks (UserPromptSubmit opens; Stop closes),
+#                    installed globally by bin/fm-zcode-turnend-hook.sh
 #   codex-hook, codex-appserver  reserved: Codex, gated by
 #                    fm_busy_codex_semantic_source
 #   kimi-wire, kimi-hook  reserved: standalone Kimi, gated by fm_busy_kimi_verified
@@ -70,7 +72,14 @@
 # PTY across streaming text, a thinking block, and a tool-call turn: only the
 # final assistant text prints, after the whole turn completes), so the only
 # honest signature is one an operator or the live verification gate pins
-# explicitly through FM_BUSY_ZCODE_REGEX. The delivery
+# explicitly through FM_BUSY_ZCODE_REGEX. Phase B supersedes the fallback as
+# the primary source: the firstmate-owned global UserPromptSubmit/Stop hook
+# (bin/fm-zcode-turnend-hook.sh) is a verified open/close pair - both events
+# fire in headless --prompt mode with a Claude-compatible stdin payload
+# (verified live on zcode-runtime 0.16.5, 2026-09-14) - so zcode arms the
+# semantic record like claude and gemini, and the rendered-tail arm stays as
+# the fallback for a task with no record, the same precedence every
+# converted adapter keeps. The delivery
 # guards in bin/fm-composer-lib.sh match rendered footers for submit
 # acknowledgement and away-mode supervisor injection only; neither is a
 # recorded worker state source.
@@ -206,6 +215,11 @@ fm_busy_sources_for_harness() {  # <harness>
       ;;
     opencode*) adapter=opencode-plugin ;;
     gemini*) adapter=gemini-hook ;;
+    # Exact, not zcode*: a raw command's basename (zcodegraph, zcode-2) is
+    # not the zcode adapter, and the classifier's fallback arm is exact the
+    # same way, so a prefix here would trust records the fallback then
+    # disagrees about.
+    zcode) adapter=zcode-hook ;;
     pi|pi-signed) adapter=pi-ext ;;
     omp) adapter=omp-ext ;;
     kimi*)
@@ -884,10 +898,9 @@ fm_busy_agy_tail_busy() {
 # PTY against a mock provider; only the final assistant text prints, after
 # the whole turn completes) - so any shipped default would be invented, and
 # the harness-dependent-check rule forbids inventing one. With no signature
-# configured this arm can never report busy, which keeps every zcode worker
-# at unknown (the safe verdict) until the live verification gate captures a
-# real turn and pins the signature through FM_BUSY_ZCODE_REGEX - or lands a
-# verified default here in the same change as its evidence.
+# configured this arm can never report busy, which keeps an UNWIRED zcode
+# task (no semantic record; see the zcode-hook source) at unknown, the safe
+# verdict, even on a tail another harness would read as busy.
 fm_busy_zcode_tail_busy() {
   [ -n "${FM_BUSY_ZCODE_REGEX:-}" ] || return 1
   grep -v '^[[:space:]]*$' | tail -12 | grep -qiE "$FM_BUSY_ZCODE_REGEX"
@@ -1042,7 +1055,7 @@ fm_busy_classify() {  # <backend> <target> <harness> <id> <state-dir> [tail40]
       fi
       return 0
       ;;
-    zcode*)
+    zcode)
       if [ -z "$tail40" ]; then
         if command -v fm_backend_capture >/dev/null 2>&1; then
           tail40=$(fm_backend_capture "$backend" "$target" 40 2>/dev/null) || {
@@ -1054,11 +1067,14 @@ fm_busy_classify() {  # <backend> <target> <harness> <id> <state-dir> [tail40]
           return 0
         fi
       fi
-      # Best-effort like rovo and agy, with the stronger default: no verified
-      # busy signature ships (see fm_busy_zcode_tail_busy), so without a
-      # configured FM_BUSY_ZCODE_REGEX this is always unknown, and even with
-      # one a non-matching tail means "can't tell," never idle - headless
-      # zcode renders nothing mid-turn, so an empty tail proves nothing.
+      # Fallback only: the zcode-hook semantic record owns primary
+      # classification (armed at spawn), and this rendered-tail arm runs only
+      # for a task with no record at all. Best-effort like rovo and agy, with
+      # the stronger default: no verified busy signature ships (see
+      # fm_busy_zcode_tail_busy), so without a configured FM_BUSY_ZCODE_REGEX
+      # this is always unknown, and even with one a non-matching tail means
+      # "can't tell," never idle - headless zcode renders nothing mid-turn,
+      # so an empty tail proves nothing.
       if printf '%s' "$tail40" | fm_busy_zcode_tail_busy; then
         printf 'busy zcode-regex'
       else

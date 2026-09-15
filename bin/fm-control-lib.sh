@@ -192,14 +192,39 @@ fm_control_interrupt_ack_source() {  # <harness>
   esac
 }
 
+# Whether an interrupt legitimately ENDS the worker process. Every TUI
+# adapter keeps running after its interrupt key cancels the turn; zcode's
+# headless single-prompt worker IS the turn (verified live on zcode-runtime
+# 0.16.5: a mid-turn C-c exits the process with status 130 and the runtime
+# fires no Stop hook on that path), so a dead agent after an interrupt is
+# the documented success shape, not an accident. bin/fm-control.sh's
+# interrupt verification consults this table before requiring alive.
+fm_control_interrupt_ends_process() {  # <harness>
+  case "${1-}" in
+    zcode) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+# Whether the exit verb stops the agent through a SIGNAL rather than a typed
+# composer command. zcode's headless worker has no composer and never reads
+# stdin, so its exit is the interrupt key itself: one C-c (SIGINT through the
+# pane's foreground process group, the documented host-contract forwarding
+# shape) ends the process, and the agent-state wait proves it stopped. The
+# executor refuses an exit on a harness that is neither signal-shaped nor
+# carrying an exit command above.
+fm_control_exit_is_signal_shutdown() {  # <harness>
+  case "${1-}" in
+    zcode) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
 # The command that exits the agent from its own composer. zcode deliberately
-# has NO entry: its Phase A workers are headless (-p), the process neither
-# reads stdin nor offers a composer, and the turn ending IS the process
-# exiting - a finished or cancelled zcode worker has already stopped, and a
-# mid-turn stop is the interrupt key above (SIGINT), not typed text. The exit
-# verb therefore reports a zcode pane that is still mid-turn as unproven
-# rather than pretending a typed command could stop it; the signal-shaped
-# exit that closes this gap belongs to the executor, not this table.
+# has NO entry: its workers are headless (-p), the process neither reads
+# stdin nor offers a composer, and the turn ending IS the process exiting -
+# a finished zcode worker has already stopped, and a mid-turn stop is the
+# signal exit above, not typed text.
 fm_control_exit_command() {  # <harness>
   case "${1-}" in
     claude|opencode|grok|kimi|cursor|muse|rovo) printf '/exit' ;;
@@ -259,6 +284,15 @@ fm_control_harness_wiring_paths() {  # <harness> <worktree> <state-dir> <id>
       printf '%s\n' "$wt/.fm-kimi-turnend"
       printf '%s\n' "$state/$id.kimi-turnend-token"
       ;;
+    # zcode's pointer and token retire here like grok's and kimi's. The
+    # session sidecar is deliberately NOT listed: fm-spawn's zcode arm must
+    # read it after this retirement ran (a relaunch reuses the prior
+    # incarnation's recorded session through --resume), so that arm owns the
+    # sidecar's removal, guarded on the prior recorded harness being zcode.
+    zcode)
+      printf '%s\n' "$wt/.fm-zcode-turnend"
+      printf '%s\n' "$state/$id.zcode-turnend-token"
+      ;;
     muse)
       # muse installs no hook: its busy source is its own session event log,
       # bound to the pane by these two firstmate-owned sidecars. A relaunch
@@ -278,8 +312,8 @@ fm_control_harness_wiring_paths() {  # <harness> <worktree> <state-dir> <id>
 }
 
 # The firstmate-owned global turn-end registry entry a harness mints per task.
-# grok and kimi are the two adapters whose turn-end hook is global and gated by
-# a private token file; every other adapter's wiring is fully covered by
+# grok, kimi, and zcode are the adapters whose turn-end hook is global and gated
+# by a private token file; every other adapter's wiring is fully covered by
 # fm_control_harness_wiring_paths. Prints the registry path or nothing.
 fm_control_harness_turnend_token_path() {  # <harness> <state-dir> <id>
   local harness=${1-} state=${2-} id=${3-}
@@ -287,6 +321,7 @@ fm_control_harness_turnend_token_path() {  # <harness> <state-dir> <id>
   case "$harness" in
     grok) printf '%s\n' "$state/$id.grok-turnend-token" ;;
     kimi) printf '%s\n' "$state/$id.kimi-turnend-token" ;;
+    zcode) printf '%s\n' "$state/$id.zcode-turnend-token" ;;
   esac
 }
 
@@ -296,6 +331,7 @@ fm_control_harness_turnend_auth_path() {  # <harness> <token>
   case "$harness" in
     grok) printf '%s\n' "${GROK_HOME:-$HOME/.grok}/hooks/fm-turn-end.d/$token" ;;
     kimi) printf '%s\n' "$HOME/.kimi-code/fm-turn-end.d/$token" ;;
+    zcode) printf '%s\n' "$HOME/.zcode/cli/fm-turn-end.d/$token" ;;
     *) return 0 ;;
   esac
 }

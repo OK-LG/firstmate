@@ -49,11 +49,13 @@ fm_agent_process_classify_name() {  # <path> [argv0] -> agent|shell|other
     # zcode (Z.AI's coding-agent harness, Linux via the zcode-app-cli wrapper)
     # is anchored for the same reason as agy and omp: the wrapper's own live
     # name is the bare word `zcode` and its runtime children rename themselves
-    # (verified live on zcode-runtime 0.16.5 under tmux: comm values `zcode-cli`,
-    # `zcode-c`, and `zco`), while a glob would claim unrelated commands such
-    # as zcodegraph. The wrapper also runs as a node launcher, claimed by the
+    # (verified live on zcode-runtime 0.16.5 by reading /proc/<pid>/comm:
+    # kernel values `zcode-cli` and `zcode-node-repl`; the `zco` and `zcode-c`
+    # spellings elsewhere are `ps --forest` column artifacts no real process
+    # carries), while a glob would claim unrelated commands such as zcodegraph.
+    # The wrapper also runs as a node launcher, claimed by the
     # path-component fallback above and the args rule below.
-    zcode|zcode-cli|zcode-c|zco) printf 'agent' ;;
+    zcode|zcode-cli|zcode-node-repl) printf 'agent' ;;
     zsh|bash|sh|dash|ash|ksh|mksh|tcsh|csh|fish) printf 'shell' ;;
     *)
       if fm_harness_path_name "$path" >/dev/null || fm_harness_path_name "$argv0" >/dev/null; then

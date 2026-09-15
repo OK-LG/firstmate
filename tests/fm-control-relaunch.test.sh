@@ -970,6 +970,59 @@ test_cursor_session_binding_is_retired_on_a_harness_switch() {
   pass "fm-spawn --relaunch: switching away from cursor retires its session binding"
 }
 
+# zcode records its session id from the hook payload, and a relaunch whose
+# prior incarnation was zcode reuses that session through --resume (verified
+# live on 0.16.5: --resume restores context headless, while -c's
+# latest-for-cwd guess and an unresumable --resume both print an error to
+# stderr and exit 1 - which is why only a recorded session id ever rides the
+# flag).
+seed_zcode_spawn_support() {  # <case-dir>
+  local dir=$1
+  mkdir -p "$dir/user-home/.zcode/cli"
+  printf '{"provider":{"zai":{"kind":"anthropic"}}}\n' > "$dir/user-home/.zcode/cli/config.json"
+  fm_fake_exit0 "$dir/fakebin" zcode
+  [ -e "$dir/fakebin/jq" ] || ln -s "$(command -v jq)" "$dir/fakebin/jq"
+}
+
+test_zcode_relaunch_resumes_the_recorded_session() {
+  local dir out
+  dir=$(new_case zcoderesume rl41)
+  add_ship_task "$dir" rl41 zcode
+  seed_zcode_spawn_support "$dir"
+  printf 'session_id=sess_resume0001\n' > "$dir/home/state/rl41.zcode-session"
+  printf 'zsh' > "$dir/fake/command"
+  : > "$dir/fake/literal"
+  out=$(run_spawn "$dir" rl41 --relaunch --harness zcode)
+  assert_contains "$out" "spawned rl41 harness=zcode" "the zcode relaunch should succeed: $out"
+  assert_grep "--resume 'sess_resume0001'" "$dir/fake/literal" \
+    "a zcode relaunch must resume the prior incarnation's recorded session"
+  [ ! -e "$dir/home/state/rl41.zcode-session" ] \
+    || fail "the consumed session sidecar must not survive its own relaunch"
+  [ -e "$dir/home/state/rl41.busy-gen" ] \
+    || fail "the replacement zcode incarnation must re-arm its busy contract"
+  pass "fm-spawn --relaunch: a zcode relaunch resumes the recorded session id"
+}
+
+test_zcode_stale_session_sidecar_is_never_resumed_after_a_harness_switch() {
+  local dir out
+  dir=$(new_case zcodestale rl42)
+  add_ship_task "$dir" rl42 claude
+  seed_zcode_spawn_support "$dir"
+  # A sidecar left over from a long-gone zcode incarnation must not be
+  # resumed by a zcode relaunch whose PRIOR recorded harness was claude: the
+  # recorded session could be arbitrarily stale.
+  printf 'session_id=sess_ancient99\n' > "$dir/home/state/rl42.zcode-session"
+  printf 'zsh' > "$dir/fake/command"
+  : > "$dir/fake/literal"
+  out=$(run_spawn "$dir" rl42 --relaunch --harness zcode)
+  assert_contains "$out" "spawned rl42 harness=zcode" "the zcode relaunch should succeed: $out"
+  assert_not_contains "$(cat "$dir/fake/literal")" "--resume" \
+    "a stale session sidecar from another harness's tenure must never be resumed"
+  [ ! -e "$dir/home/state/rl42.zcode-session" ] \
+    || fail "the stale session sidecar must be cleared by the replacement incarnation"
+  pass "fm-spawn --relaunch: a stale zcode session sidecar is cleared, never resumed"
+}
+
 # --- 3 and 4. refusals before the agent is touched ---------------------------
 
 test_missing_worktree_refuses_before_stopping_anything() {
@@ -1585,6 +1638,8 @@ test_spawn_relaunch_without_a_harness_reuses_the_recorded_one
 test_prefixed_prior_harness_wiring_is_still_retired
 test_muse_session_binding_is_retired_on_a_harness_switch
 test_cursor_session_binding_is_retired_on_a_harness_switch
+test_zcode_relaunch_resumes_the_recorded_session
+test_zcode_stale_session_sidecar_is_never_resumed_after_a_harness_switch
 test_missing_worktree_refuses_before_stopping_anything
 test_missing_instructions_refuse_before_stopping_anything
 test_checkpoint_refusal_leaves_the_record_byte_identical

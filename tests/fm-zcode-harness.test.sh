@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Behavior tests for the zcode crewmate/scout adapter, Phase A.
+# Behavior tests for the zcode crewmate/scout adapter, Phase B.
 #
 # The facts pinned here are the ones a zcode release could silently change and
 # the ones a wrong guess would make dangerous:
@@ -8,30 +8,42 @@
 #      Firstmate-owned precedence override that needs REAL zcode ancestry, the
 #      omp pattern: inert when it leaks into another harness's worker.
 #   2. The anchored process-name set is the wrapper's own `zcode` plus the
-#      runtime's renamed children (verified live on zcode-runtime 0.16.5 under
-#      tmux: comm values `zcode-cli`, `zcode-c`, and `zco`); an unrelated name
-#      merely containing the fragment must never claim the identity, and a bare
-#      node launcher is claimed only through its zcode bin path in the
-#      interpreter args fallback.
-#   3. The Phase A launch is the HEADLESS single-prompt run: --prompt carries
-#      the brief, --mode yolo is pinned explicitly rather than trusted from the
-#      CLI default, --cwd anchors the run, foreign markers are cleared, and the
-#      Firstmate marker is established at the launch boundary. The headless
-#      flag set has no --model and no effort flag (verified against 0.16.5
-#      --help), so both axes are recorded in metadata and never reach the
-#      launch command.
-#   4. Nothing is armed as busy wiring: the runtime's Stop hook is Phase B
-#      work, and the headless mode renders nothing mid-turn (verified over
-#      pipe and PTY on 0.16.5), so the busy classifier reads unknown until a
-#      signature is configured through FM_BUSY_ZCODE_REGEX, and even then a
+#      kernel comm values of its runtime children (verified live on
+#      zcode-runtime 0.16.5 by reading /proc/<pid>/comm: `zcode-cli` and
+#      `zcode-node-repl`; the `zco` and `zcode-c` spellings are `ps --forest`
+#      column artifacts no real process carries); an unrelated name merely
+#      containing the fragment must never claim the identity, and a bare node
+#      launcher is claimed only through its zcode bin path in the interpreter
+#      args fallback.
+#   3. The launch is the HEADLESS single-prompt run: --prompt carries the
+#      brief, --mode yolo is pinned explicitly rather than trusted from the
+#      CLI default, --cwd anchors the run, foreign markers are cleared -
+#      including rovo's two, because a marker beats args-strength ancestry -
+#      and the Firstmate marker is established at the launch boundary. The
+#      headless flag set has no --model and no effort flag (verified against
+#      0.16.5: --model, --effort, and --reasoning-effort are all rejected
+#      with the help dump), so both axes are recorded in metadata and never
+#      reach the launch command. A fresh launch carries no --resume; only a
+#      relaunch whose prior zcode incarnation recorded a session does.
+#   4. Turn lifecycle is the Phase B semantic wiring: a guarded global
+#      UserPromptSubmit/Stop hook pair installed into ~/.zcode/cli/config.json
+#      by bin/fm-zcode-turnend-hook.sh (verified live on 0.16.5: both events
+#      fire headless with a Claude-compatible payload), gated per task by a
+#      token pointer, opening and closing the busy record (source zcode-hook),
+#      touching the turn-end marker, and recording the zcode session id. The
+#      rendered-tail classifier stays as the no-record fallback: no default
+#      busy signature ships, and even with FM_BUSY_ZCODE_REGEX configured a
 #      non-matching tail is unknown, never idle.
 #   5. zcode is a crewmate/scout adapter only: a secondmate launch is refused,
 #      and a missing zcode bin refuses the spawn instead of launching a pane
 #      that dies on command-not-found.
 #   6. Control is signal-shaped: interrupt is C-c (SIGINT through the pane's
-#      foreground process group, verified live to cancel a mid-turn run), there
-#      is no composer to clear, no cancellation acknowledgement to observe,
-#      and no typed exit command at all - the headless process IS the turn.
+#      foreground process group, verified live to cancel a mid-turn run and
+#      end the process with status 130 and no Stop hook), there is no composer
+#      to clear, no cancellation acknowledgement to observe, no typed exit
+#      command - and the interrupt legitimately ENDS the worker process, so
+#      both the interrupt verification and the exit verb accept the dead
+#      state as the documented success shape (one C-c is the exit).
 #   7. The pane-liveness classifier (bin/fm-agent-process-lib.sh) knows the
 #      same anchored name set plus the wrapper's node-launcher shapes - the
 #      install path and the npm-global lib path - because fm-control's
@@ -55,7 +67,21 @@ unset CLAUDECODE PI_CODING_AGENT FM_PI_HARNESS GROK_AGENT CURSOR_AGENT CURSOR_IN
 . "$ROOT/bin/fm-busy-lib.sh"
 
 HARNESS="$ROOT/bin/fm-harness.sh"
+ZCODE_HOOK="$ROOT/bin/fm-zcode-turnend-hook.sh"
+TEARDOWN="$ROOT/bin/fm-teardown.sh"
 TMP_ROOT=$(fm_test_tmproot fm-zcode-harness)
+JQ_BIN=$(command -v jq) || fail "test needs jq"
+BASE_PATH=${FM_TEST_BASE_PATH:-$(dirname "$(command -v python3)"):/usr/bin:/bin:/usr/sbin:/sbin}
+ZCODE_TASK_TMPS=()
+
+cleanup_zcode_harness() {
+  local d
+  for d in "${ZCODE_TASK_TMPS[@]:-}"; do
+    [ -n "$d" ] && rm -rf "$d"
+  done
+  rm -rf "$TMP_ROOT"
+}
+trap cleanup_zcode_harness EXIT
 
 # --- 1. Detection --------------------------------------------------------------
 
@@ -84,12 +110,19 @@ detect() {  # [env var assignments via caller] -> verdict
 test_zcode_ancestry_detects_every_observed_process_name() {
   local FAKE_PS_BIN out
   FAKE_PS_BIN=$(make_fake_ps "$TMP_ROOT/ps-names")
-  for name in zcode /usr/local/bin/zcode zcode-cli zcode-c zco; do
+  for name in zcode /usr/local/bin/zcode zcode-cli zcode-node-repl; do
     out=$(FAKE_PS_COMM=$name detect)
     [ "$out" = zcode ] \
       || fail "the observed live name '$name' must detect as zcode by ancestry, got '$out'"
   done
-  pass "fm-harness: ancestry detects the wrapper name and every observed runtime child name"
+  # The ps --forest artifacts are NOT real process names and must not match:
+  # `zco` would claim an unrelated command literally named zco.
+  for artifact in zco zcode-c; do
+    out=$(FAKE_PS_COMM=$artifact FAKE_PS_ARGS="$artifact" detect)
+    [ "$out" != zcode ] \
+      || fail "the ps --forest artifact '$artifact' must not detect as zcode, got '$out'"
+  done
+  pass "fm-harness: ancestry detects the wrapper and kernel comm names, not ps artifacts"
 }
 
 test_zcode_ancestry_rejects_unrelated_mentions() {
@@ -139,10 +172,15 @@ test_zcode_marker_needs_real_ancestry() {
 test_zcode_pane_liveness_classifies_every_observed_surface() {
   # shellcheck source=/dev/null
   . "$ROOT/bin/fm-agent-process-lib.sh"
-  # The wrapper's own comm and every observed runtime child name classify agent.
-  for name in zcode zcode-cli zcode-c zco; do
+  # The wrapper's own comm and every kernel comm of the runtime children.
+  for name in zcode zcode-cli zcode-node-repl; do
     [ "$(fm_agent_process_classify_name "$name")" = agent ] \
       || fail "the observed live name '$name' must classify as an agent pane"
+  done
+  # The ps --forest artifacts are not real names; `zco` would claim strangers.
+  for artifact in zco zcode-c; do
+    [ "$(fm_agent_process_classify_name "$artifact")" != agent ] \
+      || fail "the ps artifact '$artifact' must not classify an agent pane"
   done
   # The install-path shape: the bin's own path as the pane command.
   [ "$(fm_agent_process_classify_name /usr/local/bin/zcode)" = agent ] \
@@ -165,7 +203,7 @@ test_zcode_pane_liveness_classifies_every_observed_surface() {
   [ "$(fm_agent_process_classify node /usr/bin/node 'node unrelated-server.js')" = other ] \
     || fail "an unrelated node process must stay other, never agent"
   [ "$(fm_agent_process_classify node node \
-      'node unrelated-server.js --prompt "run zcode tests"')" = other ] \
+      'node unrelated-server.js --prompt \"run zcode tests\"')" = other ] \
     || fail "a later argument naming zcode must not classify an unrelated node pane agent"
   # Anchored names keep fragment decoys out, exactly like omp's.
   for decoy in zcodegraph zcod zco2; do
@@ -202,7 +240,18 @@ test_zcode_control_mechanics_are_the_verified_ones() {
     || fail "the headless SIGINT path prints no acknowledgement, so the ack source is none"
   fm_control_exit_command zcode \
     && fail "zcode has no composer and no typed exit command; the table must refuse to name one" || true
-  pass "fm-control-lib: zcode control is signal-shaped - C-c interrupt, no composer, no typed exit"
+  # The headless process IS the turn: a C-c interrupt ends the worker process
+  # (verified live: exit 130, no Stop hook), and the exit verb is that same
+  # signal, not a typed command.
+  fm_control_interrupt_ends_process zcode \
+    || fail "zcode's interrupt must be recorded as legitimately ending the worker process"
+  fm_control_interrupt_ends_process claude \
+    && fail "a TUI adapter's interrupt must never claim to end the process" || true
+  fm_control_exit_is_signal_shutdown zcode \
+    || fail "zcode's exit verb must be signal-shaped"
+  fm_control_exit_is_signal_shutdown claude \
+    && fail "claude's exit verb is a typed command, not a signal" || true
+  pass "fm-control-lib: zcode control is signal-shaped - C-c interrupt and signal exit, no composer"
 }
 
 # --- 3. Busy classification -----------------------------------------------------
@@ -241,7 +290,175 @@ test_zcode_busy_signature_is_configured_only() {
   pass "fm-busy-lib: zcode classifies busy only through FM_BUSY_ZCODE_REGEX and never falls to idle"
 }
 
-# --- 4. Launch ------------------------------------------------------------------
+# --- 4. Hook installer ----------------------------------------------------------
+
+make_hook_config_home() {  # <dir> [config-json]
+  local home=$1 config=${2:-}
+  [ -n "$config" ] || config='{"provider":{"zai":{"kind":"anthropic"}}}'
+  mkdir -p "$home/.zcode/cli"
+  printf '%s\n' "$config" > "$home/.zcode/cli/config.json"
+  printf '%s\n' "$home"
+}
+
+test_zcode_hook_install_is_surgical_idempotent_and_removable() {
+  local home config before after
+  home=$(make_hook_config_home "$TMP_ROOT/hook-surgery" \
+    '{"provider":{"zai":{"kind":"anthropic"}},"hooks":{"enabled":false,"timeoutMs":60000,"events":{"Stop":[{"hooks":[{"type":"command","command":"printf foreign"}]}]}}}')
+  config="$home/.zcode/cli/config.json"
+  before=$(mktemp)
+  python3 -c 'import json,sys; json.dump(json.load(open(sys.argv[1]), parse_constant=lambda c: None), sys.stdout, sort_keys=True)' "$config" > "$before"
+
+  HOME="$home" "$ZCODE_HOOK" install || fail "zcode hook install refused a realistic config"
+  python3 - "$config" <<'PY' || fail "installed config did not keep the foreign hook and gain ours"
+import json, sys
+cfg = json.load(open(sys.argv[1]))
+hooks = cfg["hooks"]
+assert hooks["enabled"] is True, "install must raise the runtime hook gate"
+stop = [h["command"] for e in hooks["events"]["Stop"] for h in e["hooks"]]
+assert any("fm-turn-end.sh" in c for c in stop), "our Stop entry is missing"
+assert "printf foreign" in stop, "the foreign Stop entry was dropped"
+ups = [h["command"] for e in hooks["events"]["UserPromptSubmit"] for h in e["hooks"]]
+assert any("fm-turn-end.sh" in c for c in ups), "our UserPromptSubmit entry is missing"
+PY
+  HOME="$home" "$ZCODE_HOOK" install || fail "second zcode hook install failed"
+  python3 - "$config" <<'PY' || fail "second install was not idempotent"
+import json, sys
+cfg = json.load(open(sys.argv[1]))
+ours = 0
+for entries in cfg["hooks"]["events"].values():
+    for entry in entries:
+        for hook in entry["hooks"]:
+            if "fm-turn-end.sh" in hook["command"]:
+                ours += 1
+assert ours == 2, f"expected exactly one install per owned event, found {ours}"
+PY
+  [ -x "$home/.zcode/cli/fm-turn-end.sh" ] || fail "install must write the hook script"
+  [ -d "$home/.zcode/cli/fm-turn-end.d" ] || fail "install must create the registry"
+
+  HOME="$home" "$ZCODE_HOOK" remove || fail "zcode hook removal failed"
+  after=$(mktemp)
+  python3 -c 'import json,sys; json.dump(json.load(open(sys.argv[1])), sys.stdout, sort_keys=True)' "$config" > "$after"
+  python3 - "$before" "$after" <<'PY' || fail "removal did not restore the pre-install config semantically"
+import json, sys
+before = json.load(open(sys.argv[1]))
+after = json.load(open(sys.argv[2]))
+assert before == after, "removal must restore every foreign leaf and the pre-install enabled value"
+PY
+  [ ! -e "$home/.zcode/cli/fm-turn-end.sh" ] || fail "removal left the Firstmate hook script"
+  [ ! -e "$home/.zcode/cli/fm-turn-end.d" ] || fail "removal left the Firstmate registry"
+  [ ! -e "$home/.zcode/cli/fm-turn-end.state" ] || fail "removal left the install-state record"
+  pass "zcode hook install is idempotent and removal restores the pre-install config exactly"
+}
+
+test_zcode_hook_removal_restores_every_observed_pre_install_shape() {
+  local home config before after out rc
+  # The vendor-default shipped shape: the hook gate defaulted false and every
+  # event key pre-created as an empty array - the exact config.json the
+  # installer meets on a real machine, whose empty owned keys a naive strip
+  # would delete and whose gate a raise-without-record would leave flipped.
+  home=$(make_hook_config_home "$TMP_ROOT/hook-vendor" \
+    '{"provider":{"zai":{"kind":"anthropic"}},"hooks":{"enabled":false,"timeoutMs":60000,"maxOutputBytes":32768,"events":{"SessionStart":[],"UserPromptSubmit":[],"PreToolUse":[],"PermissionRequest":[],"PostToolUse":[],"PostToolUseFailure":[],"Stop":[]}}}')
+  config="$home/.zcode/cli/config.json"
+  before=$(jq -S . "$config")
+  HOME="$home" "$ZCODE_HOOK" install || fail "install refused the vendor-default config"
+  HOME="$home" "$ZCODE_HOOK" install || fail "second install on the vendor-default config failed"
+  [ "$(jq -r '.hooks.enabled' "$config")" = true ] \
+    || fail "install must raise the runtime hook gate"
+  HOME="$home" "$ZCODE_HOOK" remove || fail "removal of the vendor-default install failed"
+  after=$(jq -S . "$config")
+  [ "$before" = "$after" ] \
+    || fail "install+remove must restore the vendor-default config semantically exactly"
+  # enabled:true pre-install must be restored as true, and an absent gate key
+  # must be removed again rather than left raised or recorded as a value.
+  home=$(make_hook_config_home "$TMP_ROOT/hook-true" \
+    '{"hooks":{"enabled":true,"events":{"Stop":[],"UserPromptSubmit":[]}}}')
+  config="$home/.zcode/cli/config.json"
+  before=$(jq -S . "$config")
+  HOME="$home" "$ZCODE_HOOK" install || fail "install refused the enabled:true shape"
+  HOME="$home" "$ZCODE_HOOK" remove || fail "removal refused the enabled:true shape"
+  [ "$before" = "$(jq -S . "$config")" ] \
+    || fail "install+remove must restore the enabled:true shape exactly"
+  home=$(make_hook_config_home "$TMP_ROOT/hook-absent" '{"hooks":{"events":{"Stop":[]}}}')
+  config="$home/.zcode/cli/config.json"
+  before=$(jq -S . "$config")
+  HOME="$home" "$ZCODE_HOOK" install || fail "install refused the enabled-absent shape"
+  HOME="$home" "$ZCODE_HOOK" remove || fail "removal refused the enabled-absent shape"
+  [ "$before" = "$(jq -S . "$config")" ] \
+    || fail "install+remove must restore the enabled-absent shape exactly"
+  # Without the install-state record, removal fails closed rather than
+  # guessing the pre-install leaves - the record is what makes removal
+  # faithful, so its absence is a stop-and-reinstall condition.
+  home=$(make_hook_config_home "$TMP_ROOT/hook-nostate" \
+    '{"hooks":{"enabled":false,"events":{"Stop":[],"UserPromptSubmit":[]}}}')
+  HOME="$home" "$ZCODE_HOOK" install || fail "install for the missing-state case failed"
+  rm "$home/.zcode/cli/fm-turn-end.state"
+  rc=0
+  out=$(HOME="$home" "$ZCODE_HOOK" remove 2>&1) || rc=$?
+  [ "$rc" -ne 0 ] || fail "removal without the install-state record must refuse"
+  assert_contains "$out" "install-state file is missing" \
+    "the missing-state refusal lacked its concrete reason"
+  pass "zcode hook removal restores the vendor-default, enabled-true, and enabled-absent shapes exactly"
+}
+
+test_zcode_hook_fails_closed_on_missing_malformed_or_surprising_config() {
+  local missing malformed symlinked foreign_event out rc
+  missing="$TMP_ROOT/hook-missing"
+  malformed="$TMP_ROOT/hook-malformed"
+  symlinked="$TMP_ROOT/hook-symlink"
+  foreign_event="$TMP_ROOT/hook-foreign-event"
+  mkdir -p "$missing/.zcode/cli" "$malformed/.zcode/cli" "$symlinked/.zcode/cli" "$foreign_event/.zcode/cli"
+
+  rc=0
+  out=$(HOME="$missing" "$ZCODE_HOOK" install 2>&1) || rc=$?
+  [ "$rc" -ne 0 ] || fail "missing zcode config was accepted"
+  assert_contains "$out" "missing" "missing config refusal lacked its concrete reason"
+
+  printf '{"broken' > "$malformed/.zcode/cli/config.json"
+  cp "$malformed/.zcode/cli/config.json" "$malformed/before"
+  rc=0
+  out=$(HOME="$malformed" "$ZCODE_HOOK" install 2>&1) || rc=$?
+  [ "$rc" -ne 0 ] || fail "malformed zcode config was accepted"
+  assert_contains "$out" "malformed JSON" "malformed config refusal lacked its concrete reason"
+  cmp -s "$malformed/before" "$malformed/.zcode/cli/config.json" \
+    || fail "malformed config refusal changed config bytes"
+
+  ln -s /etc/hostname "$symlinked/.zcode/cli/config.json"
+  rc=0
+  out=$(HOME="$symlinked" "$ZCODE_HOOK" install 2>&1) || rc=$?
+  [ "$rc" -ne 0 ] || fail "a symlinked zcode config was accepted"
+  assert_contains "$out" "not a regular non-symlink" "symlink refusal lacked its concrete reason"
+
+  # A Firstmate hook reference in an event this installer does not own is a
+  # surprise, refused rather than silently rewritten (kimi parity).
+  printf '{"hooks":{"enabled":true,"events":{"PreToolUse":[{"hooks":[{"type":"command","command":"bash ~/.zcode/cli/fm-turn-end.sh"}]}]}}}' \
+    > "$foreign_event/.zcode/cli/config.json"
+  rc=0
+  out=$(HOME="$foreign_event" "$ZCODE_HOOK" install 2>&1) || rc=$?
+  [ "$rc" -ne 0 ] || fail "a Firstmate reference in an unowned event was accepted"
+  assert_contains "$out" "does not own" "the unowned-event refusal lacked its concrete reason"
+  [ ! -e "$foreign_event/.zcode/cli/fm-turn-end.sh" ] \
+    || fail "a refused install wrote the hook script"
+  pass "zcode hook install refuses missing, malformed, symlinked, and surprising config without writing"
+}
+
+test_zcode_hook_install_refuses_without_jq() {
+  local home fakebin out rc
+  home=$(make_hook_config_home "$TMP_ROOT/hook-no-jq")
+  fakebin=$(fm_fakebin "$TMP_ROOT/hook-no-jq-fake")
+  ln -s "$(command -v bash)" "$fakebin/bash"
+  ln -s "$(command -v python3)" "$fakebin/python3"
+  rc=0
+  out=$(HOME="$home" PATH="$fakebin" "$ZCODE_HOOK" install 2>&1) || rc=$?
+  [ "$rc" -ne 0 ] || fail "zcode hook install succeeded without jq"
+  assert_contains "$out" "jq is required" "missing-jq refusal did not name jq"
+  [ ! -e "$home/.zcode/cli/fm-turn-end.sh" ] \
+    || fail "missing-jq refusal wrote the hook script"
+  [ ! -e "$home/.zcode/cli/fm-turn-end.d" ] \
+    || fail "missing-jq refusal wrote the registry"
+  pass "zcode hook install refuses without jq before any config write"
+}
+
+# --- 5. Launch and wiring --------------------------------------------------------
 
 make_zcode_spawn_case() {  # <name> <id>
   local name=$1 harness=zcode id=$2 case_dir home proj wt fakebin
@@ -250,7 +467,13 @@ make_zcode_spawn_case() {  # <name> <id>
   proj="$case_dir/project"
   wt="$case_dir/wt"
   fakebin=$(make_spawn_fakebin "$case_dir/fake" zcode)
+  ln -s "$JQ_BIN" "$fakebin/jq"
   fm_test_spawn_home "$home" "$harness"
+  # The installer refuses a missing global config, so the throwaway user HOME
+  # the spawn runs under carries a realistic pre-seeded one; the spawn's
+  # install assertion below then reads from exactly this throwaway copy.
+  mkdir -p "$home/user-home/.zcode/cli"
+  printf '{"provider":{"zai":{"kind":"anthropic"}}}\n' > "$home/user-home/.zcode/cli/config.json"
   fm_git_worktree "$proj" "$wt" "wt-$name"
   fm_test_spawn_brief "$home" "$id"
   : > "$case_dir/launch.log"
@@ -274,6 +497,7 @@ test_zcode_spawn_launch_line_records_axes_and_pins_headless() {
   local rec id=zcode-launch-q1 out status launch state
   rec=$(make_zcode_spawn_case launch "$id")
   read_case_record "$rec"
+  ZCODE_TASK_TMPS+=("/tmp/fm-$id")
   out=$(run_scout_spawn "$HOME_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$LAUNCH_LOG" \
     "$id" "$PROJ_DIR" --harness zcode --model glm-5.3 --effort low)
   status=$?
@@ -286,51 +510,188 @@ test_zcode_spawn_launch_line_records_axes_and_pins_headless() {
   assert_grep "effort=low" "$state/$id.meta" "meta missing the recorded effort"
   launch=$(cat "$LAUNCH_LOG")
   assert_contains "$launch" \
-    "env -u CLAUDECODE -u PI_CODING_AGENT -u GROK_AGENT -u FM_PI_HARNESS -u GEMINI_CLI -u CURSOR_AGENT -u CURSOR_INVOKED_AS FM_ZCODE_HARNESS=zcode ZCODE_DISABLE_UPDATE_CHECK=1 '$FAKEBIN_DIR/zcode'" \
-    "zcode launch did not clear foreign markers and establish its own at the launch boundary"
+    "env -u CLAUDECODE -u PI_CODING_AGENT -u GROK_AGENT -u FM_PI_HARNESS -u GEMINI_CLI -u CURSOR_AGENT -u CURSOR_INVOKED_AS -u ATLASSIAN_AGENT_TYPE -u ROVODEV_CLI FM_ZCODE_HARNESS=zcode ZCODE_DISABLE_UPDATE_CHECK=1 '$FAKEBIN_DIR/zcode'" \
+    "zcode launch did not clear every foreign marker (including rovo's two) and establish its own"
   assert_contains "$launch" "--mode yolo --cwd '$WT_DIR'" \
     "zcode launch did not pin the yolo permission mode and the working directory"
   assert_contains "$launch" \
     "--prompt \"\$('$ROOT/bin/fm-operational-input.sh' encode launch-brief < '$HOME_DIR/data/$id/launch-brief.md')\"" \
     "zcode launch lost the headless prompt carrying the canonical typed launch-brief envelope"
   # ...but never reach the launch command, because the headless flag set has
-  # neither flag (verified against zcode-runtime 0.16.5 --help).
+  # neither flag (verified against zcode-runtime 0.16.5), and a fresh launch
+  # never carries a resume flag.
   case "$launch" in
-    *--model*|*--effort*|*--thinking*) fail "zcode launch must not carry model/effort flags: $launch" ;;
+    *--model*|*--effort*|*--thinking*|*--resume*|*--continue*) \
+      fail "zcode launch must not carry model/effort/resume flags: $launch" ;;
   esac
-  pass "fm-spawn: the zcode launch pins headless yolo, records the axes, and never passes model/effort flags"
+  pass "fm-spawn: the zcode launch pins headless yolo, records the axes, and never passes model/effort/resume flags"
 }
 
-test_zcode_spawn_arms_no_busy_wiring() {
-  local rec id=zcode-nowiring-z7 out statedir sidecar
-  rec=$(make_zcode_spawn_case nowiring "$id")
+test_zcode_spawn_arms_the_hook_wiring_and_busy_record() {
+  local rec id=zcode-wiring-z7 out statedir user_home token gen
+  rec=$(make_zcode_spawn_case wiring "$id")
   read_case_record "$rec"
+  ZCODE_TASK_TMPS+=("/tmp/fm-$id")
   out=$(run_scout_spawn "$HOME_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$LAUNCH_LOG" \
     "$id" "$PROJ_DIR" --harness zcode)
   expect_code 0 $? "zcode spawn should succeed: $out"
   statedir="$HOME_DIR/state"
-  [ -e "$statedir/$id.busy-gen" ] \
-    && fail "zcode spawn armed a busy generation nothing could clear" || true
-  for sidecar in "$statedir/$id."zcode* "$statedir/$id."pi-ext.ts "$statedir/$id."omp-ext.ts \
-    "$statedir/$id."muse-session "$statedir/$id."gemini-settings.json; do
-    [ -e "$sidecar" ] || continue
-    fail "zcode spawn left adapter wiring behind: $sidecar"
-  done
+  user_home="$HOME_DIR/user-home"
+  # The global hook is installed into the throwaway user HOME's zcode config.
+  assert_grep 'fm-turn-end.sh' "$user_home/.zcode/cli/config.json" \
+    "zcode spawn did not install its guarded global hook"
+  [ -x "$user_home/.zcode/cli/fm-turn-end.sh" ] \
+    || fail "zcode spawn did not install the hook script"
+  # The per-task token, pointer, and registry entry all exist and bind.
+  assert_grep 'token=' "$WT_DIR/.fm-zcode-turnend" "zcode spawn did not write its token pointer"
+  token=$(sed -n 's/^token=//p' "$WT_DIR/.fm-zcode-turnend")
+  assert_present "$statedir/$id.zcode-turnend-token" "zcode spawn did not record its token"
+  assert_present "$user_home/.zcode/cli/fm-turn-end.d/$token" \
+    "the registry entry for the minted token is missing"
+  gen=$(cat "$statedir/$id.busy-gen")
+  assert_grep "state-dir=$statedir" "$user_home/.zcode/cli/fm-turn-end.d/$token" \
+    "the registry entry lost the busy writer's state dir"
+  assert_grep "id=$id" "$user_home/.zcode/cli/fm-turn-end.d/$token" \
+    "the registry entry lost the task id"
+  assert_grep "gen=$gen" "$user_home/.zcode/cli/fm-turn-end.d/$token" \
+    "the registry entry lost the busy generation"
+  assert_grep "turn-ended=$statedir/$id.turn-ended" "$user_home/.zcode/cli/fm-turn-end.d/$token" \
+    "the registry entry lost the turn-end marker path"
+  assert_grep "busy-event=$ROOT/bin/fm-busy-event.sh" "$user_home/.zcode/cli/fm-turn-end.d/$token" \
+    "the registry entry lost its busy-event writer binding"
+  # The hook script is machine-global (one path for every firstmate home and
+  # checkout), so it must not bake this checkout's absolute path: the writer
+  # is resolved per task from the registry at fire time, which keeps every
+  # home's install byte-identical and cross-checkout removals valid.
+  if grep -F -q "$ROOT" "$user_home/.zcode/cli/fm-turn-end.sh"; then
+    fail "the machine-global hook baked the spawning checkout's path"
+  fi
+  # The busy contract is armed and seeded busy by the launch brief itself.
+  assert_grep "v1 gen=$gen seq=1 state=busy source=fm-spawn event=launch-brief" \
+    "$statedir/$id.busy-state" "the seeded busy record is missing or malformed"
   out=$(fm_busy_classify tmux fake:w zcode "$id" "$statedir" 'worker finished its turn')
-  [ "$out" = "unknown zcode-regex" ] \
-    || fail "an unwired zcode task must classify unknown zcode-regex, got '$out'"
-  pass "fm-spawn: zcode arms no busy wiring, writes no sidecar, and classifies unknown"
+  [ "$out" = "busy zcode-hook" ] || [ "$out" = "busy fm-spawn" ] \
+    || fail "an armed zcode task must classify busy through its record, got '$out'"
+  # No session sidecar exists before the first hook event fires.
+  [ ! -e "$statedir/$id.zcode-session" ] \
+    || fail "a fresh spawn must not carry a session sidecar"
+  pass "fm-spawn: zcode installs its hook, arms the busy record, and binds the token"
+}
+
+test_zcode_hook_opens_closes_and_records_only_through_the_token() {
+  local rec id=zcode-hook-z9 out rc hook statedir token target
+  rec=$(make_zcode_spawn_case hookfire "$id")
+  read_case_record "$rec"
+  ZCODE_TASK_TMPS+=("/tmp/fm-$id")
+  out=$(run_scout_spawn "$HOME_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$LAUNCH_LOG" \
+    "$id" "$PROJ_DIR" --harness zcode)
+  expect_code 0 $? "zcode spawn should succeed before hook firing: $out"
+  hook="$HOME_DIR/user-home/.zcode/cli/fm-turn-end.sh"
+  statedir="$HOME_DIR/state"
+  target="$statedir/$id.turn-ended"
+  token=$(sed -n 's/^token=//p' "$WT_DIR/.fm-zcode-turnend")
+
+  # A tokenless workspace is a no-op: silent, exit zero, nothing written.
+  mkdir -p "$TMP_ROOT/hookfire-stranger"
+  out=$(printf '{"hook_event_name":"Stop","session_id":"ordinary","cwd":"%s","stop_hook_active":false}\n' \
+    "$TMP_ROOT/hookfire-stranger" | HOME="$HOME_DIR/user-home" bash "$hook" 2>&1)
+  rc=$?
+  expect_code 0 "$rc" "the zcode hook must never block a tokenless session"
+  [ -z "$out" ] || fail "the zcode hook printed into a tokenless session: $out"
+  assert_absent "$target" "a tokenless zcode hook invocation touched a task marker"
+
+  # An event the hook does not handle is a no-op even with a valid token.
+  out=$(printf '{"hook_event_name":"PreToolUse","session_id":"sess_1","cwd":"%s","tool_name":"Bash"}\n' \
+    "$WT_DIR" | HOME="$HOME_DIR/user-home" bash "$hook" 2>&1)
+  rc=$?
+  expect_code 0 "$rc" "an unhandled event must still exit zero"
+  assert_absent "$target" "an unhandled event touched the turn-end marker"
+  [ ! -e "$statedir/$id.zcode-session" ] \
+    || fail "an unhandled event recorded a session id"
+
+  # UserPromptSubmit opens the busy record and records the session id.
+  out=$(printf '{"hook_event_name":"UserPromptSubmit","session_id":"sess_zcode9","cwd":"%s","prompt":"hi"}\n' \
+    "$WT_DIR" | HOME="$HOME_DIR/user-home" bash "$hook" 2>&1)
+  rc=$?
+  expect_code 0 "$rc" "a registered UserPromptSubmit invocation did not exit zero"
+  [ -z "$out" ] || fail "a registered invocation printed output: $out"
+  assert_grep 'session_id=sess_zcode9' "$statedir/$id.zcode-session" \
+    "the hook did not record the zcode session id"
+  out=$(fm_busy_classify tmux fake:w zcode "$id" "$statedir" '')
+  [ "$out" = "busy zcode-hook" ] \
+    || fail "UserPromptSubmit must open the busy record through zcode-hook, got '$out'"
+
+  # Stop closes it and touches the turn-end marker.
+  out=$(printf '{"hook_event_name":"Stop","session_id":"sess_zcode9","cwd":"%s","stop_hook_active":false}\n' \
+    "$WT_DIR" | HOME="$HOME_DIR/user-home" bash "$hook" 2>&1)
+  rc=$?
+  expect_code 0 "$rc" "a registered Stop invocation did not exit zero"
+  assert_present "$target" "a registered Stop invocation did not touch the turn-end marker"
+  out=$(fm_busy_classify tmux fake:w zcode "$id" "$statedir" '')
+  [ "$out" = "idle zcode-hook" ] \
+    || fail "Stop must close the busy record through zcode-hook, got '$out'"
+
+  # A stale generation (the registry entry of a superseded incarnation) is
+  # rejected by the busy writer, so the record keeps its current state.
+  sed -i 's/^gen=.*/gen=fm.stalegen0000/' "$HOME_DIR/user-home/.zcode/cli/fm-turn-end.d/$token"
+  out=$(printf '{"hook_event_name":"Stop","session_id":"sess_zcode9","cwd":"%s","stop_hook_active":false}\n' \
+    "$WT_DIR" | HOME="$HOME_DIR/user-home" bash "$hook" 2>&1)
+  expect_code 0 $? "a stale-gen hook invocation must still exit zero"
+  out=$(fm_busy_classify tmux fake:w zcode "$id" "$statedir" '')
+  [ "$out" = "idle zcode-hook" ] \
+    || fail "a stale-generation event must not disturb the current record, got '$out'"
+  # A registry entry without a shape-valid busy-event writer is a silent
+  # no-op: the hook resolves and shape-checks the writer path at fire time,
+  # so a stranger-edited token can never redirect it at an arbitrary command
+  # and an entry from a vanished checkout can never dangle into one.
+  sed -i '/^gen=/s/.*/gen=okgen/' "$HOME_DIR/user-home/.zcode/cli/fm-turn-end.d/$token"
+  sed -i '/^busy-event=/d' "$HOME_DIR/user-home/.zcode/cli/fm-turn-end.d/$token"
+  rm -f "$target"
+  out=$(printf '{"hook_event_name":"Stop","session_id":"sess_zcode9","cwd":"%s","stop_hook_active":false}\n' \
+    "$WT_DIR" | HOME="$HOME_DIR/user-home" bash "$hook" 2>&1)
+  expect_code 0 $? "a busy-event-less token invocation must still exit zero"
+  [ -z "$out" ] || fail "a busy-event-less invocation printed output: $out"
+  assert_absent "$target" "a token without a busy-event writer must not touch the turn-end marker"
+  # A writer path that is absolute but not a firstmate root's
+  # bin/fm-busy-event.sh shape is rejected by the fire-time check, never
+  # invoked - the hook only ever runs the writer fm-spawn itself recorded.
+  sed -i 's|^busy-event=.*|busy-event=/tmp/evil/fm-busy-event.sh|' \
+    "$HOME_DIR/user-home/.zcode/cli/fm-turn-end.d/$token"
+  out=$(printf '{"hook_event_name":"Stop","session_id":"sess_zcode9","cwd":"%s","stop_hook_active":false}\n' \
+    "$WT_DIR" | HOME="$HOME_DIR/user-home" bash "$hook" 2>&1)
+  expect_code 0 $? "a foreign writer path invocation must still exit zero"
+  [ ! -e /tmp/evil ] \
+    || fail "a writer path outside a firstmate root shape must never be invoked"
+  assert_absent "$target" "a foreign writer path must not touch the turn-end marker"
+  pass "zcode hook opens, closes, and records only through the firstmate token"
+}
+
+test_zcode_spawn_refuses_when_the_hook_cannot_install() {
+  local rec id=zcode-badcfg-qa out
+  rec=$(make_zcode_spawn_case badcfg "$id")
+  read_case_record "$rec"
+  printf '{"broken\n' > "$HOME_DIR/user-home/.zcode/cli/config.json"
+  out=$(run_scout_spawn "$HOME_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$LAUNCH_LOG" \
+    "$id" "$PROJ_DIR" --harness zcode)
+  expect_code 1 $? "an unresolvable zcode global config must fail the spawn: $out"
+  assert_contains "$out" "global turn-end hook could not be installed safely" \
+    "the refusal must name the hook install failure: $out"
+  pass "fm-spawn: an unsafe zcode global config refuses the spawn"
 }
 
 test_zcode_spawn_refused_without_the_bin() {
   local rec id=zcode-nobin-q3 out fakebin_nobin
   rec=$(make_zcode_spawn_case nobin "$id")
   read_case_record "$rec"
-  # A fakebin WITHOUT a zcode entry: the resolution must refuse before any
-  # endpoint exists rather than launching a pane that dies on command-not-found.
+  # A fakebin WITHOUT a zcode entry, on a PATH that also excludes any real
+  # zcode install: the resolution must refuse before any endpoint exists
+  # rather than launching a pane that dies on command-not-found. Pinning the
+  # PATH matters because this suite's machines may genuinely have zcode in
+  # /usr/local/bin, which would silently defeat the refusal.
   fakebin_nobin=$(make_spawn_fakebin "$CASE_DIR/fake-nobin")
-  out=$(run_scout_spawn "$HOME_DIR" "$WT_DIR" "$fakebin_nobin" "$LAUNCH_LOG" \
-    "$id" "$PROJ_DIR" --harness zcode)
+  ln -s "$JQ_BIN" "$fakebin_nobin/jq"
+  out=$(PATH="$fakebin_nobin:$BASE_PATH" run_scout_spawn "$HOME_DIR" "$WT_DIR" \
+    "$fakebin_nobin" "$LAUNCH_LOG" "$id" "$PROJ_DIR" --harness zcode)
   expect_code 1 $? "a spawn without a zcode bin must fail: $out"
   assert_contains "$out" "zcode executable not found on PATH" \
     "the refusal must name the missing zcode executable: $out"
@@ -354,15 +715,46 @@ test_zcode_is_refused_as_a_secondmate() {
   pass "zcode is refused as a secondmate because it has no primary supervision protocol"
 }
 
+test_zcode_teardown_removes_pointer_token_and_registry_entry() {
+  local rec id=zcode-teardown-z8 out rc token user_home
+  rec=$(make_zcode_spawn_case teardown "$id")
+  read_case_record "$rec"
+  ZCODE_TASK_TMPS+=("/tmp/fm-$id")
+  out=$(run_scout_spawn "$HOME_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$LAUNCH_LOG" \
+    "$id" "$PROJ_DIR" --harness zcode)
+  expect_code 0 "$?" "zcode spawn should succeed before teardown: $out"
+  user_home="$HOME_DIR/user-home"
+  token=$(sed -n 's/^token=//p' "$WT_DIR/.fm-zcode-turnend")
+  printf 'session_id=sess_tear0\n' > "$HOME_DIR/state/$id.zcode-session"
+
+  HOME="$user_home" FM_ROOT_OVERRIDE="$ROOT" FM_HOME="$HOME_DIR" \
+    FM_STATE_OVERRIDE="$HOME_DIR/state" FM_DATA_OVERRIDE="$HOME_DIR/data" \
+    FM_PROJECTS_OVERRIDE="$HOME_DIR/projects" FM_CONFIG_OVERRIDE="$HOME_DIR/config" \
+    FM_SPAWN_NO_GUARD=1 PATH="$FAKEBIN_DIR:$BASE_PATH" \
+    "$TEARDOWN" "$id" --force >/dev/null 2>&1 || fail "zcode teardown failed"
+  assert_absent "$WT_DIR/.fm-zcode-turnend" "zcode token pointer survived teardown"
+  assert_absent "$user_home/.zcode/cli/fm-turn-end.d/$token" "zcode registry token survived teardown"
+  assert_absent "$HOME_DIR/state/$id.zcode-turnend-token" "zcode token state survived teardown"
+  assert_absent "$HOME_DIR/state/$id.zcode-session" "zcode session sidecar survived teardown"
+  pass "fm-teardown: zcode pointer, registry token, and session sidecar are removed"
+}
+
 test_zcode_ancestry_detects_every_observed_process_name
 test_zcode_ancestry_rejects_unrelated_mentions
 test_zcode_marker_needs_real_ancestry
 test_zcode_pane_liveness_classifies_every_observed_surface
 test_zcode_control_mechanics_are_the_verified_ones
 test_zcode_busy_signature_is_configured_only
+test_zcode_hook_install_is_surgical_idempotent_and_removable
+test_zcode_hook_removal_restores_every_observed_pre_install_shape
+test_zcode_hook_fails_closed_on_missing_malformed_or_surprising_config
+test_zcode_hook_install_refuses_without_jq
 test_zcode_spawn_launch_line_records_axes_and_pins_headless
-test_zcode_spawn_arms_no_busy_wiring
+test_zcode_spawn_arms_the_hook_wiring_and_busy_record
+test_zcode_hook_opens_closes_and_records_only_through_the_token
+test_zcode_spawn_refuses_when_the_hook_cannot_install
 test_zcode_spawn_refused_without_the_bin
 test_zcode_is_refused_as_a_secondmate
+test_zcode_teardown_removes_pointer_token_and_registry_entry
 
 echo "all fm-zcode-harness tests passed"
