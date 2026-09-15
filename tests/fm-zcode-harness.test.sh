@@ -338,17 +338,66 @@ PY
   HOME="$home" "$ZCODE_HOOK" remove || fail "zcode hook removal failed"
   after=$(mktemp)
   python3 -c 'import json,sys; json.dump(json.load(open(sys.argv[1])), sys.stdout, sort_keys=True)' "$config" > "$after"
-  python3 - "$before" "$after" <<'PY' || fail "removal left more than the documented enabled-leaf difference"
+  python3 - "$before" "$after" <<'PY' || fail "removal did not restore the pre-install config semantically"
 import json, sys
 before = json.load(open(sys.argv[1]))
 after = json.load(open(sys.argv[2]))
-before["hooks"].pop("enabled", None)
-after["hooks"].pop("enabled", None)
-assert before == after, "removal changed foreign config beyond the enabled leaf"
+assert before == after, "removal must restore every foreign leaf and the pre-install enabled value"
 PY
   [ ! -e "$home/.zcode/cli/fm-turn-end.sh" ] || fail "removal left the Firstmate hook script"
   [ ! -e "$home/.zcode/cli/fm-turn-end.d" ] || fail "removal left the Firstmate registry"
-  pass "zcode hook install is idempotent and removal restores every foreign config leaf"
+  [ ! -e "$home/.zcode/cli/fm-turn-end.state" ] || fail "removal left the install-state record"
+  pass "zcode hook install is idempotent and removal restores the pre-install config exactly"
+}
+
+test_zcode_hook_removal_restores_every_observed_pre_install_shape() {
+  local home config before after out rc
+  # The vendor-default shipped shape: the hook gate defaulted false and every
+  # event key pre-created as an empty array - the exact config.json the
+  # installer meets on a real machine, whose empty owned keys a naive strip
+  # would delete and whose gate a raise-without-record would leave flipped.
+  home=$(make_hook_config_home "$TMP_ROOT/hook-vendor" \
+    '{"provider":{"zai":{"kind":"anthropic"}},"hooks":{"enabled":false,"timeoutMs":60000,"maxOutputBytes":32768,"events":{"SessionStart":[],"UserPromptSubmit":[],"PreToolUse":[],"PermissionRequest":[],"PostToolUse":[],"PostToolUseFailure":[],"Stop":[]}}}')
+  config="$home/.zcode/cli/config.json"
+  before=$(jq -S . "$config")
+  HOME="$home" "$ZCODE_HOOK" install || fail "install refused the vendor-default config"
+  HOME="$home" "$ZCODE_HOOK" install || fail "second install on the vendor-default config failed"
+  [ "$(jq -r '.hooks.enabled' "$config")" = true ] \
+    || fail "install must raise the runtime hook gate"
+  HOME="$home" "$ZCODE_HOOK" remove || fail "removal of the vendor-default install failed"
+  after=$(jq -S . "$config")
+  [ "$before" = "$after" ] \
+    || fail "install+remove must restore the vendor-default config semantically exactly"
+  # enabled:true pre-install must be restored as true, and an absent gate key
+  # must be removed again rather than left raised or recorded as a value.
+  home=$(make_hook_config_home "$TMP_ROOT/hook-true" \
+    '{"hooks":{"enabled":true,"events":{"Stop":[],"UserPromptSubmit":[]}}}')
+  config="$home/.zcode/cli/config.json"
+  before=$(jq -S . "$config")
+  HOME="$home" "$ZCODE_HOOK" install || fail "install refused the enabled:true shape"
+  HOME="$home" "$ZCODE_HOOK" remove || fail "removal refused the enabled:true shape"
+  [ "$before" = "$(jq -S . "$config")" ] \
+    || fail "install+remove must restore the enabled:true shape exactly"
+  home=$(make_hook_config_home "$TMP_ROOT/hook-absent" '{"hooks":{"events":{"Stop":[]}}}')
+  config="$home/.zcode/cli/config.json"
+  before=$(jq -S . "$config")
+  HOME="$home" "$ZCODE_HOOK" install || fail "install refused the enabled-absent shape"
+  HOME="$home" "$ZCODE_HOOK" remove || fail "removal refused the enabled-absent shape"
+  [ "$before" = "$(jq -S . "$config")" ] \
+    || fail "install+remove must restore the enabled-absent shape exactly"
+  # Without the install-state record, removal fails closed rather than
+  # guessing the pre-install leaves - the record is what makes removal
+  # faithful, so its absence is a stop-and-reinstall condition.
+  home=$(make_hook_config_home "$TMP_ROOT/hook-nostate" \
+    '{"hooks":{"enabled":false,"events":{"Stop":[],"UserPromptSubmit":[]}}}')
+  HOME="$home" "$ZCODE_HOOK" install || fail "install for the missing-state case failed"
+  rm "$home/.zcode/cli/fm-turn-end.state"
+  rc=0
+  out=$(HOME="$home" "$ZCODE_HOOK" remove 2>&1) || rc=$?
+  [ "$rc" -ne 0 ] || fail "removal without the install-state record must refuse"
+  assert_contains "$out" "install-state file is missing" \
+    "the missing-state refusal lacked its concrete reason"
+  pass "zcode hook removal restores the vendor-default, enabled-true, and enabled-absent shapes exactly"
 }
 
 test_zcode_hook_fails_closed_on_missing_malformed_or_surprising_config() {
@@ -508,6 +557,15 @@ test_zcode_spawn_arms_the_hook_wiring_and_busy_record() {
     "the registry entry lost the busy generation"
   assert_grep "turn-ended=$statedir/$id.turn-ended" "$user_home/.zcode/cli/fm-turn-end.d/$token" \
     "the registry entry lost the turn-end marker path"
+  assert_grep "busy-event=$ROOT/bin/fm-busy-event.sh" "$user_home/.zcode/cli/fm-turn-end.d/$token" \
+    "the registry entry lost its busy-event writer binding"
+  # The hook script is machine-global (one path for every firstmate home and
+  # checkout), so it must not bake this checkout's absolute path: the writer
+  # is resolved per task from the registry at fire time, which keeps every
+  # home's install byte-identical and cross-checkout removals valid.
+  if grep -F -q "$ROOT" "$user_home/.zcode/cli/fm-turn-end.sh"; then
+    fail "the machine-global hook baked the spawning checkout's path"
+  fi
   # The busy contract is armed and seeded busy by the launch brief itself.
   assert_grep "v1 gen=$gen seq=1 state=busy source=fm-spawn event=launch-brief" \
     "$statedir/$id.busy-state" "the seeded busy record is missing or malformed"
@@ -582,6 +640,29 @@ test_zcode_hook_opens_closes_and_records_only_through_the_token() {
   out=$(fm_busy_classify tmux fake:w zcode "$id" "$statedir" '')
   [ "$out" = "idle zcode-hook" ] \
     || fail "a stale-generation event must not disturb the current record, got '$out'"
+  # A registry entry without a shape-valid busy-event writer is a silent
+  # no-op: the hook resolves and shape-checks the writer path at fire time,
+  # so a stranger-edited token can never redirect it at an arbitrary command
+  # and an entry from a vanished checkout can never dangle into one.
+  sed -i '/^gen=/s/.*/gen=okgen/' "$HOME_DIR/user-home/.zcode/cli/fm-turn-end.d/$token"
+  sed -i '/^busy-event=/d' "$HOME_DIR/user-home/.zcode/cli/fm-turn-end.d/$token"
+  rm -f "$target"
+  out=$(printf '{"hook_event_name":"Stop","session_id":"sess_zcode9","cwd":"%s","stop_hook_active":false}\n' \
+    "$WT_DIR" | HOME="$HOME_DIR/user-home" bash "$hook" 2>&1)
+  expect_code 0 $? "a busy-event-less token invocation must still exit zero"
+  [ -z "$out" ] || fail "a busy-event-less invocation printed output: $out"
+  assert_absent "$target" "a token without a busy-event writer must not touch the turn-end marker"
+  # A writer path that is absolute but not a firstmate root's
+  # bin/fm-busy-event.sh shape is rejected by the fire-time check, never
+  # invoked - the hook only ever runs the writer fm-spawn itself recorded.
+  sed -i 's|^busy-event=.*|busy-event=/tmp/evil/fm-busy-event.sh|' \
+    "$HOME_DIR/user-home/.zcode/cli/fm-turn-end.d/$token"
+  out=$(printf '{"hook_event_name":"Stop","session_id":"sess_zcode9","cwd":"%s","stop_hook_active":false}\n' \
+    "$WT_DIR" | HOME="$HOME_DIR/user-home" bash "$hook" 2>&1)
+  expect_code 0 $? "a foreign writer path invocation must still exit zero"
+  [ ! -e /tmp/evil ] \
+    || fail "a writer path outside a firstmate root shape must never be invoked"
+  assert_absent "$target" "a foreign writer path must not touch the turn-end marker"
   pass "zcode hook opens, closes, and records only through the firstmate token"
 }
 
@@ -665,6 +746,7 @@ test_zcode_pane_liveness_classifies_every_observed_surface
 test_zcode_control_mechanics_are_the_verified_ones
 test_zcode_busy_signature_is_configured_only
 test_zcode_hook_install_is_surgical_idempotent_and_removable
+test_zcode_hook_removal_restores_every_observed_pre_install_shape
 test_zcode_hook_fails_closed_on_missing_malformed_or_surprising_config
 test_zcode_hook_install_refuses_without_jq
 test_zcode_spawn_launch_line_records_axes_and_pins_headless

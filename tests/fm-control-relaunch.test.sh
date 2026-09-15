@@ -973,8 +973,9 @@ test_cursor_session_binding_is_retired_on_a_harness_switch() {
 # zcode records its session id from the hook payload, and a relaunch whose
 # prior incarnation was zcode reuses that session through --resume (verified
 # live on 0.16.5: --resume restores context headless, while -c's
-# latest-for-cwd guess and an unresumable --resume both print an error and
-# exit 0 - which is why only a recorded session id ever rides the flag).
+# latest-for-cwd guess and an unresumable --resume both print an error to
+# stderr and exit 1 - which is why only a recorded session id ever rides the
+# flag).
 seed_zcode_spawn_support() {  # <case-dir>
   local dir=$1
   mkdir -p "$dir/user-home/.zcode/cli"

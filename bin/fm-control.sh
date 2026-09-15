@@ -447,6 +447,14 @@ do_interrupt() {
   local proof cancel
   cancel=$(deliver_interrupt) || return $?
   proof=$(verify_interrupt_running) || return $?
+  # When the interrupt legitimately ENDS the worker process, no live process
+  # remains to close the busy record: a SIGINT fires no Stop hook (verified
+  # live on zcode-runtime 0.16.5: kill -INT mid-turn exits 130 with no Stop
+  # event), so the record is retired here exactly as do_exit's signal-shaped
+  # stop already does, never left reporting a dead worker as provably busy.
+  if [ "$proof" = agent-ended-by-interrupt ]; then
+    retire_busy_incarnation
+  fi
   printf '%s cancel=%s' "$proof" "$cancel"
 }
 

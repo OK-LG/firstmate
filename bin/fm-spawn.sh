@@ -186,12 +186,15 @@
 #   record (source zcode-hook), touches the turn-end marker, and records the
 #   zcode session id; a relaunch reuses that recorded session through --resume
 #   when the prior incarnation was zcode (verified live: --resume restores
-#   context headless, and both --resume and -c print an error AND EXIT 0 when
-#   nothing is resumable, so the flag only ever rides a recorded session id,
-#   never -c's latest-for-cwd guess). The rendered-tail classifier stays as
-#   the no-record fallback, and headless error paths exit 0 (verified for
-#   unresumable sessions and unknown options alongside the Phase A probes),
-#   so nothing may trust exit status. zcode is crewmate/scout only.
+#   context headless, and both --resume and -c print an error to stderr and
+#   exit 1 when nothing is resumable, so the flag only ever rides a recorded
+#   session id, never -c's latest-for-cwd guess). The rendered-tail classifier
+#   stays as the no-record fallback, and every probed headless error path
+#   exits 1 on stderr (re-verified 2026-09-15: unknown options, unresumable
+#   sessions, credential not-configured, and request-signing errors), so
+#   nothing may trust exit status - the blindness posture stands because the
+#   research-era record once mis-measured these codes and a release can
+#   change them. zcode is crewmate/scout only.
 #   config/secondmate-harness may also carry an optional model and effort as extra
 #   whitespace-separated tokens ("<harness> [<model>] [<effort>]"). For a
 #   --secondmate spawn, those tokens apply only when this spawn also resolves its
@@ -1656,8 +1659,9 @@ launch_template() {
     # the wrapper's documented npm update notice so it can never render into a
     # supervised pane. No __MODELFLAG__ and no __EFFORTFLAG__ appear because the
     # headless flag set has neither (verified against 0.16.5: --model,
-    # --effort, and --reasoning-effort are all rejected with the help dump and
-    # exit 0; model selection is the TUI's /model slash command only) - the
+    # --effort, and --reasoning-effort are all rejected with the help dump
+    # on stderr and exit 1; model selection is the TUI's /model slash
+    # command only) - the
     # record-and-omit contract keeps both axes in task metadata. Foreign
     # markers are cleared - including rovo's two, because a marker beats
     # args-strength ancestry and zcode's bare node launcher is claimed exactly
@@ -1667,7 +1671,7 @@ launch_template() {
     # CLAUDECODE can never rename them. __RESUMEFLAG__ is empty for a fresh
     # launch and becomes `--resume <sessionId>` only on a relaunch whose prior
     # zcode incarnation recorded its session (verified live: --resume restores
-    # context headless; an unresumable session prints an error and exits 0, so
+    # context headless; an unresumable session prints to stderr and exits 1, so
     # the flag never rides an unrecorded guess).
     zcode) printf '%s' 'env -u CLAUDECODE -u PI_CODING_AGENT -u GROK_AGENT -u FM_PI_HARNESS -u GEMINI_CLI -u CURSOR_AGENT -u CURSOR_INVOKED_AS -u ATLASSIAN_AGENT_TYPE -u ROVODEV_CLI FM_ZCODE_HARNESS=zcode ZCODE_DISABLE_UPDATE_CHECK=1 __ZCODEBIN__ --mode yolo --cwd __WORKTREE__ __RESUMEFLAG__ --prompt "$(__OPINPUT__ encode launch-brief < __BRIEF__)"' ;;
     # grok (Grok Build TUI): a positional prompt starts the supervised interactive
@@ -3809,7 +3813,11 @@ EOF
       # only when the payload's workspace holds a .fm-zcode-turnend pointer
       # matching the registry, and the registry entry binds the busy writer
       # (UserPromptSubmit opens, Stop closes, source zcode-hook), the
-      # turn-end touch, and the session-id record. A project-level
+      # turn-end touch, and the session-id record. The registry entry also
+      # names this root's busy-event writer (busy-event=), which the global
+      # hook resolves at fire time, so the one machine-global hook script
+      # never bakes any checkout's absolute path and every home's install
+      # produces identical hook bytes. A project-level
       # .zcode/config.json hook was tested live and does NOT fire without
       # zcode's workspace-hook trust grant, which is exactly why the hook
       # lives here instead: global user-config hooks need no trust grant and
@@ -3831,6 +3839,7 @@ EOF
         printf 'id=%s\n' "$ID"
         printf 'gen=%s\n' "$BUSY_GEN"
         printf 'turn-ended=%s\n' "$TURNEND"
+        printf 'busy-event=%s\n' "$FM_ROOT/bin/fm-busy-event.sh"
       } > "$auth_file"
       printf '%s\n' "${auth_file##*/}" > "$STATE/$ID.zcode-turnend-token"
       printf 'token=%s\n' "${auth_file##*/}" > "$WT/.fm-zcode-turnend"
@@ -3844,9 +3853,11 @@ EOF
       # harness switch away and back must not resume a stale session. The
       # sidecar is consumed and removed here either way; the new incarnation
       # records its own id from the first hook event. An unresumable session
-      # prints an error and exits 0 (verified), so the flag never rides an
-      # unrecorded guess, and -c's latest-for-cwd shape is never used because
-      # another session could have claimed that slot.
+      # prints to stderr and exits 1 (verified), so a dead-on-arrival resume
+      # costs exactly one turn - and because the sidecar is consumed here
+      # first, the task never wedges on a stale id - so the flag never rides
+      # an unrecorded guess, and -c's latest-for-cwd shape is never used
+      # because another session could have claimed that slot.
       ZCODE_RESUME_SESSION=
       if [ "$RELAUNCH" -eq 1 ] \
          && [ "$(fm_control_harness_family "$RELAUNCH_PRIOR_HARNESS" 2>/dev/null || true)" = zcode ] \
