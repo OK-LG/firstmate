@@ -215,6 +215,16 @@ A Herdr pane id contains a colon, so the adapter splits `window=` on the first c
 The recorded pane is the operational fast path.
 Workspace and tab ids support verification and cleanup but are not inferred from mutable labels during normal operation.
 
+## Agent view bridge
+
+Herdr's built-in agent detection does not know zcode, so a zcode worker would otherwise show up only as a bare tab.
+The semantic busy-state writer (`bin/fm-busy-event.sh`) therefore reports a zcode task's flips to herdr's agent view after every successful arm and after every busy-event apply that lands busy or idle, for tasks whose task record holds both `backend=herdr` and `harness=zcode`.
+The report is `herdr pane report-agent <pane-id> --source firstmate --agent fm-<task-id> --state working|idle --seq <record-seq>`, plus `--agent-session-id` when `state/<id>.zcode-session` holds a session id, and the pane is the part of `window=` after the first colon.
+The report carries only the worker pane's inherited herdr environment, never an explicit `--session` flag, so it routes to the pane's own server exactly like any other pane-side call.
+It is best-effort: a missing herdr on PATH, a missing task record, an unusable window, or a failed report is a silent no-op that never changes the busy record, the writer's exit codes, or its output.
+tmux-side tasks and other harnesses are unchanged, because herdr detects those agents natively.
+`tests/fm-zcode-herdr-bridge.test.sh` pins the exact invocation and scoping, and `tests/fm-zcode-herdr-bridge-live-e2e.test.sh` proves the binding and the live status flips against the real Herdr binary.
+
 ## Current transport behavior
 
 The adapter starts and polls a named server before workspace, tab, pane, or agent calls.
@@ -366,6 +376,8 @@ tests/fm-backend-herdr-launcher-workspace-e2e.test.sh
 tests/fm-backend-herdr-presentation-e2e.test.sh
 tests/fm-backend-herdr-agent-exit-shell-e2e.test.sh
 tests/fm-herdr-pi-stale-registration-live-e2e.test.sh
+tests/fm-zcode-herdr-bridge.test.sh
+tests/fm-zcode-herdr-bridge-live-e2e.test.sh
 tests/fm-backend-herdr-eventwait-smoke.test.sh
 tests/fm-control-herdr-smoke.test.sh
 tests/fm-herdr-session-cleanup.test.sh

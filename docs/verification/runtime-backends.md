@@ -1336,6 +1336,26 @@ ok - real herdr 0.9.0 + pi 0.85.1: the registration left behind by a quit pi rea
 `tests/fm-crew-state.test.sh` pins the recovery classifier: a stale registration over a shell-only pane reports agent gone rather than alive or unreachable, and a stale `working` record never reports the pane working.
 A stale-registration pane is never a husk: create, reclaim, presentation recovery, and session cleanup keep refusing it, and only recovery reuses it.
 
+### Agent view bridge
+
+The zcode agent-view bridge (`bin/fm-busy-event.sh`'s report to `herdr pane report-agent`, docs/herdr-backend.md "Agent view bridge") was verified live on 2026-09-15 on Linux x64 with Herdr 0.9.0, protocol 22, in an isolated `fm-lab-` session while the default server was also running.
+The arm report, sent with only the pane-side environment a real herdr-hosted worker inherits (`HERDR_SESSION` and `HERDR_SOCKET_PATH`, never an explicit `--session` flag), bound the fixture task as agent `fm-zcode-herdr-bridge-e2e` on the scratch pane and read `agent_status=working`, and the idle apply flipped the same record to `agent_status=idle` through `herdr agent list` and `herdr agent get`.
+Herdr 0.9.0 accepts `--agent-session-id` on the report without surfacing it back through the agent views, so the exact invocation is pinned by the portable test instead.
+The env-routed report landed on the worker's own server, never the default one, which is the misroute hazard a second running server creates.
+
+```sh
+tests/fm-zcode-herdr-bridge-live-e2e.test.sh
+```
+
+Observed 2026-09-15:
+
+```text
+# herdr 0.9.0: fm-zcode-herdr-bridge-e2e bound on w1:p1, flipped working->idle through the real busy record
+ok - real herdr 0.9.0: the busy-record bridge binds the agent and tracks its flips live
+```
+
+That command is the guard that refreshes this record; run it after every Herdr upgrade rather than trusting the version above.
+
 ### Away-mode transport
 
 The away daemon is no longer launched on Pi; the away posture there is the record `bin/fm-afk-contract.sh` owns.

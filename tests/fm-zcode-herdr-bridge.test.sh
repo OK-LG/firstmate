@@ -1,0 +1,232 @@
+#!/usr/bin/env bash
+# Behavior tests for the herdr agent-view bridge in bin/fm-busy-event.sh.
+#
+# The bridge (header of bin/fm-busy-event.sh) reports a herdr-backend
+# zcode-harness task's busy/idle flips to herdr's agent view after a
+# successful arm or apply, and is best-effort ALWAYS: a missing herdr, a
+# missing meta, an unusable window=, or a failing report is a silent no-op
+# that leaves the exit code, the busy record, and stdout untouched. These
+# tests run the REAL writer against a fake herdr that captures argv, so the
+# exact report invocation, the scoping guards, and the seq/session-id
+# threading are pinned without a live harness.
+set -u
+
+# shellcheck source=tests/lib.sh
+. "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
+
+BASE_PATH=${FM_TEST_BASE_PATH:-/usr/bin:/bin:/usr/sbin:/sbin}
+TMP_ROOT=$(fm_test_tmproot fm-zcode-herdr-bridge)
+EV="$ROOT/bin/fm-busy-event.sh"
+
+make_case() {  # <name> -> "state|capture|fakebin"
+  local name=$1 dir state capture fakebin
+  dir="$TMP_ROOT/$name"
+  state="$dir/state"
+  mkdir -p "$state"
+  capture="$dir/herdr-calls.log"
+  : > "$capture"
+  fakebin=$(fm_fakebin "$dir")
+  cat > "$fakebin/herdr" <<SH
+#!/usr/bin/env bash
+printf '%s\n' "\$*" >> "$capture"
+exit \${FAKE_HERDR_EXIT:-0}
+SH
+  chmod +x "$fakebin/herdr"
+  printf '%s|%s|%s\n' "$state" "$capture" "$fakebin"
+}
+
+read_case() {
+  # shellcheck disable=SC2034 # FAKEBIN is part of the shared record shape
+  IFS='|' read -r STATE CAPTURE FAKEBIN <<EOF
+$1
+EOF
+}
+
+write_bridge_meta() {  # <state> <id> <backend-or-empty> <harness> <window>
+  local state=$1 id=$2 backend=$3 harness=$4 window=$5
+  {
+    [ -z "$backend" ] || printf 'backend=%s\n' "$backend"
+    printf 'window=%s\n' "$window"
+    printf 'harness=%s\n' "$harness"
+  } > "$state/$id.meta"
+}
+
+bridge_calls() {  # <capture>
+  cat "$1"
+}
+
+test_arm_reports_working_at_seq1_with_session_id() {
+  local rec out expected
+  rec=$(make_case arm-report)
+  read_case "$rec"
+  write_bridge_meta "$STATE" t1 herdr zcode 'fm-lab-x:w1:p7'
+  printf 'session_id=sess_abc123\n' > "$STATE/t1.zcode-session"
+  out=$(PATH="$FAKEBIN:$BASE_PATH" "$EV" arm "$STATE" t1)
+  expect_code 0 $? "arm must succeed"
+  case "$out" in
+    g[0-9]*) : ;;
+    *) fail "arm stdout must stay the bare minted gen, got '$out'" ;;
+  esac
+  [ "$(printf '%s\n' "$out" | wc -l)" -eq 1 ] || fail "arm stdout grew a second line: '$out'"
+  assert_grep 'seq=1 state=busy source=fm-spawn event=launch-brief' "$STATE/t1.busy-state" \
+    "arm must keep its exact seed record"
+  expected="pane report-agent w1:p7 --source firstmate --agent fm-t1 --state working --seq 1 --agent-session-id sess_abc123"
+  [ "$(bridge_calls "$CAPTURE")" = "$expected" ] \
+    || fail "arm report invocation mismatch: got '$(bridge_calls "$CAPTURE")'"
+  pass "arm reports working at seq 1 with the recorded session id and a clean stdout"
+}
+
+test_apply_flips_thread_seq_and_session_id() {
+  local rec gen expected
+  rec=$(make_case apply-flips)
+  read_case "$rec"
+  write_bridge_meta "$STATE" t1 herdr zcode 'fm-lab-x:w1:p7'
+  printf 'session_id=sess_live_1\n' > "$STATE/t1.zcode-session"
+  gen=$(PATH="$FAKEBIN:$BASE_PATH" "$EV" arm "$STATE" t1) || fail "arm failed"
+  PATH="$FAKEBIN:$BASE_PATH" "$EV" apply "$STATE" t1 busy \
+    --gen "$gen" --source zcode-hook --event user-prompt-submit
+  expect_code 0 $? "busy apply must succeed"
+  PATH="$FAKEBIN:$BASE_PATH" "$EV" apply "$STATE" t1 idle \
+    --gen "$gen" --source zcode-hook --event stop
+  expect_code 0 $? "idle apply must succeed"
+  [ "$(wc -l < "$CAPTURE")" -eq 3 ] || fail "expected arm+busy+idle reports, got $(wc -l < "$CAPTURE")"
+  expected="pane report-agent w1:p7 --source firstmate --agent fm-t1 --state working --seq 2 --agent-session-id sess_live_1"
+  [ "$(sed -n 2p "$CAPTURE")" = "$expected" ] || fail "busy apply report mismatch: '$(sed -n 2p "$CAPTURE")'"
+  expected="pane report-agent w1:p7 --source firstmate --agent fm-t1 --state idle --seq 3 --agent-session-id sess_live_1"
+  [ "$(sed -n 3p "$CAPTURE")" = "$expected" ] || fail "idle apply report mismatch: '$(sed -n 3p "$CAPTURE")'"
+  pass "busy and idle applies thread the record seq and session id into exact reports"
+}
+
+test_refused_apply_reports_nothing() {
+  local rec gen before
+  rec=$(make_case refused)
+  read_case "$rec"
+  write_bridge_meta "$STATE" t1 herdr zcode 'fm-lab-x:w1:p7'
+  gen=$(PATH="$FAKEBIN:$BASE_PATH" "$EV" arm "$STATE" t1) || fail "arm failed"
+  before=$(bridge_calls "$CAPTURE")
+  PATH="$FAKEBIN:$BASE_PATH" "$EV" apply "$STATE" t1 idle \
+    --gen "stale.$gen" --source zcode-hook --event stop 2>/dev/null \
+    && fail "a stale-gen apply must be refused"
+  expect_code 1 $? "a stale-gen apply must keep the refused exit code"
+  [ "$(bridge_calls "$CAPTURE")" = "$before" ] || fail "a refused apply reported to herdr"
+  pass "a refused apply keeps exit code 1 and reports nothing"
+}
+
+test_unknown_apply_reports_nothing() {
+  local rec gen before
+  rec=$(make_case unknown)
+  read_case "$rec"
+  write_bridge_meta "$STATE" t1 herdr zcode 'fm-lab-x:w1:p7'
+  gen=$(PATH="$FAKEBIN:$BASE_PATH" "$EV" arm "$STATE" t1) || fail "arm failed"
+  before=$(bridge_calls "$CAPTURE")
+  PATH="$FAKEBIN:$BASE_PATH" "$EV" apply "$STATE" t1 unknown \
+    --gen "$gen" --source zcode-hook --event stop
+  expect_code 0 $? "unknown apply must succeed"
+  [ "$(bridge_calls "$CAPTURE")" = "$before" ] || fail "an unknown landing reported to herdr"
+  pass "only busy and idle landings report; unknown stays silent"
+}
+
+test_tmux_backend_meta_reports_nothing() {
+  local rec gen before
+  rec=$(make_case tmux-scope)
+  read_case "$rec"
+  # tmux is the default backend: its meta records no backend= line at all.
+  write_bridge_meta "$STATE" t1 '' zcode 'main:0.1'
+  gen=$(PATH="$FAKEBIN:$BASE_PATH" "$EV" arm "$STATE" t1) || fail "arm failed"
+  before=$(bridge_calls "$CAPTURE")
+  PATH="$FAKEBIN:$BASE_PATH" "$EV" apply "$STATE" t1 idle \
+    --gen "$gen" --source zcode-hook --event stop
+  expect_code 0 $? "tmux apply must succeed"
+  [ "$(bridge_calls "$CAPTURE")" = "$before" ] || fail "a tmux task was reported to herdr"
+  pass "a tmux-backend zcode task keeps today's behavior and reports nothing"
+}
+
+test_herdr_backend_claude_harness_reports_nothing() {
+  local rec gen before
+  rec=$(make_case claude-scope)
+  read_case "$rec"
+  write_bridge_meta "$STATE" t1 herdr claude 'fm-lab-x:w1:p7'
+  gen=$(PATH="$FAKEBIN:$BASE_PATH" "$EV" arm "$STATE" t1) || fail "arm failed"
+  before=$(bridge_calls "$CAPTURE")
+  PATH="$FAKEBIN:$BASE_PATH" "$EV" apply "$STATE" t1 idle \
+    --gen "$gen" --source claude-hook --event stop
+  expect_code 0 $? "claude apply must succeed"
+  [ "$(bridge_calls "$CAPTURE")" = "$before" ] || fail "a claude task was reported to herdr"
+  pass "a herdr-backend claude task reports nothing; herdr detects it natively"
+}
+
+test_missing_meta_and_unsplittable_window_report_nothing() {
+  local rec gen before
+  rec=$(make_case no-meta)
+  read_case "$rec"
+  gen=$(PATH="$FAKEBIN:$BASE_PATH" "$EV" arm "$STATE" t1) || fail "arm without meta failed"
+  [ "$(bridge_calls "$CAPTURE")" = '' ] || fail "arm without meta reported to herdr"
+  # The production fresh-spawn shape: arm runs before the task record exists.
+  write_bridge_meta "$STATE" t1 herdr zcode 'fm-lab-x:w1:p7'
+  PATH="$FAKEBIN:$BASE_PATH" "$EV" apply "$STATE" t1 idle \
+    --gen "$gen" --source zcode-hook --event stop
+  expect_code 0 $? "apply with late meta must succeed"
+  [ "$(bridge_calls "$CAPTURE")" = "$(printf '%s\n' \
+    'pane report-agent w1:p7 --source firstmate --agent fm-t1 --state idle --seq 2')" ] \
+    || fail "a no-session-file report must omit --agent-session-id exactly: '$(bridge_calls "$CAPTURE")'"
+  # A window= with no colon has no pane part to bind.
+  rec=$(make_case no-colon)
+  read_case "$rec"
+  write_bridge_meta "$STATE" t2 herdr zcode barewindow
+  gen=$(PATH="$FAKEBIN:$BASE_PATH" "$EV" arm "$STATE" t2) || fail "arm failed"
+  before=$(bridge_calls "$CAPTURE")
+  PATH="$FAKEBIN:$BASE_PATH" "$EV" apply "$STATE" t2 idle \
+    --gen "$gen" --source zcode-hook --event stop
+  expect_code 0 $? "apply with colon-less window must succeed"
+  [ "$(bridge_calls "$CAPTURE")" = "$before" ] || fail "a colon-less window reported to herdr"
+  pass "a missing meta and an unsplittable window are silent no-ops"
+}
+
+test_apply_succeeds_without_herdr_on_path() {
+  local rec gen sans_path
+  rec=$(make_case no-herdr)
+  read_case "$rec"
+  write_bridge_meta "$STATE" t1 herdr zcode 'fm-lab-x:w1:p7'
+  printf 'session_id=sess_abc123\n' > "$STATE/t1.zcode-session"
+  sans_path=$(fm_test_base_path_sans "$BASE_PATH" herdr)
+  gen=$(PATH="$sans_path" "$EV" arm "$STATE" t1)
+  expect_code 0 $? "arm without herdr must succeed"
+  case "$gen" in
+    g[0-9]*) : ;;
+    *) fail "arm without herdr must still print the bare gen, got '$gen'" ;;
+  esac
+  PATH="$sans_path" "$EV" apply "$STATE" t1 idle \
+    --gen "$gen" --source zcode-hook --event stop
+  expect_code 0 $? "apply without herdr must succeed"
+  assert_grep 'seq=2 state=idle source=zcode-hook event=stop' "$STATE/t1.busy-state" \
+    "the busy record must keep its exact semantics without herdr"
+  pass "a missing herdr on PATH is a silent no-op and the writer contract stands"
+}
+
+test_report_failure_is_silent_noop() {
+  local rec gen
+  rec=$(make_case report-fails)
+  read_case "$rec"
+  write_bridge_meta "$STATE" t1 herdr zcode 'fm-lab-x:w1:p7'
+  printf 'session_id=sess_abc123\n' > "$STATE/t1.zcode-session"
+  gen=$(FAKE_HERDR_EXIT=1 PATH="$FAKEBIN:$BASE_PATH" "$EV" arm "$STATE" t1) || fail "arm failed"
+  FAKE_HERDR_EXIT=1 PATH="$FAKEBIN:$BASE_PATH" "$EV" apply "$STATE" t1 idle \
+    --gen "$gen" --source zcode-hook --event stop
+  expect_code 0 $? "a failing herdr report must not fail the apply"
+  [ "$(wc -l < "$CAPTURE")" -eq 2 ] || fail "the report attempt itself is still observable"
+  assert_grep 'seq=2 state=idle source=zcode-hook event=stop' "$STATE/t1.busy-state" \
+    "the busy record must be written even when the report fails"
+  pass "a failing herdr report is a silent no-op with the exit-code contract intact"
+}
+
+test_arm_reports_working_at_seq1_with_session_id
+test_apply_flips_thread_seq_and_session_id
+test_refused_apply_reports_nothing
+test_unknown_apply_reports_nothing
+test_tmux_backend_meta_reports_nothing
+test_herdr_backend_claude_harness_reports_nothing
+test_missing_meta_and_unsplittable_window_report_nothing
+test_apply_succeeds_without_herdr_on_path
+test_report_failure_is_silent_noop
+
+echo "all fm-zcode-herdr-bridge tests passed"

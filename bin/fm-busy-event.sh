@@ -38,6 +38,20 @@
 # Exit codes: 0 applied; 1 refused (stale gen, unarmed task, lock timeout,
 # invalid input); 2 usage. Adapter hook command lines append `|| true` so a
 # refusal never breaks the harness's own lifecycle.
+#
+# Herdr agent-view bridge: after a SUCCESSFUL arm or an apply that lands busy
+# or idle, a task whose <state-dir>/<id>.meta records BOTH backend=herdr and
+# harness=zcode is also reported to herdr's agent view so its pane lists the
+# worker (`herdr pane report-agent <pane> --source firstmate --agent fm-<id>
+# --state working|idle --seq <record-seq>`, plus --agent-session-id when
+# <state-dir>/<id>.zcode-session holds a session_id). <pane> is the part of
+# meta `window=` after the first colon (a herdr pane id itself contains
+# colons; see docs/herdr-backend.md "Endpoint metadata"). The bridge is
+# best-effort ALWAYS and outside the writer lock: a missing herdr on PATH, a
+# missing meta, a missing pane, or any report failure is a silent no-op that
+# never changes the exit code, the record, or stdout. herdr detects tmux-side
+# and other-harness agents natively, so the report is scoped to exactly
+# herdr+zcode tasks.
 set -u
 
 usage() {
@@ -152,6 +166,45 @@ write_record() {  # <gen> <seq>
   mv -f "$tmp" "$REC"
 }
 
+# fm_herdr_agent_report: the one herdr agent-view bridge call (see the header).
+# Runs OUTSIDE the writer lock and best-effort ALWAYS: every failure mode -
+# no meta, a meta without backend=herdr AND harness=zcode, no colon in
+# window=, no herdr on PATH, a failing report - returns without touching the
+# caller's exit code, stdout, or stderr. <busy-state> is the state the record
+# just landed in (busy|idle); <seq> is that record's seq.
+fm_herdr_agent_report() {  # <state-dir> <id> <busy-state> <seq>
+  local state_dir=$1 id=$2 busy_state=$3 seq=$4
+  local meta backend harness window pane session herdr_state
+  case "$busy_state" in
+    busy) herdr_state=working ;;
+    idle) herdr_state=idle ;;
+    *) return 0 ;;
+  esac
+  meta="$state_dir/$id.meta"
+  [ -f "$meta" ] || return 0
+  backend=$(sed -n 's/^backend=//p' "$meta" | head -n 1)
+  harness=$(sed -n 's/^harness=//p' "$meta" | head -n 1)
+  [ "$backend" = herdr ] && [ "$harness" = zcode ] || return 0
+  window=$(sed -n 's/^window=//p' "$meta" | head -n 1)
+  case "$window" in
+    *:*) pane=${window#*:} ;;
+    *) return 0 ;;
+  esac
+  [ -n "$pane" ] || return 0
+  command -v herdr >/dev/null 2>&1 || return 0
+  session=$(sed -n 's/^session_id=//p' "$state_dir/$id.zcode-session" 2>/dev/null | head -n 1)
+  if [ -n "$session" ]; then
+    herdr pane report-agent "$pane" --source firstmate --agent "fm-$id" \
+      --state "$herdr_state" --seq "$seq" --agent-session-id "$session" \
+      >/dev/null 2>&1 || true
+  else
+    herdr pane report-agent "$pane" --source firstmate --agent "fm-$id" \
+      --state "$herdr_state" --seq "$seq" \
+      >/dev/null 2>&1 || true
+  fi
+  return 0
+}
+
 old_umask=$(umask)
 umask 077
 
@@ -165,6 +218,7 @@ if [ "$CMD" = arm ]; then
   lock_release
   umask "$old_umask"
   printf '%s\n' "$GEN"
+  fm_herdr_agent_report "$STATE" "$ID" "$NEW_STATE" 1
   exit 0
 fi
 
@@ -238,7 +292,8 @@ if [ -f "$REC" ]; then
       ;;
   esac
 fi
-write_record "$GEN" $((OLD_SEQ + 1)) || {
+NEW_SEQ=$((OLD_SEQ + 1))
+write_record "$GEN" "$NEW_SEQ" || {
   lock_release
   umask "$old_umask"
   echo "error: record write failed for $ID" >&2
@@ -246,4 +301,5 @@ write_record "$GEN" $((OLD_SEQ + 1)) || {
 }
 lock_release
 umask "$old_umask"
+fm_herdr_agent_report "$STATE" "$ID" "$NEW_STATE" "$NEW_SEQ"
 exit 0
