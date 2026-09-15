@@ -336,7 +336,7 @@ EOF
 
   # zcode's wrapper bin is a node script, so its pane presents as the same bare
   # interpreter (comm and argv[0] both `node`) with the identity only in the
-  # script argument; fm_zcode_args_are_zcode in bin/fm-agent-process-lib.sh
+  # script argument; fm_zcode_args_are_zcode in bin/fm-zcode-lib.sh
   # owns what counts as evidence inside the line.
   while IFS= read -r name; do
     [ -n "$name" ] || continue

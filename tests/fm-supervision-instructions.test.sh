@@ -190,6 +190,28 @@ test_grok_is_background_notify() {
   pass "grok supervision is Claude-shaped background notify with passive Stop-hook backstop"
 }
 
+test_zcode_is_background_notify() {
+  local out ordinary
+  out=$("$RENDER" --harness zcode)
+  assert_contains "$out" "primary harness: zcode" "zcode heading missing"
+  assert_contains "$out" "Mode: Zcode background-notify supervision." "zcode snippet missing background-notify mode"
+  assert_contains "$out" "run_in_background: true" "zcode snippet missing tracked background tool instruction"
+  assert_contains "$out" "task notification" "zcode snippet missing the completion-notification wake path"
+  assert_contains "$out" "bin/fm-watch-arm.sh" "zcode snippet missing watcher arm"
+  assert_not_contains "$out" "__FM_X_MODE_ENV" "renderer leaked an x-mode path placeholder"
+  assert_not_contains "$out" "foreground checkpoint" "zcode snippet must not be Codex-style foreground checkpoint"
+  assert_contains "$out" "Interactive TUI primary sessions are the supported supervision host." \
+    "zcode snippet lost its TUI-host requirement"
+  ordinary=$(printf '%s\n' "$out" | grep -F -- '- Ordinary wake:')
+  assert_contains "$ordinary" "re-arm" "zcode ordinary-wake line does not tell the model to re-arm"
+  assert_contains "$ordinary" "zcode Bash tool background task" "zcode ordinary-wake line lost tool-specific ownership"
+  assert_contains "$ordinary" "bin/fm-watch-arm.sh" "zcode ordinary-wake line lost the background arm command"
+  out=$("$RENDER" --harness zcode --repair-line)
+  assert_contains "$out" "zcode Bash tool background task" "zcode repair line is not background-notify shaped"
+  assert_contains "$out" "bin/fm-watch-arm.sh" "zcode repair line lost the arm command"
+  pass "zcode supervision is grok-shaped background notify through the Bash tool's tracked background tasks"
+}
+
 test_grok_command_sources_effective_config() {
   local home config out
   home="$TMP_ROOT/grok-home"
@@ -226,5 +248,6 @@ test_repair_lines
 test_cross_harness_ordinary_continuation_and_repair_matrix
 test_pi_signed_preserves_identity_with_pi_supervision_protocol
 test_grok_is_background_notify
+test_zcode_is_background_notify
 test_grok_command_sources_effective_config
 test_pi_snippet_uses_effective_extension_path

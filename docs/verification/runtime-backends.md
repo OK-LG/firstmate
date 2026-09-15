@@ -1361,8 +1361,9 @@ The daemon injection transport into a live composer keeps its coverage in `tests
 
 ## zcode
 
-The zcode adapter's vendor-controlled facts and their refresh guard: `FM_ZCODE_SIGNALS_LIVE=1 tests/fm-zcode-signals-live-e2e.test.sh` re-proves the hook pair, the session record, the resume contract, the kernel comm set, the error-path exit codes, and the installer round-trip against the installed harness; it is opt-in because it submits a real model prompt against the GLM Coding Plan credential.
-Rerun it after any zcode-app-cli or zcode-runtime upgrade and update the versions below rather than trusting this record across releases.
+The zcode adapter's vendor-controlled facts and their refresh guards: `FM_ZCODE_SIGNALS_LIVE=1 tests/fm-zcode-signals-live-e2e.test.sh` re-proves the hook pair, the session record, the resume contract, the kernel comm set, the error-path exit codes, and the installer round-trip against the installed harness, and `FM_ZCODE_PRIMARY_LIVE=1 tests/fm-zcode-primary-live-e2e.test.sh` re-proves the primary session role (own-harness detection and fleet-lock acquisition from inside a real zcode session).
+Both are opt-in because each submits a real model prompt against the GLM Coding Plan credential.
+Rerun them after any zcode-app-cli or zcode-runtime upgrade and update the versions below rather than trusting this record across releases.
 
 ### 2026-09-14 Phase B live pass
 
@@ -1387,6 +1388,18 @@ Observed against the same installed `zcode-app-cli` 3.11.2-24 wrapping `zcode-ru
 | Exit codes on error paths | every probed headless error path prints to stderr and EXITS 1: unknown options (`--model`, `--effort`, `--reasoning-effort`, bare and with `--prompt`), unresumable sessions (`--resume <bad id>`, `-c` with no session), the credential not-configured refusal, and the dummy-key request-signing error (the last two re-verified credential-less against a key-stripped staged config); `--help` exits 0 with its output on stdout, and a rejected option's help dump goes to stderr - the research-era record had claimed exit-0 failures for the credential paths and exit-0 for the option/resume paths, both corrected by re-measurement, which is why the supervisor-side blindness posture (never trust exit status) stands on policy rather than on any one observation |
 | Hook removal fidelity | `install` then `remove` against the real vendor-default config (`hooks.enabled:false`, all seven event keys present but empty, plus `timeoutMs`/`maxOutputBytes`) restored the config semantically exactly, including `hooks.enabled:false` and the present-but-empty `UserPromptSubmit`/`Stop` keys, via the install-state record written beside the hook; the same round trip is exact through a double install and for `enabled:true` and `enabled`-absent shapes |
 | Interrupt busy lifecycle | a mid-turn SIGINT still ends the process (130, no `Stop` hook), so nothing on the vendor side ever closes the busy record; the interrupt verb must retire it itself, pinned in `tests/fm-control.test.sh` |
+
+### 2026-09-15 primary live pass
+
+Observed against the same installed `zcode-app-cli` 3.11.2-24 wrapping `zcode-runtime` 0.16.5, in a live firstmate session inside the zcode TUI and through the primary live guard:
+
+| Fact | Observed |
+| --- | --- |
+| Own-harness detection | `bin/fm-harness.sh`, run from the session's own tool shell, resolved `zcode` from the real process ancestry |
+| Fleet lock | `bin/fm-lock.sh` from the same shell acquired the home lock naming the session's `zcode-cli` engine pid, and `bin/fm-lock.sh status` in the same session read that holder as a live harness rather than stale; the per-call `zcode-node-repl` MCP kernel is excluded from the lock walk by design (`bin/fm-session-lock-lib.sh`) |
+| Background-notify wake | the TUI Bash tool's `run_in_background` tasks survived the tool call and re-invoked the model on completion, so one backgrounded `bin/fm-watch-arm.sh` carried the live supervision cycle; observed in the live TUI session, not exercised by the guard |
+| Turn-end backstop | none: no hook or follow-up fires at a zcode turn boundary, so the arm's completion notification is the only cycle-end signal (`docs/turnend-guard.md`) |
+| Headless `--prompt` | one-shot: it cannot host the supervision cycle, so the interactive TUI is the only supported primary host |
 
 ## Zellij
 

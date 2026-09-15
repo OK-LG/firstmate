@@ -31,6 +31,8 @@ VERSIONED_CLAUDE="$CLAUDE_VERSION_DIR/2.1.220"
 FAKEBIN=$(fm_fakebin "$TMP_ROOT/harness-bin")
 ln -s /bin/bash "$FAKEBIN/claude"
 NAMED_CLAUDE="$FAKEBIN/claude"
+ln -s /bin/bash "$FAKEBIN/zcode-cli"
+NAMED_ZCODE_CLI="$FAKEBIN/zcode-cli"
 
 # --- unit layer: identity behind a deterministic process table ---------------
 
@@ -266,6 +268,85 @@ SH
   pass "session-lock: a live version-named session holding the lock is not mistaken for a stale owner"
 }
 
+# zcode's primary shapes. The engine names itself zcode-cli, the wrapper can
+# present as the bare node launcher, and the per-call zcode-node-repl MCP
+# kernel is deliberately NOT harness identity: a lock naming it would look
+# stale moments later, while a tool shell that happens to sit under one still
+# resolves the engine above it. An unrelated name carrying the fragment stays
+# outside, exactly like omp's anchored tokens.
+test_zcode_primary_ancestry_resolves_the_engine_not_the_mcp_kernel() {
+  local dir fakebin shape got
+  dir="$TMP_ROOT/zcode-primary"
+  fakebin=$(fm_fakebin "$dir")
+  mkdir -p "$dir/state"
+  cat > "$fakebin/ps" <<'SH'
+#!/usr/bin/env bash
+set -u
+field= pid=
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    -o) field=$2; shift 2 ;;
+    -p) pid=$2; shift 2 ;;
+    *) shift ;;
+  esac
+done
+case "$pid:$field:${FM_TEST_ZCODE_SHAPE:-engine}" in
+  500:comm=:*) printf '%s\n' bash ;;
+  500:args=:*) printf '%s\n' 'bash /repo/bin/fm-watch-arm.sh' ;;
+  500:ppid=:*) printf '%s\n' "${FM_TEST_ZCODE_SESSION_PID:-515}" ;;
+  515:comm=:*) printf '%s\n' zcode-node-repl ;;
+  515:args=:*) printf '%s\n' zcode-node-repl ;;
+  515:ppid=:*) printf '%s\n' 510 ;;
+  510:comm=:engine) printf '%s\n' zcode-cli ;;
+  510:args=:engine) printf '%s\n' zcode-cli ;;
+  510:comm=:launcher) printf '%s\n' node ;;
+  510:args=:launcher) printf '%s\n' 'node /usr/local/bin/zcode' ;;
+  510:ppid=:*) printf '%s\n' 520 ;;
+  520:comm=:*) printf '%s\n' node ;;
+  520:args=:*) printf '%s\n' 'node /usr/local/bin/zcode' ;;
+  520:ppid=:*) printf '%s\n' 1 ;;
+  530:comm=:*) printf '%s\n' zcodegraph ;;
+  530:args=:*) printf '%s\n' 'zcodegraph --serve' ;;
+  530:ppid=:*) printf '%s\n' 1 ;;
+  *:comm=:*) printf '%s\n' bash ;;
+  *:args=:*) printf '%s\n' 'bash unrelated' ;;
+  *:ppid=:*) printf '%s\n' 500 ;;
+esac
+SH
+  chmod +x "$fakebin/ps"
+  printf '510\n' > "$dir/state/.lock"
+
+  # The tool shell sits under the MCP kernel (ppid 515) and still resolves
+  # the zcode-cli engine above it, in both the engine and launcher shapes.
+  for shape in engine launcher; do
+    got=$(FM_TEST_ZCODE_SHAPE="$shape" lib_eval "$fakebin" 'fm_harness_ancestry_pid') \
+      || fail "$shape: the zcode session was not found in the ancestry at all"
+    [ "$got" = 510 ] \
+      || fail "$shape: ancestry resolved '$got', expected the zcode engine pid 510"
+    FM_TEST_ZCODE_SHAPE="$shape" lib_eval "$fakebin" 'fm_harness_pid_alive 510' \
+      || fail "$shape: the live zcode engine was not recognized as a harness"
+    FM_TEST_ZCODE_SHAPE="$shape" lib_eval "$fakebin" "fm_session_lock_owned_by_self '$dir/state'" \
+      || fail "$shape: the zcode session holding the lock did not recognize itself as the owner"
+  done
+
+  # The MCP kernel itself is never harness identity, so a lock naming it reads
+  # as a dead owner rather than a live one.
+  if lib_eval "$fakebin" 'fm_harness_pid_alive 515'; then
+    fail "the per-call zcode-node-repl kernel was claimed as a session-lifetime harness"
+  fi
+
+  # An unrelated command carrying the zcode fragment is not a harness, and a
+  # tool shell whose only harness-shaped ancestor is that decoy resolves no
+  # lock identity at all.
+  if lib_eval "$fakebin" 'fm_harness_pid_alive 530'; then
+    fail "an unrelated zcodegraph command was claimed as a harness"
+  fi
+  if FM_TEST_ZCODE_SESSION_PID=530 lib_eval "$fakebin" 'fm_harness_ancestry_pid' >/dev/null 2>&1; then
+    fail "an ancestry whose only zcode-shaped member is a decoy resolved a harness pid"
+  fi
+  pass "session-lock: zcode resolves its engine in both shapes and never the MCP kernel or a fragment decoy"
+}
+
 # --- end-to-end layer: the real Stop auto-arm in real process trees ----------
 
 install_autoarm_scripts() {
@@ -277,6 +358,7 @@ install_autoarm_scripts() {
   cp "$ROOT/bin/fm-wake-lib.sh" "$dir/bin/fm-wake-lib.sh"
   cp "$ROOT/bin/fm-session-lock-lib.sh" "$dir/bin/fm-session-lock-lib.sh"
   cp "$ROOT/bin/fm-cursor-lib.sh" "$dir/bin/fm-cursor-lib.sh"
+  cp "$ROOT/bin/fm-zcode-lib.sh" "$dir/bin/fm-zcode-lib.sh"
   cp "$ROOT/bin/fm-hook-host-lib.sh" "$dir/bin/fm-hook-host-lib.sh"
   cp "$ROOT/bin/fm-lock.sh" "$dir/bin/fm-lock.sh"
   chmod +x "$dir/bin/fm-claude-stop-autoarm.sh" "$dir/bin/fm-lock.sh"
@@ -404,11 +486,84 @@ test_e2e_daemon_parented_version_named_session_keeps_its_lock() {
   pass "session-lock e2e: a version-named session under a harness-named daemon keeps its own lock"
 }
 
+# The lock-acquisition fixture: a real fm-lock.sh in a real process tree whose
+# session process is named after a harness (or, for the negative case, plain
+# bash), orphaned before it runs so the ancestry walk terminates inside the
+# fixture and never escapes into the session running this suite.
+install_lock_scripts() {  # <dir>
+  local dir=$1 f
+  mkdir -p "$dir/bin"
+  for f in fm-lock.sh fm-session-lock-lib.sh fm-cursor-lib.sh fm-zcode-lib.sh fm-wake-lib.sh; do
+    cp "$ROOT/bin/$f" "$dir/bin/$f"
+  done
+  chmod +x "$dir/bin/fm-lock.sh"
+  cat > "$dir/session.sh" <<'SH'
+#!/usr/bin/env bash
+if [ "${FM_FIXTURE_ORPHAN_HERE:-0}" = 1 ]; then
+  i=0
+  while [ "$i" -lt 200 ] && [ "$(ps -o ppid= -p $$ 2>/dev/null | tr -d ' ')" != 1 ]; do
+    sleep 0.05
+    i=$((i + 1))
+  done
+fi
+printf '%s\n' "$$" > "$FM_HOME/state/session-pid"
+"$FM_HOME/bin/fm-lock.sh" > "$FM_HOME/state/lock.out" 2>&1
+printf '%s\n' "$?" > "$FM_HOME/state/lock.rc"
+SH
+  chmod +x "$dir/session.sh"
+}
+
+run_lock_fixture() {  # <dir> <session-bin>
+  local dir=$1 session_bin=$2 i
+  FM_HOME="$dir" FM_FIXTURE_ORPHAN_HERE=1 \
+    bash -c '"$0" "$1" &' "$session_bin" "$dir/session.sh"
+  i=0
+  while [ "$i" -lt 400 ] && [ ! -s "$dir/state/lock.rc" ]; do
+    sleep 0.05
+    i=$((i + 1))
+  done
+  [ -s "$dir/state/lock.rc" ] || fail "the lock fixture never finished"
+}
+
+test_e2e_zcode_named_session_acquires_the_lock() {
+  local dir rc session_pid
+  dir="$TMP_ROOT/e2e-zcode-lock"
+  mkdir -p "$dir/state"
+  install_lock_scripts "$dir"
+  run_lock_fixture "$dir" "$NAMED_ZCODE_CLI"
+  rc=$(tr -d '[:space:]' < "$dir/state/lock.rc")
+  expect_code 0 "$rc" "a zcode-named session must acquire the fleet lock: $(cat "$dir/state/lock.out")"
+  session_pid=$(tr -d '[:space:]' < "$dir/state/session-pid")
+  assert_contains "$(cat "$dir/state/lock.out")" "lock acquired: harness pid $session_pid" \
+    "the lock was not acquired naming the session's own pid"
+  [ "$(tr -d '[:space:]' < "$dir/state/.lock")" = "$session_pid" ] \
+    || fail "the recorded lock holder is not the session process"
+  pass "session-lock e2e: a zcode-named session acquires the fleet lock as its own harness pid"
+}
+
+test_e2e_plain_bash_session_is_refused_the_lock() {
+  local dir rc
+  dir="$TMP_ROOT/e2e-plain-lock"
+  mkdir -p "$dir/state"
+  install_lock_scripts "$dir"
+  run_lock_fixture "$dir" /bin/bash
+  rc=$(tr -d '[:space:]' < "$dir/state/lock.rc")
+  expect_code 1 "$rc" "a plain bash session with no harness ancestry must be refused the lock"
+  assert_contains "$(cat "$dir/state/lock.out")" "cannot locate harness process in ancestry" \
+    "the refusal did not name the missing harness ancestry"
+  [ ! -f "$dir/state/.lock" ] \
+    || fail "a refused session still wrote a lock file"
+  pass "session-lock e2e: a plain bash session with no harness ancestry is refused the lock"
+}
+
 test_version_named_session_is_identified_on_both_platforms
 test_harness_at_namespace_pid1_is_examined
 test_ordinary_paths_are_never_harness_processes
 test_harness_beyond_a_gap_never_owns_the_lock
 test_competing_version_named_session_is_seen_as_live
+test_zcode_primary_ancestry_resolves_the_engine_not_the_mcp_kernel
 test_e2e_version_named_session_claims_the_home
 test_e2e_daemon_parented_session_claims_the_home
 test_e2e_daemon_parented_version_named_session_keeps_its_lock
+test_e2e_zcode_named_session_acquires_the_lock
+test_e2e_plain_bash_session_is_refused_the_lock

@@ -3,9 +3,10 @@
 Z.AI's official coding-agent harness, driving GLM-5.3 and GLM-5.3-Flash against a GLM Coding Plan subscription.
 The official CLI ships inside the ZCode Desktop app and has no official standalone npm package.
 The runnable Linux artifact is the third-party `zcode-app-cli` package (kingsword09/zcode-cli, MIT), which extracts the official runtime, supplies a pi-tui-based TUI, and exposes the public `zcode` bin with a versioned host-integration contract for agent orchestrators at its own `docs/HOST_INTEGRATION.md`.
-Researched against `zcode-app-cli` 3.11.2-24 wrapping `zcode-runtime` 0.16.5 on Linux with Node 22.22.3; every fact below comes from that research's headless probes, the shipped help, and bundle strings, the 2026-09-14 live verification pass (end-to-end dispatch, detection, and busy classification), the 2026-09-14 Phase B live pass that verified the native hook pair, the resume contract, the absent effort flags, and the GLM Coding Plan quota windows on the real harness, the 2026-09-15 review correction pass that re-measured the error-path exit codes and the removal fidelity against the same installed versions, and the 2026-09-15 TUI live pass that verified the opt-in launch variant end to end (launch shape, hook firing, process and classifier shapes, and the interrupt and exit verbs).
+Researched against `zcode-app-cli` 3.11.2-24 wrapping `zcode-runtime` 0.16.5 on Linux with Node 22.22.3; every fact below comes from that research's headless probes, the shipped help, and bundle strings, the 2026-09-14 live verification pass (end-to-end dispatch, detection, and busy classification), the 2026-09-14 Phase B live pass that verified the native hook pair, the resume contract, the absent effort flags, and the GLM Coding Plan quota windows on the real harness, the 2026-09-15 review correction pass that re-measured the error-path exit codes and the removal fidelity against the same installed versions, the 2026-09-15 TUI live pass that verified the opt-in launch variant end to end (launch shape, hook firing, process and classifier shapes, and the interrupt and exit verbs), and the 2026-09-15 primary live pass that verified the primary session role (fleet-lock acquisition through the `zcode-cli` engine ancestry and the background-notify wake mechanism).
 Dispatch is pinned to the exact installed wrapper version because it tracks a desktop-app-aligned release train, and the package redistributes a proprietary runtime: confirm upstream terms before use.
-Verified for crewmate and scout launches: a raw-launch trivial scout executed its brief end to end under supervision on 2026-09-14, and the Phase B live guard (`tests/fm-zcode-signals-live-e2e.test.sh`, opt-in) re-proves the hook pair, the session record, the resume contract, and the kernel process names against the installed harness on demand.
+Verified for the primary session, crewmate launches, and scout launches: a firstmate session inside the zcode TUI acquired the fleet lock and armed its supervision cycle on 2026-09-15, and a raw-launch trivial scout executed its brief end to end under supervision on 2026-09-14.
+The Phase B live guard (`tests/fm-zcode-signals-live-e2e.test.sh`, opt-in) re-proves the hook pair, the session record, the resume contract, and the kernel process names against the installed harness on demand, and the primary live guard (`tests/fm-zcode-primary-live-e2e.test.sh`, opt-in) re-proves the lock acquisition on demand.
 
 ## Operating facts
 
@@ -39,10 +40,10 @@ ZCODE_API_KEY must reach the worker environment on its own, because the launch t
 `FM_ZCODE_HARNESS=zcode` plus an ancestry rule matching the `zcode` bin is Firstmate's own identity, because zcode carries no native child-process marker.
 `../../../../../bin/fm-harness.sh` owns the marker and ancestry mechanics, and a marker inherited without real zcode ancestry is inert, the omp foreign-marker discipline.
 
-## Crewmate and scout only
+## Roles
 
-zcode is verified for crewmate and scout launches only.
-A secondmate is a firstmate instance and needs a primary supervision protocol; zcode has none, so the spawn arm refuses a zcode secondmate, the muse/gemini/agy shape in `../../../../../bin/fm-spawn.sh`.
+zcode is verified for the primary session and for crewmate and scout launches.
+A secondmate launch is still refused - not for a missing primary protocol (the wake protocol exists and `docs/supervision-protocols/zcode.md` owns it) but because the charter launch, liveness sweep, and reconcile paths have no dated live pass on zcode yet; `../../../../../bin/fm-spawn.sh` keeps that refusal loud with its own message.
 
 ## Opt-in TUI launch variant
 
@@ -63,11 +64,11 @@ Verified live on 0.16.5 (2026-09-15):
 - The interrupt and exit verbs follow the Interrupt and Exit rows above: C-c cancels a running turn and leaves the TUI alive, a C-c at the idle composer exits cleanly, and a mid-turn exit is cancel-then-exit.
 - The TUI's composer shape is deliberately NOT taught to `bin/fm-composer-lib.sh`: it reads `unknown`, so no spawn gate or submit verdict rests on an unverified shape, and the delivery proof stays the hook record.
 
-Crewmate and scout only, inherited from the adapter itself.
+The variant itself is a crewmate and scout launch option; the primary session runs the TUI directly, not through this flag.
 
 ## Supervision recipe
 
-This recipe has been operative since the 2026-09-14 live verification pass, and it lives here rather than in `docs/supervision-protocols/` because that directory is the rendered primary-wake-protocol set whose emptiness for crewmate/scout-only harnesses is load-bearing in `../../../../../bin/fm-spawn.sh`'s refusal comments.
+This recipe has been operative since the 2026-09-14 live verification pass, and it covers SUPERVISING zcode workers from any firstmate; the wake protocol for a firstmate session running ON zcode is a different surface and lives in `docs/supervision-protocols/zcode.md`.
 When a session supervises live zcode workers:
 1. Drain first with `../../../../../bin/fm-wake-drain.sh`, run the exact `--ack-through` command printed as `WAKE_ACK_REQUIRED` after handling every emitted wake, and let interruption before that acknowledgement leave the work durable for idempotent re-handling.
 2. Busy state comes from the zcode-hook semantic record: the global hook pair opens the record on UserPromptSubmit and closes it on Stop (verified live headless), armed at spawn like claude and gemini. For a task with no record, the rendered-tail fallback keeps its Phase A contract: `unknown` is the safe verdict, and no default signature ships because the headless mode renders nothing mid-turn.
@@ -86,5 +87,10 @@ Record the dated per-harness result in `../../../../../docs/verification/runtime
 
 ## Primary integration
 
-Unsupported and unverified.
-A firstmate session running on zcode follows the unknown-harness fallback, and `references/common/primary-hooks.md`'s unsupported-boundary rule applies: never invent a wake protocol from a similar TUI.
+Verified 2026-09-15 against `zcode-app-cli` 3.11.2-24 wrapping `zcode-runtime` 0.16.5, in a live firstmate session inside the zcode TUI:
+
+- The session lock: `../../../../../bin/fm-session-lock-lib.sh`'s ancestry walk resolves the session's `zcode-cli` engine pid through the anchored `^zcode$|^zcode-cli$` tokens, a wrapper presenting as `node /path/to/zcode` is claimed through the structural argv rule in `../../../../../bin/fm-zcode-lib.sh`, and the per-call `zcode-node-repl` MCP kernel is deliberately excluded because it is not a session-lifetime process.
+- The wake protocol: `docs/supervision-protocols/zcode.md` owns it - the Bash tool's tracked background tasks (`run_in_background`) survive the tool call and re-invoke the model on completion, so one backgrounded `bin/fm-watch-arm.sh` is the live supervision cycle, the grok shape.
+- The interactive TUI is the supported host; headless `zcode --prompt` is the one-shot crewmate launch shape and cannot host the supervision cycle.
+- No turn-end guard backstop exists yet: the background arm's completion notification is the only cycle-end signal, so a healthy arm must exist before every turn ends.
+- The primary live guard `tests/fm-zcode-primary-live-e2e.test.sh` (opt-in, `FM_ZCODE_PRIMARY_LIVE=1`) re-proves the lock acquisition inside a real zcode session on demand.

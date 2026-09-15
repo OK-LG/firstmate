@@ -66,6 +66,8 @@ CONFIG="${FM_CONFIG_OVERRIDE:-$FM_HOME/config}"
 . "$SCRIPT_DIR/fm-cursor-lib.sh"
 # shellcheck source=bin/fm-gemini-lib.sh
 . "$SCRIPT_DIR/fm-gemini-lib.sh"
+# shellcheck source=bin/fm-zcode-lib.sh
+. "$SCRIPT_DIR/fm-zcode-lib.sh"
 
 # Print the harness named by a verified environment marker, or nothing when no
 # marker is present. Markers only report what the environment CLAIMS; detect_own
@@ -292,9 +294,17 @@ harness_process_verdict() {  # <pid>
         *codex*) echo "args codex"; return ;;
         *opencode*) echo "args opencode"; return ;;
         *grok*) echo "args grok"; return ;;
-        *zcode*) echo "args zcode"; return ;;
         *" pi "*|*/pi) echo "args pi"; return ;;
-      esac ;;
+      esac
+      # zcode's identity is structural rather than a substring glob: only the
+      # bin run directly or an interpreter whose script argument is the zcode
+      # bin or package path matches, so an unrelated node command line that
+      # merely mentions zcode never claims the identity.
+      if fm_zcode_args_are_zcode "$args"; then
+        echo "args zcode"
+        return
+      fi
+      ;;
   esac
 }
 

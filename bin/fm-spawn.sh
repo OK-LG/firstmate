@@ -194,7 +194,9 @@
 #   sessions, credential not-configured, and request-signing errors), so
 #   nothing may trust exit status - the blindness posture stands because the
 #   research-era record once mis-measured these codes and a release can
-#   change them. zcode is crewmate/scout only.
+#   change them. zcode is also verified as a PRIMARY session harness
+#   (docs/supervision-protocols/zcode.md owns its wake protocol); a zcode
+#   --secondmate is refused below until a dated secondmate live pass exists.
 #   --zcode-tui opts ONE spawn into the visible TUI variant (headless stays
 #   the supervision-proven default; verified live on zcode-runtime 0.16.5,
 #   2026-09-15): a bare launch with no prompt argument opens the full-screen
@@ -354,8 +356,9 @@
 # registry, and a gitignored .fm-zcode-turnend worktree pointer plus a state
 # token. The hook is both busy writer (UserPromptSubmit opens, Stop closes,
 # source zcode-hook) and turn-end touch, and it records the zcode session id
-# that a zcode relaunch reuses through --resume. zcode is crewmate/scout
-# only and is refused for --secondmate, like muse.
+# that a zcode relaunch reuses through --resume. zcode is also a verified
+# primary session harness; --secondmate is refused for its own reason below
+# (no dated secondmate live pass), not muse's missing primary protocol.
 # agy installs no hook either - it exposes no hook surface at all - so it
 # carries no busy-source wiring and no turn-end hook. Its brief rides the launch
 # command, but a fresh worktree would park it on a folder-trust dialog, so the
@@ -1887,16 +1890,22 @@ esac
 # supervision path. muse has none either, and its
 # Claude-compatible hook dialect explicitly rejects the model-reawakening and
 # asyncRewake handlers that firstmate's primary turn-end supervision is built on
-# (muse 0.1.0-R708.1). Refusing here keeps that gap loud instead of standing up a
-# secondmate whose supervision cycle could never be armed.
+# (muse 0.1.0-R708.1). Refusing here keeps that gap loud instead of standing up
+# a secondmate whose supervision cycle could never be armed.
 # agy has none either: it exposes no hook surface for primary supervision and
 # docs/supervision-protocols/ carries no agy wake protocol (agy 1.2.0).
-# zcode joins them for Phase A: it exposes no primary supervision surface here
-# (its native Stop hook is crewmate-side Phase B work) and the adapter stays
-# undispatchable until its live verification gate passes, so a secondmate is
-# refused rather than stood up on an unverified supervision path.
-if [ "$KIND" = secondmate ] && { [ "$HARNESS" = muse ] || [ "$HARNESS" = gemini ] || [ "$HARNESS" = agy ] || [ "$HARNESS" = zcode ]; }; then
+if [ "$KIND" = secondmate ] && { [ "$HARNESS" = muse ] || [ "$HARNESS" = gemini ] || [ "$HARNESS" = agy ]; }; then
   echo "error: $HARNESS is a verified crewmate/scout adapter only and cannot run a secondmate; it has no primary supervision protocol. Select a harness verified for secondmates." >&2
+  exit 1
+fi
+
+# zcode is verified as a PRIMARY session harness (docs/supervision-protocols/
+# zcode.md owns the wake protocol) and as a crewmate/scout adapter, but a
+# secondmate launch is its own surface: the charter launch, liveness sweep,
+# and reconcile paths have no dated live pass on zcode yet, so the refusal
+# stays until that pass exists rather than standing a home up on it.
+if [ "$KIND" = secondmate ] && [ "$HARNESS" = zcode ]; then
+  echo "error: zcode cannot run a secondmate yet; secondmate launches are not verified for zcode (primary sessions and crewmate/scout launches are). Select a harness verified for secondmates." >&2
   exit 1
 fi
 
