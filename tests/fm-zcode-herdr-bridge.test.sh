@@ -9,7 +9,8 @@
 # tests run the REAL writer against a fake herdr that captures argv plus the
 # HERDR_SESSION it was handed, so the exact report invocation, its routing by
 # the recorded session rather than the inherited env, the scoping guards,
-# and the seq threading are pinned without a live harness.
+# the armed-harness rule, and the seq threading are pinned without a live
+# harness.
 set -u
 
 # shellcheck source=tests/lib.sh
@@ -62,7 +63,7 @@ test_arm_reports_working_at_seq1_routed_by_recorded_session() {
   read_case "$rec"
   write_bridge_meta "$STATE" t1 herdr zcode 'fm-lab-x:w1:p7'
   # The captain-side relaunch shape: no herdr env inherited at all.
-  out=$(env -u HERDR_SESSION -u HERDR_SOCKET_PATH PATH="$FAKEBIN:$BASE_PATH" "$EV" arm "$STATE" t1)
+  out=$(env -u HERDR_SESSION -u HERDR_SOCKET_PATH PATH="$FAKEBIN:$BASE_PATH" "$EV" arm "$STATE" t1 --harness zcode)
   expect_code 0 $? "arm must succeed"
   case "$out" in
     g[0-9]*) : ;;
@@ -84,7 +85,7 @@ test_report_ignores_inherited_session_env() {
   write_bridge_meta "$STATE" t1 herdr zcode 'fm-lab-x:w1:p7'
   # A shell bound to another server must not steer the report there.
   gen=$(HERDR_SESSION=default HERDR_SOCKET_PATH=/nonexistent/default.sock \
-    PATH="$FAKEBIN:$BASE_PATH" "$EV" arm "$STATE" t1) || fail "arm failed"
+    PATH="$FAKEBIN:$BASE_PATH" "$EV" arm "$STATE" t1 --harness zcode) || fail "arm failed"
   HERDR_SESSION=default HERDR_SOCKET_PATH=/nonexistent/default.sock \
     PATH="$FAKEBIN:$BASE_PATH" "$EV" apply "$STATE" t1 idle \
     --gen "$gen" --source zcode-hook --event stop
@@ -95,12 +96,37 @@ test_report_ignores_inherited_session_env() {
   pass "an inherited HERDR_SESSION naming another server never routes the report"
 }
 
+test_arm_reports_only_for_the_armed_zcode_harness() {
+  local rec gen expected
+  rec=$(make_case relaunch-switch)
+  read_case "$rec"
+  # The relaunch shape: the record still says zcode when the replacement is armed.
+  write_bridge_meta "$STATE" t1 herdr zcode 'fm-lab-x:w1:p7'
+  gen=$(PATH="$FAKEBIN:$BASE_PATH" "$EV" arm "$STATE" t1 --harness claude)
+  expect_code 0 $? "arm with a switched harness must succeed"
+  [ "$(bridge_calls "$CAPTURE")" = '' ] \
+    || fail "a zcode record armed for claude must not report: '$(bridge_calls "$CAPTURE")'"
+  gen=$(PATH="$FAKEBIN:$BASE_PATH" "$EV" arm "$STATE" t1)
+  expect_code 0 $? "arm without --harness must succeed"
+  [ "$(bridge_calls "$CAPTURE")" = '' ] \
+    || fail "an arm that names no harness must not report: '$(bridge_calls "$CAPTURE")'"
+  gen=$(PATH="$FAKEBIN:$BASE_PATH" "$EV" arm "$STATE" t1 --harness zcode) || fail "arm failed"
+  expected="pane report-agent w1:p7 --source firstmate --agent fm-t1 --state working --seq 1 --session fm-lab-x [HERDR_SESSION=fm-lab-x]"
+  [ "$(bridge_calls "$CAPTURE")" = "$expected" ] \
+    || fail "the same record armed for zcode must report: '$(bridge_calls "$CAPTURE")'"
+  PATH="$FAKEBIN:$BASE_PATH" "$EV" apply "$STATE" t1 idle --gen "$gen" --harness zcode \
+    --source zcode-hook --event stop 2>/dev/null \
+    && fail "--harness must be an arm-only flag"
+  expect_code 2 $? "--harness on apply must be a usage error"
+  pass "the arm-time report follows the armed harness, never the stale record"
+}
+
 test_apply_flips_thread_seq() {
   local rec gen expected
   rec=$(make_case apply-flips)
   read_case "$rec"
   write_bridge_meta "$STATE" t1 herdr zcode 'fm-lab-x:w1:p7'
-  gen=$(PATH="$FAKEBIN:$BASE_PATH" "$EV" arm "$STATE" t1) || fail "arm failed"
+  gen=$(PATH="$FAKEBIN:$BASE_PATH" "$EV" arm "$STATE" t1 --harness zcode) || fail "arm failed"
   PATH="$FAKEBIN:$BASE_PATH" "$EV" apply "$STATE" t1 busy \
     --gen "$gen" --source zcode-hook --event user-prompt-submit
   expect_code 0 $? "busy apply must succeed"
@@ -120,7 +146,7 @@ test_refused_apply_reports_nothing() {
   rec=$(make_case refused)
   read_case "$rec"
   write_bridge_meta "$STATE" t1 herdr zcode 'fm-lab-x:w1:p7'
-  gen=$(PATH="$FAKEBIN:$BASE_PATH" "$EV" arm "$STATE" t1) || fail "arm failed"
+  gen=$(PATH="$FAKEBIN:$BASE_PATH" "$EV" arm "$STATE" t1 --harness zcode) || fail "arm failed"
   before=$(bridge_calls "$CAPTURE")
   PATH="$FAKEBIN:$BASE_PATH" "$EV" apply "$STATE" t1 idle \
     --gen "stale.$gen" --source zcode-hook --event stop 2>/dev/null \
@@ -135,7 +161,7 @@ test_unknown_apply_reports_nothing() {
   rec=$(make_case unknown)
   read_case "$rec"
   write_bridge_meta "$STATE" t1 herdr zcode 'fm-lab-x:w1:p7'
-  gen=$(PATH="$FAKEBIN:$BASE_PATH" "$EV" arm "$STATE" t1) || fail "arm failed"
+  gen=$(PATH="$FAKEBIN:$BASE_PATH" "$EV" arm "$STATE" t1 --harness zcode) || fail "arm failed"
   before=$(bridge_calls "$CAPTURE")
   PATH="$FAKEBIN:$BASE_PATH" "$EV" apply "$STATE" t1 unknown \
     --gen "$gen" --source zcode-hook --event stop
@@ -150,7 +176,7 @@ test_tmux_backend_meta_reports_nothing() {
   read_case "$rec"
   # tmux is the default backend: its meta records no backend= line at all.
   write_bridge_meta "$STATE" t1 '' zcode 'main:0.1'
-  gen=$(PATH="$FAKEBIN:$BASE_PATH" "$EV" arm "$STATE" t1) || fail "arm failed"
+  gen=$(PATH="$FAKEBIN:$BASE_PATH" "$EV" arm "$STATE" t1 --harness zcode) || fail "arm failed"
   before=$(bridge_calls "$CAPTURE")
   PATH="$FAKEBIN:$BASE_PATH" "$EV" apply "$STATE" t1 idle \
     --gen "$gen" --source zcode-hook --event stop
@@ -164,7 +190,7 @@ test_herdr_backend_claude_harness_reports_nothing() {
   rec=$(make_case claude-scope)
   read_case "$rec"
   write_bridge_meta "$STATE" t1 herdr claude 'fm-lab-x:w1:p7'
-  gen=$(PATH="$FAKEBIN:$BASE_PATH" "$EV" arm "$STATE" t1) || fail "arm failed"
+  gen=$(PATH="$FAKEBIN:$BASE_PATH" "$EV" arm "$STATE" t1 --harness claude) || fail "arm failed"
   before=$(bridge_calls "$CAPTURE")
   PATH="$FAKEBIN:$BASE_PATH" "$EV" apply "$STATE" t1 idle \
     --gen "$gen" --source claude-hook --event stop
@@ -177,7 +203,7 @@ test_missing_meta_and_unsplittable_window_report_nothing() {
   local rec gen before
   rec=$(make_case no-meta)
   read_case "$rec"
-  gen=$(PATH="$FAKEBIN:$BASE_PATH" "$EV" arm "$STATE" t1) || fail "arm without meta failed"
+  gen=$(PATH="$FAKEBIN:$BASE_PATH" "$EV" arm "$STATE" t1 --harness zcode) || fail "arm without meta failed"
   [ "$(bridge_calls "$CAPTURE")" = '' ] || fail "arm without meta reported to herdr"
   # The production fresh-spawn shape: arm runs before the task record exists.
   write_bridge_meta "$STATE" t1 herdr zcode 'fm-lab-x:w1:p7'
@@ -191,7 +217,7 @@ test_missing_meta_and_unsplittable_window_report_nothing() {
   rec=$(make_case no-colon)
   read_case "$rec"
   write_bridge_meta "$STATE" t2 herdr zcode barewindow
-  gen=$(PATH="$FAKEBIN:$BASE_PATH" "$EV" arm "$STATE" t2) || fail "arm failed"
+  gen=$(PATH="$FAKEBIN:$BASE_PATH" "$EV" arm "$STATE" t2 --harness zcode) || fail "arm failed"
   before=$(bridge_calls "$CAPTURE")
   PATH="$FAKEBIN:$BASE_PATH" "$EV" apply "$STATE" t2 idle \
     --gen "$gen" --source zcode-hook --event stop
@@ -206,7 +232,7 @@ test_apply_succeeds_without_herdr_on_path() {
   read_case "$rec"
   write_bridge_meta "$STATE" t1 herdr zcode 'fm-lab-x:w1:p7'
   sans_path=$(fm_test_base_path_sans "$BASE_PATH" herdr)
-  gen=$(PATH="$sans_path" "$EV" arm "$STATE" t1)
+  gen=$(PATH="$sans_path" "$EV" arm "$STATE" t1 --harness zcode)
   expect_code 0 $? "arm without herdr must succeed"
   case "$gen" in
     g[0-9]*) : ;;
@@ -225,7 +251,7 @@ test_report_failure_is_silent_noop() {
   rec=$(make_case report-fails)
   read_case "$rec"
   write_bridge_meta "$STATE" t1 herdr zcode 'fm-lab-x:w1:p7'
-  gen=$(FAKE_HERDR_EXIT=1 PATH="$FAKEBIN:$BASE_PATH" "$EV" arm "$STATE" t1) || fail "arm failed"
+  gen=$(FAKE_HERDR_EXIT=1 PATH="$FAKEBIN:$BASE_PATH" "$EV" arm "$STATE" t1 --harness zcode) || fail "arm failed"
   FAKE_HERDR_EXIT=1 PATH="$FAKEBIN:$BASE_PATH" "$EV" apply "$STATE" t1 idle \
     --gen "$gen" --source zcode-hook --event stop
   expect_code 0 $? "a failing herdr report must not fail the apply"
@@ -237,6 +263,7 @@ test_report_failure_is_silent_noop() {
 
 test_arm_reports_working_at_seq1_routed_by_recorded_session
 test_report_ignores_inherited_session_env
+test_arm_reports_only_for_the_armed_zcode_harness
 test_apply_flips_thread_seq
 test_refused_apply_reports_nothing
 test_unknown_apply_reports_nothing

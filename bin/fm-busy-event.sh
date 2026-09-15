@@ -6,12 +6,15 @@
 # Subcommands:
 #
 #   arm <state-dir> <id> [--state busy|idle|unknown] [--source S] [--event E]
+#       [--harness H]
 #       Mint a fresh incarnation gen token, write the gen sidecar, and seed
 #       the record at seq=1 (default: busy, source fm-spawn, event
 #       launch-brief - the launch prompt IS a submitted turn). Prints the
 #       minted gen on stdout so the caller can embed it into adapter wiring.
 #       Arming again replaces the previous incarnation: late events carrying
-#       the old gen are rejected as stale from then on.
+#       the old gen are rejected as stale from then on. --harness names the
+#       harness of the launch being armed; only the herdr agent-view bridge
+#       reads it (see below).
 #
 #   apply <state-dir> <id> <busy|idle|unknown> (--gen G | --current-gen)
 #         --source S --event E
@@ -40,16 +43,20 @@
 # refusal never breaks the harness's own lifecycle.
 #
 # Herdr agent-view bridge: after a SUCCESSFUL arm or an apply that lands busy
-# or idle, a task whose <state-dir>/<id>.meta records BOTH backend=herdr and
-# harness=zcode is also reported to herdr's agent view so its pane lists the
-# worker (`herdr pane report-agent <pane> --source firstmate --agent fm-<id>
+# or idle, a task whose <state-dir>/<id>.meta records backend=herdr and whose
+# harness is zcode is also reported to herdr's agent view so its pane lists
+# the worker (`herdr pane report-agent <pane> --source firstmate --agent fm-<id>
 # --state working|idle --seq <record-seq> --session <session>`). <session>
 # is the part of meta `window=` before the first colon and <pane> the part
 # after it (a herdr pane id itself contains colons; see docs/herdr-backend.md
 # "Endpoint metadata"). The report routes by the recorded session exactly
 # like fm_backend_herdr_cli, never by inherited HERDR_SESSION: the arm-time
 # report from `fm-spawn --relaunch` runs in the captain's shell, where the
-# env may be unset or name another server. The bridge is best-effort ALWAYS
+# env may be unset or name another server. The harness is the arm's own
+# --harness for the arm-time report and the meta's harness= for applies: a
+# relaunch arms BEFORE the meta is rewritten, so a `--relaunch --harness
+# claude` over a zcode record must not inherit that record's zcode binding,
+# and an arm without --harness never reports. The bridge is best-effort ALWAYS
 # and outside the writer lock: a missing herdr on PATH, a missing meta, a
 # missing pane, or any report failure is a silent no-op that never changes
 # the exit code, the record, or stdout. herdr detects tmux-side and
@@ -60,7 +67,7 @@ set -u
 usage() {
   cat >&2 <<'EOF'
 usage:
-  fm-busy-event.sh arm <state-dir> <id> [--state busy|idle|unknown] [--source S] [--event E]
+  fm-busy-event.sh arm <state-dir> <id> [--state busy|idle|unknown] [--source S] [--event E] [--harness H]
   fm-busy-event.sh apply <state-dir> <id> <busy|idle|unknown> (--gen G | --current-gen) --source S --event E
   fm-busy-event.sh progress <state-dir> <id> --gen G
   fm-busy-event.sh retire <state-dir> <id> (--gen G | --current-gen)
@@ -91,6 +98,7 @@ GEN=
 USE_CURRENT_GEN=0
 SOURCE=
 EVENT=
+ARM_HARNESS=
 if [ "$CMD" = apply ]; then
   NEW_STATE=${1:-}
   case "$NEW_STATE" in busy|idle|unknown) shift ;; *) usage ;; esac
@@ -106,6 +114,7 @@ while [ $# -gt 0 ]; do
     --current-gen) USE_CURRENT_GEN=1; shift ;;
     --source) SOURCE=${2:-}; shift 2 || usage ;;
     --event) EVENT=${2:-}; shift 2 || usage ;;
+    --harness) [ "$CMD" = arm ] || usage; ARM_HARNESS=${2:-}; shift 2 || usage ;;
     *) usage ;;
   esac
 done
@@ -169,27 +178,31 @@ write_record() {  # <gen> <seq>
   mv -f "$tmp" "$REC"
 }
 
+meta_field() {  # <meta-file> <key>
+  sed -n "s/^$2=//p" "$1" 2>/dev/null | head -n 1
+}
+
 # fm_herdr_agent_report: the one herdr agent-view bridge call (see the header).
 # Runs OUTSIDE the writer lock and best-effort ALWAYS: every failure mode -
-# no meta, a meta without backend=herdr AND harness=zcode, no colon in
-# window= or an empty side of it, no herdr on PATH, a failing report -
-# returns without touching the caller's exit code, stdout, or stderr.
+# no meta, a meta without backend=herdr, a <harness> other than zcode, no
+# colon in window= or an empty side of it, no herdr on PATH, a failing report
+# - returns without touching the caller's exit code, stdout, or stderr.
 # <busy-state> is the state the record just landed in (busy|idle); <seq> is
-# that record's seq.
-fm_herdr_agent_report() {  # <state-dir> <id> <busy-state> <seq>
-  local state_dir=$1 id=$2 busy_state=$3 seq=$4
-  local meta backend harness window session pane herdr_state
+# that record's seq; <harness> is the harness the caller vouches for (the
+# arm's --harness, or the meta's harness= for an apply).
+fm_herdr_agent_report() {  # <state-dir> <id> <busy-state> <seq> <harness>
+  local state_dir=$1 id=$2 busy_state=$3 seq=$4 harness=$5
+  local meta window session pane herdr_state
   case "$busy_state" in
     busy) herdr_state=working ;;
     idle) herdr_state=idle ;;
     *) return 0 ;;
   esac
+  [ "$harness" = zcode ] || return 0
   meta="$state_dir/$id.meta"
   [ -f "$meta" ] || return 0
-  backend=$(sed -n 's/^backend=//p' "$meta" | head -n 1)
-  harness=$(sed -n 's/^harness=//p' "$meta" | head -n 1)
-  [ "$backend" = herdr ] && [ "$harness" = zcode ] || return 0
-  window=$(sed -n 's/^window=//p' "$meta" | head -n 1)
+  [ "$(meta_field "$meta" backend)" = herdr ] || return 0
+  window=$(meta_field "$meta" window)
   case "$window" in
     *:*) session=${window%%:*}; pane=${window#*:} ;;
     *) return 0 ;;
@@ -215,7 +228,7 @@ if [ "$CMD" = arm ]; then
   lock_release
   umask "$old_umask"
   printf '%s\n' "$GEN"
-  fm_herdr_agent_report "$STATE" "$ID" "$NEW_STATE" 1
+  fm_herdr_agent_report "$STATE" "$ID" "$NEW_STATE" 1 "$ARM_HARNESS"
   exit 0
 fi
 
@@ -298,5 +311,5 @@ write_record "$GEN" "$NEW_SEQ" || {
 }
 lock_release
 umask "$old_umask"
-fm_herdr_agent_report "$STATE" "$ID" "$NEW_STATE" "$NEW_SEQ"
+fm_herdr_agent_report "$STATE" "$ID" "$NEW_STATE" "$NEW_SEQ" "$(meta_field "$STATE/$ID.meta" harness)"
 exit 0

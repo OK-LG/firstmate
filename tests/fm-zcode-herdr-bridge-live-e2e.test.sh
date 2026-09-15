@@ -109,7 +109,7 @@ default_session_lists_label() {
     >/dev/null 2>&1
 }
 
-GEN=$(bridge arm "$SCRATCH/state" "$ID") \
+GEN=$(bridge arm "$SCRATCH/state" "$ID" --harness zcode) \
   || version_fail "real arm against the fixture failed"
 RECORD=$(cat "$SCRATCH/state/$ID.busy-state")
 case "$RECORD" in
