@@ -3751,14 +3751,14 @@ if [ "$KIND" != secondmate ]; then
       # is literally `zcode` reaches this arm too, and that is correct: the
       # global hook is gated by the worktree pointer, so the raw run gets the
       # same busy open/close pair as a template launch.
-      BUSY_GEN=$("$FM_ROOT/bin/fm-busy-event.sh" arm "$STATE_REAL" "$ID") || {
+      BUSY_GEN=$("$FM_ROOT/bin/fm-busy-event.sh" arm "$STATE_REAL" "$ID" --harness "$HARNESS") || {
         echo "error: failed to arm the busy-state contract for $ID" >&2
         exit 1
       }
       [ "$RELAUNCH" -ne 1 ] || RELAUNCH_REPLACEMENT_BUSY_GEN=$BUSY_GEN
       ;;
     claude*|opencode*|pi|pi-signed|omp)
-      BUSY_GEN=$("$FM_ROOT/bin/fm-busy-event.sh" arm "$STATE_REAL" "$ID") || {
+      BUSY_GEN=$("$FM_ROOT/bin/fm-busy-event.sh" arm "$STATE_REAL" "$ID" --harness "$HARNESS") || {
         echo "error: failed to arm the busy-state contract for $ID" >&2
         exit 1
       }
@@ -3766,7 +3766,7 @@ if [ "$KIND" != secondmate ]; then
       ;;
     gemini)
       if [ "$RAW_LAUNCH" -eq 0 ]; then
-        BUSY_GEN=$("$FM_ROOT/bin/fm-busy-event.sh" arm "$STATE_REAL" "$ID") || {
+        BUSY_GEN=$("$FM_ROOT/bin/fm-busy-event.sh" arm "$STATE_REAL" "$ID" --harness "$HARNESS") || {
           echo "error: failed to arm the busy-state contract for $ID" >&2
           exit 1
         }

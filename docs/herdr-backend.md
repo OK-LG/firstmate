@@ -215,6 +215,19 @@ A Herdr pane id contains a colon, so the adapter splits `window=` on the first c
 The recorded pane is the operational fast path.
 Workspace and tab ids support verification and cleanup but are not inferred from mutable labels during normal operation.
 
+## Agent view bridge
+
+Herdr's built-in agent detection does not know zcode, so a zcode worker would otherwise show up only as a bare tab.
+The semantic busy-state writer (`bin/fm-busy-event.sh`) therefore reports a zcode task's flips to herdr's agent view after every successful arm and after every busy-event apply that lands busy or idle, for tasks whose task record holds `backend=herdr` and whose harness is zcode.
+Which harness counts depends on the call: an apply uses the task record's `harness=`, but the arm uses the `--harness` flag `fm-spawn` passes for the launch it is arming, because a relaunch arms before the record is rewritten and a `--relaunch --harness claude` over a zcode record must not inherit that record's zcode binding; an arm without `--harness` never reports.
+The report is `herdr pane report-agent <pane-id> --source firstmate --agent fm-<task-id> --state working|idle --seq <wire-seq> --session <session>`, where the session is the part of `window=` before the first colon and the pane is the part after it.
+The wire seq is the busy gen's epoch seconds times 1e9 plus the record seq, not the record seq itself: Herdr 0.9.0 orders reports by seq per pane and silently drops one that is not above the last it saw (verified live, docs/verification/runtime-backends.md "Agent view bridge"), and a relaunch re-seeds the record at seq 1 into the same pane, so a raw record seq would leave the relaunched worker showing the previous incarnation's final state.
+The derivation grows across incarnations because each arm mints a later epoch, at the same nanosecond scale Herdr's own bundled reporters use for their seq; the sole gap is two arms of one task within the same second, which no relaunch path produces.
+The report always carries that explicit `--session` flag taken from the task record, exactly like every other adapter call, because the arm-time report from `fm-spawn --relaunch` runs in the captain's shell, where inherited `HERDR_SESSION` may be unset or name another server (see "Session targeting: the --session flag, not HERDR_SESSION alone").
+It is best-effort: a missing herdr on PATH, a missing task record, an unusable window, or a failed report is a silent no-op that never changes the busy record, the writer's exit codes, or its output.
+tmux-side tasks and other harnesses are unchanged, because herdr detects those agents natively.
+`tests/fm-zcode-herdr-bridge.test.sh` pins the exact invocation and scoping, and `tests/fm-zcode-herdr-bridge-live-e2e.test.sh` proves the binding and the live status flips against the real Herdr binary.
+
 ## Current transport behavior
 
 The adapter starts and polls a named server before workspace, tab, pane, or agent calls.
@@ -366,6 +379,8 @@ tests/fm-backend-herdr-launcher-workspace-e2e.test.sh
 tests/fm-backend-herdr-presentation-e2e.test.sh
 tests/fm-backend-herdr-agent-exit-shell-e2e.test.sh
 tests/fm-herdr-pi-stale-registration-live-e2e.test.sh
+tests/fm-zcode-herdr-bridge.test.sh
+tests/fm-zcode-herdr-bridge-live-e2e.test.sh
 tests/fm-backend-herdr-eventwait-smoke.test.sh
 tests/fm-control-herdr-smoke.test.sh
 tests/fm-herdr-session-cleanup.test.sh

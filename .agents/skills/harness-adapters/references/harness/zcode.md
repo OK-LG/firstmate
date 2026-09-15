@@ -33,6 +33,8 @@ The Phase B live guard (`tests/fm-zcode-signals-live-e2e.test.sh`, opt-in) re-pr
 | Credential | Three paths: Z.AI OAuth (macOS-only callback), a Coding Plan API key masked at `/login` and stored in `~/.zcode/cli/config.json`, or a custom provider with an inline key; `ZCODE_API_KEY` is read by the runtime, verified by a dummy value reaching request-signing. |
 | Trust | A first-run setup wizard exists (`setup-pending`); no project-trust gate was observed, and the 2026-09-14 live pass completed an unattended spawn with a clean self-exit and no setup park. |
 
+On a herdr runtime the worker's busy/idle flips are also reported to herdr's Agents view, so a zcode pane lists its worker live; [`../../../../../docs/herdr-backend.md`](../../../../../docs/herdr-backend.md) "Agent view bridge" owns that bridge.
+
 ZCODE_API_KEY must reach the worker environment on its own, because the launch template wires no credential itself: keep the export in the environment firstmate launches from (for example a `config/zcode.env` on the home, exported ahead of the launch) or configure the runtime's own `~/.zcode/cli/config.json` instead.
 
 ## Detection
