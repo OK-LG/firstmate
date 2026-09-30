@@ -173,7 +173,7 @@ fm_control_interrupt_repeat() {  # <harness>
 fm_control_interrupt_arm_signal() {  # <harness>
   case "${1-}" in
     devin) printf '%s' 'esc again to interrupt' ;;
-    claude|codex|opencode|pi|pi-signed|omp|grok|kimi|cursor|gemini|muse|rovo|agy) ;;
+    claude|codex|opencode|pi|pi-signed|omp|grok|kimi|cursor|gemini|muse|rovo|agy|zcode) ;;
     *) return 1 ;;
   esac
 }
@@ -184,7 +184,7 @@ fm_control_interrupt_arm_signal() {  # <harness>
 fm_control_interrupt_press_gap() {  # <harness>
   case "${1-}" in
     devin) printf '0.5' ;;
-    claude|codex|opencode|pi|pi-signed|omp|grok|kimi|cursor|gemini|muse|rovo|agy) printf '0.2' ;;
+    claude|codex|opencode|pi|pi-signed|omp|grok|kimi|cursor|gemini|muse|rovo|agy|zcode) printf '0.2' ;;
     *) return 1 ;;
   esac
 }
@@ -197,7 +197,7 @@ fm_control_interrupt_press_gap() {  # <harness>
 fm_control_interrupt_hazard_signal() {  # <harness>
   case "${1-}" in
     devin) printf '%s' 'Revert to step:|↵ revert' ;;
-    claude|codex|opencode|pi|pi-signed|omp|grok|kimi|cursor|gemini|muse|rovo|agy) ;;
+    claude|codex|opencode|pi|pi-signed|omp|grok|kimi|cursor|gemini|muse|rovo|agy|zcode) ;;
     *) return 1 ;;
   esac
 }

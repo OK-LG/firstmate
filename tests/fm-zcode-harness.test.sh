@@ -264,6 +264,16 @@ test_zcode_control_mechanics_are_the_verified_ones() {
     || fail "zcode has no composer, so no clear key may exist"
   [ "$(fm_control_interrupt_ack_source zcode)" = none ] \
     || fail "the headless SIGINT path prints no acknowledgement, so the ack source is none"
+  # A single C-c is sent blind: there is no armed-press proof to read and no
+  # rendered surface a mistimed press can open, so both signals are empty and
+  # the press gap is the standard one. These must still ANSWER, because the
+  # exit verb re-sends the interrupt after its second-key delay.
+  [ -z "$(fm_control_interrupt_arm_signal zcode)" ] \
+    || fail "zcode presses its single C-c blind, so no arm signal may exist"
+  [ -z "$(fm_control_interrupt_hazard_signal zcode)" ] \
+    || fail "zcode's interrupt opens no dismissable surface, so no hazard signal may exist"
+  [ "$(fm_control_interrupt_press_gap zcode)" = 0.2 ] \
+    || fail "zcode must carry the standard interrupt press gap"
   fm_control_exit_command zcode \
     && fail "zcode has no composer and no typed exit command; the table must refuse to name one" || true
   # The headless process IS the turn: a C-c interrupt ends the worker process

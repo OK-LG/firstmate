@@ -463,6 +463,35 @@ test_harness_family_resolution() {
   pass "fm-control-lib: a recorded harness resolves to its verified adapter without guessing"
 }
 
+# fm_control_harnesses is the single owner of the verified-adapter set, so every
+# per-harness table must answer for each name it prints. A table that omits one
+# falls through to its `*) return 1`, which aborts bin/fm-control.sh under errexit
+# at the bare send_interrupt_keys the exit verb's second key uses - with no
+# diagnostic. Driving the assertion from the owner rather than a hand-copied list
+# is what makes a newly added table complete by construction.
+test_every_verified_harness_answers_each_interrupt_table() {
+  local harness fn
+  while read -r harness; do
+    for fn in fm_control_interrupt_key fm_control_interrupt_repeat \
+        fm_control_interrupt_arm_signal fm_control_interrupt_press_gap \
+        fm_control_interrupt_hazard_signal fm_control_interrupt_clear_key \
+        fm_control_interrupt_ack_source; do
+      "$fn" "$harness" >/dev/null \
+        || fail "$fn has no entry for the verified harness $harness, so every interrupt press on it aborts the control plane"
+    done
+  done < <(fm_control_harnesses)
+  # The same tables must still refuse an unverified adapter rather than handing
+  # back a guessed default.
+  for fn in fm_control_interrupt_key fm_control_interrupt_repeat \
+      fm_control_interrupt_arm_signal fm_control_interrupt_press_gap \
+      fm_control_interrupt_hazard_signal fm_control_interrupt_clear_key \
+      fm_control_interrupt_ack_source; do
+    "$fn" someagent >/dev/null \
+      && fail "$fn must refuse an unverified adapter rather than guessing its mechanics"
+  done
+  pass "fm-control-lib: every harness fm_control_harnesses owns answers each interrupt table"
+}
+
 test_prefixed_recorded_harness_reaches_each_control_verb() {
   local dir out rc
   dir=$(new_case prefixed-interrupt)
@@ -1249,6 +1278,7 @@ test_devin_stuck_picker_refuses_and_exit_types_nothing
 test_opencode_interrupts_twice_and_others_once
 test_unverified_harness_is_refused
 test_harness_family_resolution
+test_every_verified_harness_answers_each_interrupt_table
 test_relaunch_resume_flag_is_per_adapter_and_reference_owner
 test_prefixed_recorded_harness_reaches_each_control_verb
 test_backend_key_capability_matrix
