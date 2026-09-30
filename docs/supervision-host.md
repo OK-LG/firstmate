@@ -36,6 +36,7 @@ Today it runs beside a Claude, Cursor, OpenCode, omp, Grok, or Codex primary: aw
   While the daemon's flag `state/.afk` exists, the host stands aside exactly as the plain arm does.
 - Pi keeps its in-process branch whatever the file says, and no Pi engine is built.
 - Kimi has no primary supervision protocol, so it has no arm owner to run the host.
+- Zcode has a primary supervision protocol but is not one of the six primaries above, so no arm owner runs the host there: its model-owned background arm always renders the plain watcher command, and `/afk` still launches the away daemon.
 
 ### Not yet on the host
 
