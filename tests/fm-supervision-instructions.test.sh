@@ -286,8 +286,8 @@ test_zcode_is_background_notify() {
   assert_contains "$out" "bin/fm-watch-arm.sh" "zcode snippet missing watcher arm"
   assert_not_contains "$out" "__FM_X_MODE_ENV" "renderer leaked an x-mode path placeholder"
   assert_not_contains "$out" "foreground checkpoint" "zcode snippet must not be Codex-style foreground checkpoint"
-  assert_contains "$out" "Interactive TUI primary sessions are the supported supervision host." \
-    "zcode snippet lost its TUI-host requirement"
+  assert_contains "$out" "Interactive TUI sessions are the supported Zcode primary surface." \
+    "zcode snippet lost its TUI primary-surface requirement"
   ordinary=$(printf '%s\n' "$out" | grep -F -- '- Ordinary wake:')
   assert_contains "$ordinary" "re-arm" "zcode ordinary-wake line does not tell the model to re-arm"
   assert_contains "$ordinary" "zcode Bash tool background task" "zcode ordinary-wake line lost tool-specific ownership"

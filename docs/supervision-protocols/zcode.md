@@ -32,6 +32,6 @@ When you see a background-task-completed notification for the arm:
 Zcode has no turn-end guard backstop yet: the arm task's completion notification is the only cycle-end signal, so a healthy background arm must exist before every turn ends.
 The crew-side Stop hook pair (`bin/fm-zcode-turnend-hook.sh`) is task-scoped and never arms primary supervision.
 
-Interactive TUI primary sessions are the supported supervision host.
+Interactive TUI sessions are the supported Zcode primary surface.
 Headless `zcode --prompt` is the one-shot crewmate launch shape and cannot host the primary's supervision cycle.
 Verified live on zcode-app-cli 3.11.2-24 wrapping zcode-runtime 0.16.5: the TUI Bash tool's background tasks survive the tool call and re-invoke the model on completion (observed in the live TUI primary session, 2026-09-15), and a session acquires the fleet lock through the `zcode-cli` engine in its own ancestry (`tests/fm-zcode-primary-live-e2e.test.sh`, opt-in, refreshes the lock and detection facts against the installed harness on demand).
