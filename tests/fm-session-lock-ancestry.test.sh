@@ -1188,7 +1188,7 @@ test_verified_reclaim_keeps_new_sidecar() {
 install_lock_scripts() {  # <dir>
   local dir=$1 f
   mkdir -p "$dir/bin"
-  for f in fm-lock.sh fm-session-lock-lib.sh fm-cursor-lib.sh fm-zcode-lib.sh fm-wake-lib.sh; do
+  for f in fm-lock.sh fm-session-lock-lib.sh fm-cursor-lib.sh fm-zcode-lib.sh fm-wake-lib.sh fm-path-lib.sh; do
     cp "$ROOT/bin/$f" "$dir/bin/$f"
   done
   chmod +x "$dir/bin/fm-lock.sh"
