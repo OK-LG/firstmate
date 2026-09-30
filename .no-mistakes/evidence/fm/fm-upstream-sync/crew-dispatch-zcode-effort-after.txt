@@ -1,0 +1,22 @@
+
+--- zcode profile carrying an effort (zcode exposes no effort flag)
+config/crew-dispatch.json: {"rules":[{"when":"headless batch work","use":{"harness":"zcode","effort":"high"}}]}
+$ bin/fm-bootstrap.sh                       (session start)
+  rc=0  CREW_DISPATCH: invalid config/crew-dispatch.json - invalid effort: zcode:high
+$ bin/fm-dispatch-resolve.sh brief.md       (intake)
+  rc=2  error: malformed rules file: /tmp/nmdrv/dispatch-lab.eI6lWN/home/config/crew-dispatch.json - each use profile effort must be supported by its harness and model
+
+--- zcode named in default with an effort
+config/crew-dispatch.json: {"rules":[{"when":"x","use":{"harness":"codex"}}],"default":{"harness":"zcode","effort":"low"}}
+$ bin/fm-bootstrap.sh                       (session start)
+  rc=0  CREW_DISPATCH: invalid config/crew-dispatch.json - invalid effort: zcode:low
+$ bin/fm-dispatch-resolve.sh brief.md       (intake)
+  rc=2  error: malformed rules file: /tmp/nmdrv/dispatch-lab.eI6lWN/home/config/crew-dispatch.json - each default profile effort must be supported by its harness and model
+
+--- zcode with no effort - the supported shape, must be accepted by both
+config/crew-dispatch.json: {"rules":[{"when":"headless batch work","use":{"harness":"zcode","provider":"zcode"}}]}
+$ bin/fm-bootstrap.sh                       (session start)
+  rc=0  (no CREW_DISPATCH diagnostic - accepted)
+$ bin/fm-dispatch-resolve.sh brief.md       (intake)
+  rc=0  dispatch-resolve: error (http 401 after 220 ms: {"detail":{"error_type":"authentication_error","message":"Cannot authenticate with the server. Please check your API key and try again."}})
+dispatch-resolve:

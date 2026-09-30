@@ -1,0 +1,38 @@
+
+========== S1  operator stops a zcode TUI worker:  bin/fm-control.sh t1 exit ==========
+busy record before exit: t1.busy-gen t1.busy-state 
+$ FM_HOME=<lab> bin/fm-control.sh t1 exit      # zcode TUI variant, survives its first C-c
+stopped t1 harness=zcode backend=tmux endpoint=fmses:fm-t1 worktree=/tmp/fm-control.EiyV3L/drive-zcode-tui-exit-21915/wt-t1
+exit status: 0
+keys delivered to the pane: [C-c C-c ]
+text typed into the composer: []
+busy record after exit: []
+
+========== S2  a zcode worker that never stops:  bin/fm-control.sh t1 exit must fail closed inside two keys ==========
+$ FM_HOME=<lab> bin/fm-control.sh t1 exit      # survivor that ignores every C-c
+error: exit-delivered t1 interrupt=signal cancel=unconfirmed agent-state=alive exit=unconfirmed; the agent did not stop within 1s
+exit status: 1
+keys delivered to the pane: [C-c C-c ]
+
+========== S3  headless zcode worker:  bin/fm-control.sh t1 exit stops on its single C-c ==========
+$ FM_HOME=<lab> bin/fm-control.sh t1 exit
+stopped t1 harness=zcode backend=tmux endpoint=fmses:fm-t1 worktree=/tmp/fm-control.EiyV3L/drive-zcode-headless-1390/wt-t1
+exit status: 0
+keys delivered to the pane: [C-c ]
+
+========== S4  bin/fm-control.sh t1 interrupt reaches EVERY harness fm_control_harnesses owns ==========
+claude     rc=0 keys=[Escape ]  interrupt-delivered t1 harness=claude backend=tmux verified=agent-alive cancel=unconfirmed
+codex      rc=0 keys=[Escape ]  interrupt-delivered t1 harness=codex backend=tmux verified=agent-alive cancel=unconfirmed
+opencode   rc=0 keys=[Escape Escape ]  interrupt-delivered t1 harness=opencode backend=tmux verified=agent-alive cancel=unconfirmed
+pi         rc=0 keys=[Escape ]  interrupt-delivered t1 harness=pi backend=tmux verified=agent-alive cancel=unconfirmed
+pi-signed  rc=0 keys=[Escape ]  interrupt-delivered t1 harness=pi-signed backend=tmux verified=agent-alive cancel=unconfirmed
+grok       rc=0 keys=[C-c ]  interrupt-delivered t1 harness=grok backend=tmux verified=agent-alive cancel=unconfirmed
+kimi       rc=0 keys=[Escape ]  interrupt-delivered t1 harness=kimi backend=tmux verified=agent-alive cancel=unconfirmed
+cursor     rc=0 keys=[Escape ]  interrupt-delivered t1 harness=cursor backend=tmux verified=agent-alive cancel=unconfirmed
+gemini     rc=1 keys=[]  error: task t1's endpoint reads 'ambiguous' rather than a positively classified state; refusing to send a lifecycle key into an unattributed endpoint
+muse       rc=0 keys=[Escape C-u ]  interrupt-delivered t1 harness=muse backend=tmux verified=agent-alive cancel=unconfirmed
+rovo       rc=0 keys=[Escape ]  interrupt-delivered t1 harness=rovo backend=tmux verified=agent-alive cancel=unconfirmed
+omp        rc=0 keys=[Escape ]  interrupt-delivered t1 harness=omp backend=tmux verified=agent-alive cancel=unconfirmed
+agy        rc=0 keys=[Escape ]  interrupt-delivered t1 harness=agy backend=tmux verified=agent-alive cancel=unconfirmed
+devin      rc=0 keys=[Escape Escape ]  interrupt-delivered t1 harness=devin backend=tmux verified=agent-alive cancel=unconfirmed
+zcode      rc=0 keys=[C-c ]  interrupt-delivered t1 harness=zcode backend=tmux verified=agent-alive cancel=unconfirmed

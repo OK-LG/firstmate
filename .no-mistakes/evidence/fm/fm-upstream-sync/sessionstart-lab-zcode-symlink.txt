@@ -1,0 +1,17 @@
+
+--- lab as the merge commit staged it (fm-zcode-lib.sh staged: yes)
+$ bin/fm-startup-network.sh start --locked 0 --harvest-pid $$
+  launcher rc=0, stderr lines about missing libs: 3
+    missing: bin/fm-cursor-lib.sh: No such file or directory
+    missing: bin/fm-path-lib.sh: No such file or directory
+    missing: bin/fm-timing-lib.sh: No such file or directory
+  detached worker marker: detached worker survived the hook
+
+--- lab as HEAD stages it (symlink dropped) (fm-zcode-lib.sh staged: no)
+$ bin/fm-startup-network.sh start --locked 0 --harvest-pid $$
+  launcher rc=0, stderr lines about missing libs: 4
+    missing: bin/fm-cursor-lib.sh: No such file or directory
+    missing: bin/fm-path-lib.sh: No such file or directory
+    missing: bin/fm-timing-lib.sh: No such file or directory
+    missing: bin/fm-zcode-lib.sh: No such file or directory
+  detached worker marker: detached worker survived the hook

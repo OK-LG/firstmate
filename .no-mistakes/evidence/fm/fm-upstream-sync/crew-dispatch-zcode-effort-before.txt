@@ -1,0 +1,5 @@
+config/crew-dispatch.json: {"rules":[{"when":"headless batch work","use":{"harness":"zcode","provider":"zcode","effort":"high"}}]}
+$ bin/fm-bootstrap.sh          (session start, BEFORE the fix)
+  rc=0  CREW_DISPATCH: invalid config/crew-dispatch.json - invalid effort: zcode:high
+$ bin/fm-dispatch-resolve.sh   (intake, BEFORE the fix - no network reached, config check only)
+  rc=0  (config ACCEPTED - no effort diagnostic; resolver went on to select the profile) :: dispatch-resolve: error (http 401 after 240 ms: {"detail":{"error_type":"authentication_error","message":"Cannot authenticate with the server. Please check your API key and try again."}})

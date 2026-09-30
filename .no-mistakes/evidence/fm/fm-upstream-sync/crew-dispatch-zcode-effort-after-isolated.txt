@@ -1,0 +1,5 @@
+config/crew-dispatch.json: {"rules":[{"when":"headless batch work","use":{"harness":"zcode","provider":"zcode","effort":"high"}}]}
+$ bin/fm-bootstrap.sh          (session start, AFTER the fix)
+  rc=0  CREW_DISPATCH: invalid config/crew-dispatch.json - invalid effort: zcode:high
+$ bin/fm-dispatch-resolve.sh   (intake, AFTER the fix - no network reached, config check only)
+  rc=2  error: malformed rules file: /tmp/nmdrv/dispatch-lab-before.caHh2J/home/config/crew-dispatch.json - each use profile effort must be supported by its harness and model

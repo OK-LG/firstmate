@@ -1,0 +1,9 @@
+Regression guard: tests/fm-control.test.sh::test_every_verified_harness_answers_each_interrupt_table
+
+--- BEFORE the fix (bin/fm-control-lib.sh from 478d2c0, tables missing zcode)
+not ok - fm_control_interrupt_arm_signal has no entry for the verified harness zcode, so every interrupt press on it aborts the control plane
+suite rc=1
+
+--- AFTER the fix (HEAD)
+ok - fm-control-lib: every harness fm_control_harnesses owns answers each interrupt table
+suite rc=0 (all tests passed)
