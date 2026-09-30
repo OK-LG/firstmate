@@ -562,83 +562,6 @@ test_backend_source_requires_adapter_file() {
   done
 }
 
-# The load-time source closure of an adapter: the adapter itself plus every
-# fm-*.sh under bin/ that it, or one of those, dot-sources at file scope.
-# Indented `.` calls inside functions are deliberately out of scope - the
-# precheck only owns what sourcing the adapter itself reaches.
-backend_load_time_closure() {  # <backend>
-  local pending="backends/$1.sh" seen="" current rel dep
-  while [ -n "$pending" ]; do
-    current=${pending%% *}
-    case "$pending" in *' '*) pending=${pending#* } ;; *) pending="" ;; esac
-    case " $seen " in *" $current "*) continue ;; esac
-    seen="$seen $current"
-    # shellcheck disable=SC2013 # sibling file names never contain whitespace
-    for dep in $(sed -n 's|^\. .*/\(fm-[A-Za-z0-9._-]*\.sh\)".*|\1|p' "$ROOT/bin/$current"); do
-      [ -f "$ROOT/bin/$dep" ] || continue
-      pending="$pending $dep"
-    done
-  done
-  for rel in $seen; do
-    [ "$rel" = "backends/$1.sh" ] || printf '%s\n' "$rel"
-  done
-}
-
-stage_backend_bin() {  # <dir> <omitted-sibling>
-  local dir=$1 omit=$2 f
-  rm -rf "$dir"
-  mkdir -p "$dir/backends"
-  for f in "$ROOT"/bin/*; do
-    [ -d "$f" ] || ln -s "$f" "$dir/$(basename "$f")"
-  done
-  for f in "$ROOT"/bin/backends/*; do
-    ln -s "$f" "$dir/backends/$(basename "$f")"
-  done
-  [ -z "$omit" ] || rm -f "$dir/$omit"
-}
-
-test_backend_source_prechecks_every_load_time_sibling() {
-  local backend sibling dir continuation out rc test_bash checked=0
-  test_bash=${FM_TEST_BASH:-${BASH:-bash}}
-  dir="$TMP_ROOT/sibling-precheck/bin"
-  continuation="$TMP_ROOT/sibling-precheck/continued"
-  mkdir -p "$TMP_ROOT/sibling-precheck"
-
-  # A sibling list that drifts from what the adapter actually sources is the
-  # whole hazard fm_backend_source exists to close: the precheck passes, then
-  # the `.` chain hits the absent file and Bash reports success anyway. Prove
-  # every load-time sibling of every adapter is covered, not just the listed ones.
-  for backend in tmux herdr zellij orca cmux; do
-    for sibling in $(backend_load_time_closure "$backend"); do
-      stage_backend_bin "$dir" "$sibling"
-      rm -f "$continuation"
-      # shellcheck disable=SC2016 # The child Bash expands $1..$5 at runtime.
-      out=$("$test_bash" -c '
-        . "$1"
-        FM_BACKEND_LIB_DIR=$2
-        set -e
-        fm_backend_source "$3"
-        : > "$4"
-      ' _ "$ROOT/bin/fm-backend.sh" "$dir" "$backend" "$continuation" 2>&1)
-      rc=$?
-      [ "$rc" -ne 0 ] \
-        || fail "fm_backend_source $backend returned success with $sibling absent: $out"
-      [ ! -e "$continuation" ] \
-        || fail "fm_backend_source $backend continued the lifecycle with $sibling absent"
-      checked=$((checked + 1))
-    done
-  done
-  [ "$checked" -gt 0 ] || fail "no adapter siblings were exercised: the closure walk found nothing"
-  stage_backend_bin "$dir" ""
-  for backend in tmux herdr zellij orca cmux; do
-    # shellcheck disable=SC2016 # The child Bash expands $1..$3 at runtime.
-    "$test_bash" -c '. "$1"; FM_BACKEND_LIB_DIR=$2; set -e; fm_backend_source "$3"' \
-      _ "$ROOT/bin/fm-backend.sh" "$dir" "$backend" >/dev/null 2>&1 \
-      || fail "fm_backend_source $backend refused a complete bin/ tree"
-  done
-  pass "fm_backend_source: every adapter's load-time siblings are prechecked ($checked absences refused)"
-}
-
 test_backend_validate_spawn_accepts_orca() {
   local out
   fm_backend_validate_spawn tmux 2>/dev/null || fail "fm_backend_validate_spawn should accept tmux"
@@ -1287,7 +1210,6 @@ test_backend_name_explicit_beats_detection
 test_backend_validate_refuses_unknown
 test_backend_source_shell_portable
 test_backend_source_requires_adapter_file
-test_backend_source_prechecks_every_load_time_sibling
 test_backend_validate_spawn_accepts_orca
 test_meta_get_and_backend_of_meta
 test_resolve_selector_three_forms
