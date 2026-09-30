@@ -247,6 +247,7 @@ test_zcode_pane_liveness_classifies_every_observed_surface() {
 # --- 2. Control mechanics -------------------------------------------------------
 
 test_zcode_control_mechanics_are_the_verified_ones() {
+  local arm hazard
   fm_control_harness_supported zcode || fail "zcode must be a supported control harness"
   [ "$(fm_control_harness_family zcode)" = zcode ] || fail "zcode must map to its own family"
   fm_control_harness_family zcodegraph \
@@ -268,9 +269,12 @@ test_zcode_control_mechanics_are_the_verified_ones() {
   # rendered surface a mistimed press can open, so both signals are empty and
   # the press gap is the standard one. These must still ANSWER, because the
   # exit verb re-sends the interrupt after its second-key delay.
-  [ -z "$(fm_control_interrupt_arm_signal zcode)" ] \
-    || fail "zcode presses its single C-c blind, so no arm signal may exist"
-  [ -z "$(fm_control_interrupt_hazard_signal zcode)" ] \
+  arm=$(fm_control_interrupt_arm_signal zcode) \
+    || fail "the arm-signal table must answer for zcode, or the exit verb's second key aborts the control plane"
+  [ -z "$arm" ] || fail "zcode presses its single C-c blind, so no arm signal may exist"
+  hazard=$(fm_control_interrupt_hazard_signal zcode) \
+    || fail "the hazard-signal table must answer for zcode, or the exit verb's second key aborts the control plane"
+  [ -z "$hazard" ] \
     || fail "zcode's interrupt opens no dismissable surface, so no hazard signal may exist"
   [ "$(fm_control_interrupt_press_gap zcode)" = 0.2 ] \
     || fail "zcode must carry the standard interrupt press gap"
