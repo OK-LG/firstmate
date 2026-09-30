@@ -1,0 +1,37 @@
+################ A. BEFORE commit 094f8bb: the staged home carries no fm-path-lib.sh
+  session process name: zcode-cli
+/tmp/fm-live-zcode-lock.sh: line 32: /tmp/fm-live-lock.zSZZpB/a/state/lock.rc: No such file or directory
+  fm-lock.sh exit: <never finished>
+  fm-lock.sh output:
+    /tmp/fm-live-lock.zSZZpB/a/bin/fm-wake-lib.sh: line 14: /tmp/fm-live-lock.zSZZpB/a/bin/fm-path-lib.sh: No such file or directory
+    /tmp/fm-live-lock.zSZZpB/a/bin/fm-wake-lib.sh: line 497: fm_dirname_to: command not found
+    /tmp/fm-live-lock.zSZZpB/a/bin/fm-wake-lib.sh: line 498: fm_basename_to: command not found
+    /tmp/fm-live-lock.zSZZpB/a/bin/fm-wake-lib.sh: line 499: dir: unbound variable
+    /tmp/fm-live-lock.zSZZpB/a/bin/fm-wake-lib.sh: line 497: fm_dirname_to: command not found
+    /tmp/fm-live-lock.zSZZpB/a/bin/fm-wake-lib.sh: line 498: fm_basename_to: command not found
+    /tmp/fm-live-lock.zSZZpB/a/bin/fm-wake-lib.sh: line 499: dir: unbound variable
+    ... (the same three lines repeat without bound: the staged session never
+        finishes, so fm-lock.sh writes no exit status and takes no lock)
+  state/.lock: absent (no lock taken)
+
+################ B. AFTER: fm-path-lib.sh staged alongside the other libs
+  session process name: zcode-cli
+  fm-lock.sh exit: 0
+  fm-lock.sh output:
+    lock acquired: harness pid 2629383
+  state/.lock holder pid: 2629383  (session pid was 2629383)
+
+################ C. adversarial: a plain bash session with no zcode ancestry
+  session process name: bash
+  fm-lock.sh exit: 1
+  fm-lock.sh output:
+    error: cannot locate harness process in ancestry
+  state/.lock: absent (no lock taken)
+
+################ reading this transcript
+A: the fixture gap commit 094f8bb closed, driven live - a zcode-named session whose
+   home bin/ lacks fm-path-lib.sh cannot acquire the fleet lock at all: fm-wake-lib.sh
+   loses fm_dirname_to/fm_basename_to and the session spins instead of locking.
+B: with fm-path-lib.sh staged, the real zcode-cli-named session acquires the fleet
+   lock and state/.lock records that session's own pid.
+C: a plain bash session with no zcode ancestry is refused and writes no lock file.

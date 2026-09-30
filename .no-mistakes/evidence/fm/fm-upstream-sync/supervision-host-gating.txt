@@ -1,0 +1,12 @@
+Adversarial: the lab home opts INTO the supervision host (config/supervision-host present).
+
+$ bin/fm-supervision-instructions.sh --harness zcode | grep -ci 'supervision host'
+0
+$ bin/fm-supervision-instructions.sh --harness claude | grep -ci 'supervision host'
+4
+
+--- the claude host lines the zcode block correctly lacks ---
+- Supervision host: on; it takes away-posture wakes and, where the dialog mirror is verified, eligible attended wakes itself, and hands the rest to you (protocol at the end of this block).
+The watcher itself remains `bin/fm-watch.sh`, and `bin/fm-watch-arm.sh` remains the verified arm wrapper that the Stop hook foregrounds on a home that opted out of the [supervision host](../supervision-host.md) (`config/supervision-host-off`).
+Supervision host: on for this home (`config/supervision-host-off` turns it off; [`supervision-host.md`](../supervision-host.md) owns the design).
+The Stop hook runs the supervision host in the arm's place, and everything above still holds with these additions:

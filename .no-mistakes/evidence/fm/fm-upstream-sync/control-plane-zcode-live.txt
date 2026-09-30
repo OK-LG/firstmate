@@ -1,0 +1,48 @@
+################ A. the merged-upstream tables BEFORE the fork's zcode registration
+#  bin/ staged with bin/fm-control-lib.sh exactly as merge commit 3140240 left it
+pane foreground process group, as ps sees it:
+  2508679 2508679 2508718 bash
+  2508718 2508718 2508718 zcode
+  2509364 2508718 2508718 sleep
+
+$ fm-control.sh zc1 interrupt
+interrupt-delivered zc1 harness=zcode backend=tmux verified=agent-alive cancel=unconfirmed
+exit=0   stdout/stderr bytes=90
+pane after the command (the agent was never touched):
+  root@vultr:/tmp/fm-live-zcode.t1E2HA# PATH=/tmp/fm-live-zcode.t1E2HA/fakebin:$PATH; zcode /tmp/fm-live-zcode.t1E2HA/agent.sh
+  [zcode TUI] running a turn
+  ^C[zcode TUI] turn cancelled by C-c (press 1)
+
+$ fm-control.sh zc1 exit
+stopped zc1 harness=zcode backend=tmux endpoint=fmses:fm-zc1 worktree=/tmp/fm-live-zcode.t1E2HA/wt
+exit=0   stdout/stderr bytes=98
+
+################ B. this branch's bin/ (zcode registered in every interrupt table)
+pane foreground process group, as ps sees it:
+  2511401 2511401 2511429 bash
+  2511429 2511429 2511429 zcode
+  2512090 2511429 2511429 sleep
+
+$ fm-control.sh zc1 interrupt
+interrupt-delivered zc1 harness=zcode backend=tmux verified=agent-alive cancel=unconfirmed
+exit=0
+pane after the interrupt (C-c reached the real process, the TUI survived):
+  root@vultr:/tmp/fm-live-zcode.t1E2HA# PATH=/tmp/fm-live-zcode.t1E2HA/fakebin:$PATH; zcode /tmp/fm-live-zcode.t1E2HA/agent.sh
+  [zcode TUI] running a turn
+  ^C[zcode TUI] turn cancelled by C-c (press 1)
+
+$ fm-control.sh zc1 exit    (signal-shaped exit: first C-c, then the second key)
+stopped zc1 harness=zcode backend=tmux endpoint=fmses:fm-zc1 worktree=/tmp/fm-live-zcode.t1E2HA/wt
+exit=0
+pane after exit:
+  ^C[zcode TUI] turn cancelled by C-c (press 1)
+  ^C[zcode TUI] turn cancelled by C-c (press 2)
+  [zcode TUI] exiting
+  root@vultr:/tmp/fm-live-zcode.t1E2HA#
+window still present (exit preserves the endpoint):
+  fm-zc1
+
+################ C. adversarial: an unverified adapter must still be refused, loudly
+$ fm-control.sh zc1 interrupt   (state/zc1.meta records harness=someagent)
+error: task zc1 records harness 'someagent', which has no verified control mechanics; fm-control refuses to guess an interrupt key or exit command
+exit=1

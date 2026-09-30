@@ -1,0 +1,13 @@
+### headless spawn (state/zc1.meta records no zcode_tui line)
+$ fm-control.sh zc1 interrupt
+  interrupt-delivered zc1 harness=zcode backend=tmux verified=agent-ended-by-interrupt cancel=unconfirmed
+  exit=0
+  pane| ^C
+  pane| root@vultr:/tmp/fm-live-hl.xHyjPz#
+
+### the opt-in TUI variant (state/zc1.meta records zcode_tui=1)
+$ fm-control.sh zc1 interrupt
+  interrupt-delivered zc1 harness=zcode backend=tmux verified=agent-alive cancel=unconfirmed
+  exit=0
+  pane| [zcode TUI] working
+  pane| ^C[zcode TUI] turn cancelled, still here

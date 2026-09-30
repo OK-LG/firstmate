@@ -1,0 +1,20 @@
+################ A. BEFORE: merge commit 3140240's interrupt tables (no zcode row)
+$ fm-control.sh zc1 exit
+stopped zc1 harness=zcode backend=tmux endpoint=fmses:fm-zc1 worktree=/tmp/fm-live-zcx.MQeBib/wt
+exit=0   captured output bytes=96
+  ps: no zcode process left in the pane
+  pane| ^C[zcode TUI] C-c press 2: turn cancelled
+  pane| [zcode TUI] second key: exiting
+  pane| root@vultr:/tmp/fm-live-zcx.MQeBib#
+
+################ B. AFTER: this branch's tables (zcode registered)
+$ fm-control.sh zc1 exit
+stopped zc1 harness=zcode backend=tmux endpoint=fmses:fm-zc1 worktree=/tmp/fm-live-zcx.MQeBib/wt
+exit=0
+  ps: no zcode process left in the pane
+  pane| ^C[zcode TUI] C-c press 1: turn cancelled
+  pane| ^C[zcode TUI] C-c press 2: turn cancelled
+  pane| [zcode TUI] second key: exiting
+  pane| root@vultr:/tmp/fm-live-zcx.MQeBib#
+  endpoint preserved:
+  window| fm-zc1

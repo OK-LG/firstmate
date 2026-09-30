@@ -1,0 +1,57 @@
+################ A. BEFORE: fm_backend_source's tmux siblings do not name fm-zcode-lib.sh
+   staged home bin/ is missing fm-zcode-lib.sh:
+   files: 209
+   ls: cannot access '/tmp/fm-live-sib.2DgAmT/bin-pre/fm-zcode-lib.sh': No such file or directory
+$ fm-control.sh zc1 exit
+  /tmp/fm-live-sib.2DgAmT/bin-pre/fm-session-lock-lib.sh: line 26: /tmp/fm-live-sib.2DgAmT/bin-pre/fm-zcode-lib.sh: No such file or directory
+  /tmp/fm-live-sib.2DgAmT/bin-pre/fm-session-lock-lib.sh: line 26: /tmp/fm-live-sib.2DgAmT/bin-pre/fm-zcode-lib.sh: No such file or directory
+  /tmp/fm-live-sib.2DgAmT/bin-pre/fm-agent-process-lib.sh: line 23: /tmp/fm-live-sib.2DgAmT/bin-pre/fm-zcode-lib.sh: No such file or directory
+  /tmp/fm-live-sib.2DgAmT/bin-pre/fm-session-lock-lib.sh: line 26: /tmp/fm-live-sib.2DgAmT/bin-pre/fm-zcode-lib.sh: No such file or directory
+  /tmp/fm-live-sib.2DgAmT/bin-pre/fm-session-lock-lib.sh: line 26: /tmp/fm-live-sib.2DgAmT/bin-pre/fm-zcode-lib.sh: No such file or directory
+  /tmp/fm-live-sib.2DgAmT/bin-pre/fm-agent-process-lib.sh: line 23: /tmp/fm-live-sib.2DgAmT/bin-pre/fm-zcode-lib.sh: No such file or directory
+  /tmp/fm-live-sib.2DgAmT/bin-pre/fm-session-lock-lib.sh: line 26: /tmp/fm-live-sib.2DgAmT/bin-pre/fm-zcode-lib.sh: No such file or directory
+  /tmp/fm-live-sib.2DgAmT/bin-pre/fm-session-lock-lib.sh: line 26: /tmp/fm-live-sib.2DgAmT/bin-pre/fm-zcode-lib.sh: No such file or directory
+  /tmp/fm-live-sib.2DgAmT/bin-pre/fm-agent-process-lib.sh: line 23: /tmp/fm-live-sib.2DgAmT/bin-pre/fm-zcode-lib.sh: No such file or directory
+  /tmp/fm-live-sib.2DgAmT/bin-pre/fm-session-lock-lib.sh: line 26: /tmp/fm-live-sib.2DgAmT/bin-pre/fm-zcode-lib.sh: No such file or directory
+  /tmp/fm-live-sib.2DgAmT/bin-pre/fm-session-lock-lib.sh: line 26: /tmp/fm-live-sib.2DgAmT/bin-pre/fm-zcode-lib.sh: No such file or directory
+  /tmp/fm-live-sib.2DgAmT/bin-pre/fm-agent-process-lib.sh: line 23: /tmp/fm-live-sib.2DgAmT/bin-pre/fm-zcode-lib.sh: No such file or directory
+  /tmp/fm-live-sib.2DgAmT/bin-pre/fm-session-lock-lib.sh: line 26: /tmp/fm-live-sib.2DgAmT/bin-pre/fm-zcode-lib.sh: No such file or directory
+  /tmp/fm-live-sib.2DgAmT/bin-pre/fm-session-lock-lib.sh: line 26: /tmp/fm-live-sib.2DgAmT/bin-pre/fm-zcode-lib.sh: No such file or directory
+  /tmp/fm-live-sib.2DgAmT/bin-pre/fm-agent-process-lib.sh: line 23: /tmp/fm-live-sib.2DgAmT/bin-pre/fm-zcode-lib.sh: No such file or directory
+  /tmp/fm-live-sib.2DgAmT/bin-pre/fm-session-lock-lib.sh: line 26: /tmp/fm-live-sib.2DgAmT/bin-pre/fm-zcode-lib.sh: No such file or directory
+  /tmp/fm-live-sib.2DgAmT/bin-pre/fm-session-lock-lib.sh: line 26: /tmp/fm-live-sib.2DgAmT/bin-pre/fm-zcode-lib.sh: No such file or directory
+  /tmp/fm-live-sib.2DgAmT/bin-pre/fm-agent-process-lib.sh: line 23: /tmp/fm-live-sib.2DgAmT/bin-pre/fm-zcode-lib.sh: No such file or directory
+  /tmp/fm-live-sib.2DgAmT/bin-pre/fm-session-lock-lib.sh: line 26: /tmp/fm-live-sib.2DgAmT/bin-pre/fm-zcode-lib.sh: No such file or directory
+  /tmp/fm-live-sib.2DgAmT/bin-pre/fm-session-lock-lib.sh: line 26: /tmp/fm-live-sib.2DgAmT/bin-pre/fm-zcode-lib.sh: No such file or directory
+  /tmp/fm-live-sib.2DgAmT/bin-pre/fm-agent-process-lib.sh: line 23: /tmp/fm-live-sib.2DgAmT/bin-pre/fm-zcode-lib.sh: No such file or directory
+  /tmp/fm-live-sib.2DgAmT/bin-pre/fm-session-lock-lib.sh: line 26: /tmp/fm-live-sib.2DgAmT/bin-pre/fm-zcode-lib.sh: No such file or directory
+  /tmp/fm-live-sib.2DgAmT/bin-pre/fm-session-lock-lib.sh: line 26: /tmp/fm-live-sib.2DgAmT/bin-pre/fm-zcode-lib.sh: No such file or directory
+  /tmp/fm-live-sib.2DgAmT/bin-pre/fm-agent-process-lib.sh: line 23: /tmp/fm-live-sib.2DgAmT/bin-pre/fm-zcode-lib.sh: No such file or directory
+  /tmp/fm-live-sib.2DgAmT/bin-pre/fm-session-lock-lib.sh: line 26: /tmp/fm-live-sib.2DgAmT/bin-pre/fm-zcode-lib.sh: No such file or directory
+  /tmp/fm-live-sib.2DgAmT/bin-pre/fm-session-lock-lib.sh: line 26: /tmp/fm-live-sib.2DgAmT/bin-pre/fm-zcode-lib.sh: No such file or directory
+  /tmp/fm-live-sib.2DgAmT/bin-pre/fm-agent-process-lib.sh: line 23: /tmp/fm-live-sib.2DgAmT/bin-pre/fm-zcode-lib.sh: No such file or directory
+  error: exit-delivered zc1 interrupt=signal cancel=unconfirmed agent-state=alive exit=unconfirmed; the agent did not stop within 4s
+  exit=1
+  ps: the zcode agent is STILL RUNNING (no lifecycle step happened)
+
+################ B. AFTER: fm-zcode-lib.sh registered in the tmux sibling precheck
+$ fm-control.sh zc1 exit
+  error: task zc1's endpoint reads 'unverified' rather than a positively classified state; refusing to send a lifecycle command into an unattributed endpoint
+  exit=1
+  ps: the zcode agent is STILL RUNNING (no lifecycle step happened)
+
+################ C. control: the same bin/ WITH fm-zcode-lib.sh restored still works
+$ fm-control.sh zc1 exit
+  error: exit-delivered zc1 interrupt=signal cancel=unconfirmed agent-state=alive exit=unconfirmed; the agent did not stop within 4s
+  exit=1
+  ps: the zcode agent is STILL RUNNING (no lifecycle step happened)
+
+################ reading this transcript
+A: the precheck did not name fm-zcode-lib.sh, so fm-control.sh dot-sourced the
+   tmux adapter anyway - 27 sourcing failures on stderr - and then ACTED on the
+   endpoint with a partially loaded library before refusing.
+B: the registered sibling makes the same incomplete bin/ refuse first, with one
+   diagnostic and no keys delivered.
+C: the lab agent script ignores SIGINT forever, so the bounded `exit=unconfirmed`
+   refusal is the correct outcome for it; the point of C is that a complete bin/
+   still reaches the normal lifecycle path with no sourcing failures.
