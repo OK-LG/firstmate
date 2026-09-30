@@ -562,6 +562,61 @@ test_backend_source_requires_adapter_file() {
   done
 }
 
+# bin/backends/tmux.sh and bin/backends/herdr.sh both reach fm-zcode-lib.sh at
+# load time (through fm-session-lock-lib.sh and fm-agent-process-lib.sh), so a
+# home whose bin/ is missing that one lib must be refused by the same precheck
+# that covers every other sibling. Without the registration the precheck passes
+# and the adapter is dot-sourced anyway, so bin/fm-teardown.sh reports a
+# completed lifecycle it ran with a partially loaded library.
+test_backend_source_requires_the_zcode_sibling() {
+  local dir backend exit_status continuation out rc test_bash
+  dir="$TMP_ROOT/zcode-sibling-precheck"
+  test_bash=${FM_TEST_BASH:-${BASH:-bash}}
+  rm -rf "$dir"
+  mkdir -p "$dir"
+  cp -R "$ROOT/bin/." "$dir/"
+
+  for backend in tmux herdr; do
+    exit_status="$dir/$backend.present.exit"
+    continuation="$dir/$backend.present.continued"
+    # shellcheck disable=SC2016 # The child Bash expands $1..$5 at runtime.
+    out=$("$test_bash" -c '
+      . "$1"
+      FM_BACKEND_LIB_DIR=$2
+      trap '\''printf "%s\n" "$?" > "$4"'\'' EXIT
+      set -e
+      fm_backend_source "$3"
+      : > "$5"
+    ' _ "$dir/fm-backend.sh" "$dir" "$backend" "$exit_status" "$continuation" 2>&1) \
+      || fail "fm_backend_source $backend refused a complete bin/: $out"
+    [ -e "$continuation" ] \
+      || fail "fm_backend_source $backend did not continue the lifecycle on a complete bin/"
+  done
+
+  rm -f "$dir/fm-zcode-lib.sh"
+  for backend in tmux herdr; do
+    exit_status="$dir/$backend.absent.exit"
+    continuation="$dir/$backend.absent.continued"
+    # shellcheck disable=SC2016 # The child Bash expands $1..$5 at runtime.
+    out=$("$test_bash" -c '
+      . "$1"
+      FM_BACKEND_LIB_DIR=$2
+      trap '\''printf "%s\n" "$?" > "$4"'\'' EXIT
+      set -e
+      fm_backend_source "$3"
+      : > "$5"
+    ' _ "$dir/fm-backend.sh" "$dir" "$backend" "$exit_status" "$continuation" 2>&1)
+    rc=$?
+    [ "$rc" -ne 0 ] \
+      || fail "fm_backend_source $backend returned success with fm-zcode-lib.sh absent: $out"
+    [ -f "$exit_status" ] && [ "$(cat "$exit_status")" -ne 0 ] \
+      || fail "fm_backend_source $backend lost the missing-zcode-lib failure at EXIT"
+    [ ! -e "$continuation" ] \
+      || fail "fm_backend_source $backend continued the lifecycle with fm-zcode-lib.sh absent"
+  done
+  pass "fm_backend_source: tmux and herdr refuse a bin/ missing fm-zcode-lib.sh before any lifecycle step"
+}
+
 test_backend_validate_spawn_accepts_orca() {
   local out
   fm_backend_validate_spawn tmux 2>/dev/null || fail "fm_backend_validate_spawn should accept tmux"
@@ -1210,6 +1265,7 @@ test_backend_name_explicit_beats_detection
 test_backend_validate_refuses_unknown
 test_backend_source_shell_portable
 test_backend_source_requires_adapter_file
+test_backend_source_requires_the_zcode_sibling
 test_backend_validate_spawn_accepts_orca
 test_meta_get_and_backend_of_meta
 test_resolve_selector_three_forms
