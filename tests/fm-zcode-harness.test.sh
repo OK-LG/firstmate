@@ -247,6 +247,7 @@ test_zcode_pane_liveness_classifies_every_observed_surface() {
 # --- 2. Control mechanics -------------------------------------------------------
 
 test_zcode_control_mechanics_are_the_verified_ones() {
+  local arm hazard
   fm_control_harness_supported zcode || fail "zcode must be a supported control harness"
   [ "$(fm_control_harness_family zcode)" = zcode ] || fail "zcode must map to its own family"
   fm_control_harness_family zcodegraph \
@@ -264,6 +265,19 @@ test_zcode_control_mechanics_are_the_verified_ones() {
     || fail "zcode has no composer, so no clear key may exist"
   [ "$(fm_control_interrupt_ack_source zcode)" = none ] \
     || fail "the headless SIGINT path prints no acknowledgement, so the ack source is none"
+  # A single C-c is sent blind: there is no armed-press proof to read and no
+  # rendered surface a mistimed press can open, so both signals are empty and
+  # the press gap is the standard one. These must still ANSWER, because the
+  # exit verb re-sends the interrupt after its second-key delay.
+  arm=$(fm_control_interrupt_arm_signal zcode) \
+    || fail "the arm-signal table must answer for zcode, or the exit verb's second key aborts the control plane"
+  [ -z "$arm" ] || fail "zcode presses its single C-c blind, so no arm signal may exist"
+  hazard=$(fm_control_interrupt_hazard_signal zcode) \
+    || fail "the hazard-signal table must answer for zcode, or the exit verb's second key aborts the control plane"
+  [ -z "$hazard" ] \
+    || fail "zcode's interrupt opens no dismissable surface, so no hazard signal may exist"
+  [ "$(fm_control_interrupt_press_gap zcode)" = 0.2 ] \
+    || fail "zcode must carry the standard interrupt press gap"
   fm_control_exit_command zcode \
     && fail "zcode has no composer and no typed exit command; the table must refuse to name one" || true
   # The headless process IS the turn: a C-c interrupt ends the worker process
@@ -610,6 +624,9 @@ case "${1:-}" in
       prev=$arg
     done
     if [ -n "$literal" ]; then
+      case "$literal" in
+        ". '"*"'") staged=${literal#". '"}; staged=${staged%"'"}; [ ! -f "$staged" ] || literal=$(cat "$staged") ;;
+      esac
       case "$literal" in
         *'--mode yolo'*)
           printf '%s\n' "$literal" >> "$FM_FAKE_LAUNCH_LOG"

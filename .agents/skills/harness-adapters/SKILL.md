@@ -3,7 +3,7 @@ name: harness-adapters
 description: >-
   Agent-only reference for firstmate harness operations.
   Use before spawning or recovering a crewmate or secondmate, handling a trust dialog, sending a harness-specific skill invocation, interrupting or exiting an agent, resuming an exited agent, or verifying a new harness adapter.
-  Contains verified facts for claude, codex, opencode, pi, pi-signed, grok, kimi, cursor, gemini, muse, rovo, omp, agy, and zcode.
+  Contains verified facts for claude, codex, opencode, pi, pi-signed, grok, kimi, cursor, gemini, muse, rovo, omp, agy, devin, and zcode.
 user-invocable: false
 metadata:
   internal: true
@@ -35,7 +35,7 @@ For recovery and control, use the exact `harness=` in `state/<id>.meta`; never i
 Deliver lifecycle actions only through `../../../bin/fm-control.sh <task-id> interrupt|exit|relaunch`.
 Never type an interrupt key or exit command through `fm-send`, where routing-marked lifecycle text becomes chat.
 Trust handling is complete only when inspection proves the target started processing its instructions; delivery success alone is not proof.
-Muse, Gemini, and AGY are verified only for crewmate and scout work, never a secondmate or primary.
+Muse, Gemini, AGY, and Devin are verified only for crewmate and scout work, never a secondmate or primary.
 zcode is verified for the primary session and for crewmate and scout work, but not yet a secondmate; its dated 2026-09-14 crew pass, its 2026-09-15 primary pass, its `ZCODE_API_KEY` credential precondition, and the `docs/supervision-protocols/zcode.md` wake protocol it hosts are recorded in `references/harness/zcode.md`.
 
 ## Detection
@@ -97,6 +97,7 @@ A new tool remains undispatchable until the `verify` plan, its harness entry, ev
     "rovo": "references/harness/rovo.md",
     "omp": "references/harness/omp.md",
     "agy": "references/harness/agy.md",
+    "devin": "references/harness/devin.md",
     "zcode": "references/harness/zcode.md"
   }
 }

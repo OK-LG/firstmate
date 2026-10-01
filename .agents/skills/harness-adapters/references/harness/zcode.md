@@ -93,6 +93,6 @@ Verified 2026-09-15 against `zcode-app-cli` 3.11.2-24 wrapping `zcode-runtime` 0
 
 - The session lock: `../../../../../bin/fm-session-lock-lib.sh`'s ancestry walk resolves the session's `zcode-cli` engine pid through the anchored `^zcode$|^zcode-cli$` tokens, a wrapper presenting as `node /path/to/zcode` is claimed through the structural argv rule in `../../../../../bin/fm-zcode-lib.sh`, and the per-call `zcode-node-repl` MCP kernel is deliberately excluded because it is not a session-lifetime process.
 - The wake protocol: `docs/supervision-protocols/zcode.md` owns it - the Bash tool's tracked background tasks (`run_in_background`) survive the tool call and re-invoke the model on completion, so one backgrounded `bin/fm-watch-arm.sh` is the live supervision cycle, the grok shape.
-- The interactive TUI is the supported host; headless `zcode --prompt` is the one-shot crewmate launch shape and cannot host the supervision cycle.
+- The interactive TUI is the supported primary surface; headless `zcode --prompt` is the one-shot crewmate launch shape and cannot host the supervision cycle.
 - No turn-end guard backstop exists yet: the background arm's completion notification is the only cycle-end signal, so a healthy arm must exist before every turn ends.
 - The primary live guard `tests/fm-zcode-primary-live-e2e.test.sh` (opt-in, `FM_ZCODE_PRIMARY_LIVE=1`) re-proves the lock acquisition inside a real zcode session on demand.
