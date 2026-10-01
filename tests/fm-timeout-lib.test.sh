@@ -172,6 +172,32 @@ test_a_signal_to_the_bounding_process_reaches_the_command() {
   pass "fm_exec_timed forwards a TERM it receives to the bounded command"
 }
 
+# Stock macOS bash 3.2 has no BASHPID, and callers run under set -u, so the
+# owner capture must not read it unguarded. Unsetting BASHPID strips its
+# special meaning on a newer bash, which reproduces the 3.2 shell here.
+test_runs_without_bashpid_under_set_u() {
+  local dir path tool out rc
+  dir="$TMP_ROOT/no-bashpid"
+  path="$dir/bin"
+  mkdir -p "$path"
+  for tool in perl bash sh; do
+    ln -s "$(command -v "$tool")" "$path/$tool"
+  done
+  rc=0
+  out=$(bash -c '
+    set -u
+    unset BASHPID
+    [ -z "${BASHPID:-}" ] || exit 90
+    . "$1"
+    ( PATH=$2 fm_exec_timed 5 1 bash -c "exit 7" ) && exit 91
+    [ "$?" -eq 7 ] || exit 92
+    PATH=$2 fm_exec_timed 5 1 bash -c "echo top-level; exit 3"
+  ' _ "$ROOT/bin/fm-timeout-lib.sh" "$path" 2>&1) || rc=$?
+  [ "$rc" -eq 3 ] || fail "fm_exec_timed without BASHPID did not pass the command's status through (rc=$rc): $out"
+  [ "$out" = top-level ] || fail "fm_exec_timed without BASHPID produced unexpected output: $out"
+  pass "fm_exec_timed runs without BASHPID under set -u, in a subshell and at top level"
+}
+
 # A caller that names its owner before launching the watchdog is watched even
 # when that owner died while the watchdog was still starting: the watchdog's
 # parent is then not the named owner, so the escalation starts at once rather
@@ -333,6 +359,7 @@ test_run_timed_passes_a_natural_exit_through_a_fired_bound
 test_term_ends_a_cooperative_command_at_the_bound
 test_kill_ends_a_term_ignoring_command_after_the_grace
 test_the_bound_replaces_the_calling_shell
+test_runs_without_bashpid_under_set_u
 test_a_descendant_holding_the_output_cannot_outlast_the_bound
 test_a_signal_to_the_bounding_process_reaches_the_command
 test_a_named_owner_that_is_gone_ends_the_command
