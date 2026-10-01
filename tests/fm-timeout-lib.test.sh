@@ -109,7 +109,9 @@ test_the_bound_replaces_the_calling_shell() {
     rm -f "$dir/caller" "$dir/parent"
     (
       . "$ROOT/bin/fm-timeout-lib.sh"
-      printf '%s\n' "$BASHPID" > "$dir/caller"
+      # Stock macOS Bash 3.2 has no BASHPID: a shell forked from this frame
+      # reports the frame as its PPID, which is how the library reads it too.
+      bash -c 'printf "%s\n" "$PPID"' > "$dir/caller"
       PATH=$path fm_exec_timed 5 1 bash -c 'echo "$PPID" > "$1"' _ "$dir/parent"
     ) || fail "the bounded probe failed under PATH=$path"
     caller=$(cat "$dir/caller")
@@ -172,6 +174,91 @@ test_a_signal_to_the_bounding_process_reaches_the_command() {
   pass "fm_exec_timed forwards a TERM it receives to the bounded command"
 }
 
+# Stock macOS bash 3.2 has no BASHPID, and callers run under set -u, so the
+# owner capture must neither read it unguarded nor degrade to $$: the owner it
+# keeps is the caller only because it differs from the frame fm_exec_timed
+# replaces. Both invariants run with BASHPID unset - unsetting it on a newer
+# bash strips its special meaning, which reproduces the 3.2 shell - and again
+# under a real stock /bin/bash wherever this host has one.
+
+# <shell> <path>: with no BASHPID in the shell, a subshell call and a top-level
+# call each still report their own command's status.
+bashpid_less_status_passthrough() {
+  local shell=$1 path=$2 out rc=0
+  out=$("$shell" -c '
+    set -u
+    unset BASHPID
+    [ -z "${BASHPID:-}" ] || exit 90
+    . "$1"
+    ( PATH=$2 fm_exec_timed 5 1 bash -c "exit 7" ) && exit 91
+    [ "$?" -eq 7 ] || exit 92
+    PATH=$2 fm_exec_timed 5 1 bash -c "echo top-level; exit 3"
+  ' _ "$ROOT/bin/fm-timeout-lib.sh" "$path" 2>&1) || rc=$?
+  [ "$rc" -eq 3 ] \
+    || fail "without BASHPID under $shell, fm_exec_timed did not pass the command's status through (rc=$rc): $out"
+  [ "$out" = top-level ] \
+    || fail "without BASHPID under $shell, fm_exec_timed produced unexpected output: $out"
+}
+
+# <shell> <path> <dir>: with no BASHPID and no named owner, the owner a subshell
+# caller captures is the calling script, not the script's parent. The script
+# dies while its subshell is still on the way into fm_exec_timed, so a watchdog
+# that captured the script ends the command at once; a capture that degraded to
+# $PPID would poll this test runner, which is alive, and run to its 60s bound.
+bashpid_less_owner_capture() {
+  local shell=$1 path=$2 dir=$3 watchdog started rc=0
+  rm -f "$dir/watchdog"
+  PATH=$path "$shell" -c '
+    set -u
+    unset BASHPID
+    [ -z "${BASHPID:-}" ] || exit 90
+    . "$1"
+    (
+      bash -c "$3" > "$2/watchdog"
+      while kill -0 "$$" 2>/dev/null; do sleep 0.05; done
+      fm_exec_timed 60 1 bash -c "exec sleep 300"
+    ) >/dev/null 2>&1 &
+    exit 0
+  ' _ "$ROOT/bin/fm-timeout-lib.sh" "$dir" 'printf "%s\n" "$PPID"' || rc=$?
+  [ "$rc" -eq 0 ] || fail "the BASHPID-less owner probe under $shell did not start (rc=$rc)"
+  wait_for_file "$dir/watchdog"
+  watchdog=$(cat "$dir/watchdog")
+  started=$SECONDS
+  while kill -0 "$watchdog" 2>/dev/null; do
+    if [ "$((SECONDS - started))" -ge 15 ]; then
+      kill -KILL "$watchdog" 2>/dev/null || true
+      fail "without BASHPID under $shell, a watchdog whose owner died during startup ran on toward its bound"
+    fi
+    sleep 0.02
+  done
+}
+
+test_runs_without_bashpid_under_set_u() {
+  local dir path tool stock major
+  dir="$TMP_ROOT/no-bashpid"
+  path="$dir/bin"
+  mkdir -p "$path"
+  # sh carries the fallback's own pid read; sleep belongs to the bounded command.
+  for tool in perl bash sh sleep; do
+    ln -s "$(command -v "$tool")" "$path/$tool"
+  done
+  bashpid_less_status_passthrough "${BASH:-bash}" "$path"
+  bashpid_less_owner_capture "${BASH:-bash}" "$path" "$dir"
+  pass "without BASHPID fm_exec_timed passes the command's status through and still captures the calling script as owner"
+  stock=/bin/bash
+  major=$("$stock" -c 'printf "%s\n" "${BASH_VERSINFO[0]}"' 2>/dev/null || true)
+  case "$major" in
+    '' | *[!0-9]*) major=0 ;;
+  esac
+  if [ "$major" -gt 0 ] && [ "$major" -lt 4 ]; then
+    bashpid_less_status_passthrough "$stock" "$path"
+    bashpid_less_owner_capture "$stock" "$path" "$dir"
+    pass "both hold under the real stock bash $major at $stock, the captain's shell"
+  else
+    printf 'skip: %s is not a bash 3.x, so only the BASHPID-unset simulation ran\n' "$stock"
+  fi
+}
+
 # A caller that names its owner before launching the watchdog is watched even
 # when that owner died while the watchdog was still starting: the watchdog's
 # parent is then not the named owner, so the escalation starts at once rather
@@ -211,12 +298,12 @@ test_an_owner_that_dies_during_startup_ends_the_command() {
   PATH=$PERL_ONLY bash -c '
     . "$1/bin/fm-timeout-lib.sh"
     (
-      echo "$BASHPID" > "$2/watchdog"
+      bash -c "$3" > "$2/watchdog"
       while kill -0 "$$" 2>/dev/null; do sleep 0.05; done
       fm_exec_timed 60 1 bash -c "exec sleep 300"
     ) >/dev/null 2>&1 &
     exit 0
-  ' _ "$ROOT" "$dir"
+  ' _ "$ROOT" "$dir" 'printf "%s\n" "$PPID"'
   wait_for_file "$dir/watchdog"
   watchdog=$(cat "$dir/watchdog")
   started=$SECONDS
@@ -333,6 +420,7 @@ test_run_timed_passes_a_natural_exit_through_a_fired_bound
 test_term_ends_a_cooperative_command_at_the_bound
 test_kill_ends_a_term_ignoring_command_after_the_grace
 test_the_bound_replaces_the_calling_shell
+test_runs_without_bashpid_under_set_u
 test_a_descendant_holding_the_output_cannot_outlast_the_bound
 test_a_signal_to_the_bounding_process_reaches_the_command
 test_a_named_owner_that_is_gone_ends_the_command

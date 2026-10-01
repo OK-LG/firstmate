@@ -36,7 +36,10 @@
 #       the bounded subtree orphaned behind it). The owner is captured before
 #       the watchdog starts: FM_EXEC_TIMED_OWNER_PID when the caller names it,
 #       else the calling script ($$) when fm_exec_timed runs in a subshell,
-#       else the shell's parent. The escalation starts once that owner is gone
+#       else the shell's parent. Telling those two apart needs this frame's
+#       own pid, which a shell without BASHPID (stock macOS Bash 3.2) reports
+#       only through a forked child, so a caller that sandboxes PATH there
+#       must leave `sh` on it. The escalation starts once that owner is gone
 #       or the watchdog's parent changes, so an owner that dies while the
 #       watchdog is still starting is detected too. The timeout/gtimeout
 #       fallback does not track the owner: it bounds the command only by its
@@ -221,7 +224,8 @@ fm_exec_timed() {  # <seconds> <grace-seconds> <command...>
     exit 125
   fi
   owner=${FM_EXEC_TIMED_OWNER_PID:-$$}
-  [ "$owner" != "$BASHPID" ] || owner=$PPID
+  # Bash 3.2 has no BASHPID: exec a child shell so its PPID identifies this frame.
+  [ "$owner" != "${BASHPID:-$(exec sh -c 'printf "%s\n" "$PPID"')}" ] || owner=$PPID
   unset FM_EXEC_TIMED_OWNER_PID
   if command -v perl >/dev/null 2>&1; then
     exec perl -MPOSIX=WNOHANG,setpgid -MTime::HiRes=time -e '
