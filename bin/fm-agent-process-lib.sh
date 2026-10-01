@@ -19,8 +19,6 @@ _FM_AGENT_PROCESS_LIB_DIR=${BASH_SOURCE[0]%/*}
 . "${_FM_AGENT_PROCESS_LIB_DIR:-/}/fm-session-lock-lib.sh"
 # shellcheck source=bin/fm-gemini-lib.sh
 . "${_FM_AGENT_PROCESS_LIB_DIR:-/}/fm-gemini-lib.sh"
-# shellcheck source=bin/fm-zcode-lib.sh
-. "${_FM_AGENT_PROCESS_LIB_DIR:-/}/fm-zcode-lib.sh"
 unset _FM_AGENT_PROCESS_LIB_DIR
 
 # fm_agent_process_classify_name: the single owner of the process-name
@@ -53,16 +51,6 @@ fm_agent_process_classify_name() {  # <path> [argv0] -> agent|shell|other
     # way (verified, devin 3000.11.1: comm=devin), so a `*devin*` glob never
     # claims an unrelated command.
     agy|devin) printf 'agent' ;;
-    # zcode (Z.AI's coding-agent harness, Linux via the zcode-app-cli wrapper)
-    # is anchored for the same reason as agy and omp: the wrapper's own live
-    # name is the bare word `zcode` and its runtime children rename themselves
-    # (verified live on zcode-runtime 0.16.5 by reading /proc/<pid>/comm:
-    # kernel values `zcode-cli` and `zcode-node-repl`; the `zco` and `zcode-c`
-    # spellings elsewhere are `ps --forest` column artifacts no real process
-    # carries), while a glob would claim unrelated commands such as zcodegraph.
-    # The wrapper also runs as a node launcher, claimed by the
-    # path-component fallback above and the args rule below.
-    zcode|zcode-cli|zcode-node-repl) printf 'agent' ;;
     zsh|bash|sh|dash|ash|ksh|mksh|tcsh|csh|fish) printf 'shell' ;;
     *)
       if fm_harness_path_name "$path" >/dev/null || fm_harness_path_name "$argv0" >/dev/null; then
@@ -97,8 +85,7 @@ fm_agent_process_classify_name() {  # <path> [argv0] -> agent|shell|other
 #   <argv0>  argv[0] as the process reports it - a bare name or an install
 #            path, whichever the launcher used (empty when unknown).
 #   <args>   the flattened command line, read only for the node-bundle
-#            harnesses whose identity sits in argv[1] (gemini in
-#            bin/fm-gemini-lib.sh; zcode in the rule above).
+#            harnesses whose identity sits in argv[1] (bin/fm-gemini-lib.sh).
 #   [pid]    when given, lets the Gemini rule read argv boundaries from the
 #            live process instead of the flattened line.
 fm_agent_process_classify() {  # <name> <argv0> <args> [pid] -> agent|shell|other
@@ -118,10 +105,6 @@ fm_agent_process_classify() {  # <name> <argv0> <args> [pid] -> agent|shell|othe
     return 0
   fi
   if [ -n "$args" ] && fm_gemini_args_are_gemini "$args"; then
-    printf 'agent'
-    return 0
-  fi
-  if [ -n "$args" ] && fm_zcode_args_are_zcode "$args"; then
     printf 'agent'
     return 0
   fi

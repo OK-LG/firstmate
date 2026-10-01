@@ -29,7 +29,7 @@ The tier is a property of the harness surface, not of the home.
 | Run | Executes `bin/fm-session-start.sh` through the native session-open adapter and gates its ordered digest into model context before the first turn. | Claude, `codex exec`, Pi / pi-signed, omp, Cursor |
 | Nudge | Asks the agent to run the digest through the native adapter or the tracked session-start instruction. | Grok, OpenCode, and run-tier sources routed to the nudge |
 
-Codex's interactive TUI and Zcode have no tracked session-open, compaction, or re-emit channel and are not covered by either tier.
+Codex's interactive TUI has no tracked session-open, compaction, or re-emit channel and is not covered by either tier.
 
 ### Tier by harness
 
@@ -38,7 +38,6 @@ Codex's interactive TUI and Zcode have no tracked session-open, compaction, or r
 | Claude | Run | [Claude](#claude) |
 | Codex exec | Run | [Codex exec](#codex-exec) |
 | Codex interactive TUI | Uncovered | [Codex interactive TUI](#codex-interactive-tui) |
-| Zcode | Uncovered | [Zcode](#zcode) |
 | Pi / pi-signed | Run | [Pi and pi-signed](#pi-and-pi-signed) |
 | OpenCode | Nudge | [OpenCode](#opencode) |
 | Grok | Nudge | [Grok](#grok) |
@@ -257,12 +256,6 @@ The Codex interactive TUI is uncovered and has no tracked transport.
 Codex 0.146.0 does not fire the tracked project `SessionStart` hook in its interactive TUI.
 Firstmate ships no global hook and has no tracked compaction or re-emit channel for it.
 Firstmate does not claim instruction-refresh delivery for this surface.
-
-### Zcode
-
-Zcode is uncovered and has no tracked transport.
-Zcode registers no tracked session-open hook, so a Zcode primary takes the helm through the AGENTS.md section 3 instruction itself.
-A native digest delivery needs its own verified adapter and is deliberately deferred.
 
 ### Pi and pi-signed
 

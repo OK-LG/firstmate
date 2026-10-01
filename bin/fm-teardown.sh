@@ -98,7 +98,10 @@
 # cleanup step, teardown verifies record exclusivity: no OTHER task record in
 # this home or any locally registered Firstmate home may name the same live path
 # in its worktree= or home=. One live path with two task records is the reuse
-# collision itself, whichever record is stale.
+# collision itself, whichever record is stale. The one exception is a slot whose
+# owner claim (below) names another task: this teardown is then records-only and
+# touches nothing under the slot, so the scan is skipped rather than stranding
+# the stale record and, with it, the claimant's own teardown.
 # That scan alone cannot prove THIS record is the current owner, because the task
 # that took the slot next may leave no record it can reach - its own worker may
 # have exited and its record been cleaned up, or it may live in a home this
@@ -1399,17 +1402,6 @@ remove_kimi_turnend_auth() {
   rm -f -- "$path"
 }
 
-remove_zcode_turnend_auth() {
-  local state_dir=$1 id=$2 token_path token='' path
-  token_path=$(fm_control_harness_turnend_token_path zcode "$state_dir" "$id") || return 1
-  if [ -n "$token_path" ] && [ -f "$token_path" ]; then
-    IFS= read -r token < "$token_path" || [ -n "$token" ] || return 1
-  fi
-  path=$(fm_control_harness_turnend_auth_path zcode "$token") || return 1
-  [ -n "$path" ] || return 0
-  rm -f -- "$path"
-}
-
 retire_busy_state() {
   local state_dir=$1 id=$2 gen=${3:-}
   if [ -n "$gen" ]; then
@@ -2368,6 +2360,12 @@ require_exclusive_worktree_slot_record() {
   local record_meta=$1 record_id=$2 record_state=$3 worktree=$4
   local slot state_dir other other_id field other_path other_slot
   slot=$(canonical_existing_dir "$worktree") || return 0
+  # A slot whose owner claim names another task was reassigned, so this record's
+  # teardown is records-only and touches nothing under it; another record naming
+  # the slot is then no hazard, and refusing would strand this stale record and
+  # block the claimant's own teardown behind it.
+  fm_treehouse_slot_owner_state "$slot" "$record_id"
+  [ "$FM_TREEHOUSE_SLOT_OWNER" != other ] || return 0
   collect_local_firstmate_states "$record_state" || return 1
   for state_dir in "${TREEHOUSE_OWNER_STATES[@]}"; do
     for other in "$state_dir"/*.meta; do
@@ -2401,11 +2399,11 @@ require_exclusive_task_worktree_slot() {
 # Positive slot ownership, read from the claim the task that took the slot wrote
 # into the slot itself (bin/fm-wake-lib.sh owns the claim and its states).
 #
-# The record scan above proves that no OTHER task record names this slot. It
-# cannot prove that THIS record is not the stale one, because the task that took
-# the slot next may leave no record this scan can reach: its own worker may have
-# exited and its record been cleaned up, or it may belong to a home this machine
-# does not register. The claim closes that gap from the other side - it names the
+# For a slot this task still claims, or one with no claim, the record scan above
+# proves that no OTHER task record names it. It cannot prove that THIS record is
+# not the stale one, because the task that took the slot next may leave no record
+# this scan can reach: its own worker may have exited and its record been cleaned
+# up, or it may belong to a home this machine does not register. The claim closes that gap from the other side - it names the
 # task that actually took the slot, and it is written under the same project lock
 # that allocates it - so a claim naming another task is proof the slot was
 # reassigned after this record was written.
@@ -3259,7 +3257,7 @@ cleanup_firstmate_home_children() {
       if [ -n "$child_wt" ] && [ -d "$child_wt" ]; then
         validate_child_worktree_for_removal "$child_wt" "$child_proj" >/dev/null || return 1
         rm -f "$child_wt/.claude/settings.local.json" "$child_wt/.opencode/plugins/fm-turn-end.js" \
-          "$child_wt/.fm-grok-turnend" "$child_wt/.fm-kimi-turnend" "$child_wt/.fm-zcode-turnend"
+          "$child_wt/.fm-grok-turnend" "$child_wt/.fm-kimi-turnend"
       fi
       fm_backend_remove_worktree "$child_backend" "$child_orca_worktree_id" || return 1
     elif [ -n "$child_wt" ] && [ -d "$child_wt" ]; then
@@ -3279,7 +3277,7 @@ cleanup_firstmate_home_children() {
         validate_child_worktree_for_removal "$child_wt" "$child_proj" >/dev/null || return 1
         rm -f "$child_wt/.claude/settings.local.json" "$child_wt/.opencode/plugins/fm-turn-end.js" \
           "$child_wt/.opencode/plugins/fm-busy-state.js" \
-          "$child_wt/.fm-grok-turnend" "$child_wt/.fm-kimi-turnend" "$child_wt/.fm-zcode-turnend"
+          "$child_wt/.fm-grok-turnend" "$child_wt/.fm-kimi-turnend"
         if [ -n "$child_proj" ] && [ -d "$child_proj" ] && command -v treehouse >/dev/null 2>&1; then
           if teardown_treehouse_return "$child_wt" "$child_proj" "child worktree"; then
             fm_treehouse_slot_owner_release "$child_wt" "$child_id"
@@ -3297,7 +3295,6 @@ cleanup_firstmate_home_children() {
     fi
     remove_grok_turnend_auth "$sub_state" "$child_id" || return 1
     remove_kimi_turnend_auth "$sub_state" "$child_id" || return 1
-    remove_zcode_turnend_auth "$sub_state" "$child_id" || return 1
     remove_pr_poll_artifacts "$sub_state" "$child_id" || return 1
     child_busy_gen=$(meta_value "$child_meta" busy_gen)
     if [ -z "$child_busy_gen" ]; then
@@ -3311,7 +3308,6 @@ cleanup_firstmate_home_children() {
       "$(fm_wake_signal_seen_path "$sub_state" "$sub_state/$child_id.turn-ended")" \
       "$sub_state/$child_id.pi-ext.ts" "$sub_state/$child_id.omp-ext.ts" \
       "$sub_state/$child_id.grok-turnend-token" "$sub_state/$child_id.kimi-turnend-token" \
-      "$sub_state/$child_id.zcode-turnend-token" "$sub_state/$child_id.zcode-session" \
       "$sub_state/$child_id.muse-session" "$sub_state/$child_id.muse-session-current" \
       "$sub_state/$child_id.cursor-session" "$sub_state/$child_id.reconcile-nudged" \
       "$sub_state/$child_id.devin-config.json" \
@@ -3588,7 +3584,7 @@ if [ "$BACKEND" = orca ] && [ "$KIND" != secondmate ]; then
     fi
     rm -f "$WT/.claude/settings.local.json" "$WT/.opencode/plugins/fm-turn-end.js" \
       "$WT/.opencode/plugins/fm-busy-state.js" \
-      "$WT/.fm-grok-turnend" "$WT/.fm-kimi-turnend" "$WT/.fm-zcode-turnend"
+      "$WT/.fm-grok-turnend" "$WT/.fm-kimi-turnend"
   fi
   if [ -n "$T_ORCA" ]; then
     fm_backend_kill "$BACKEND" "$T" "$(meta_value "$META" zellij_tab_id)" "fm-$ID" \
@@ -3606,7 +3602,7 @@ elif [ -d "$WT" ] && [ "$KIND" != secondmate ]; then
   fi
   # Remove our hook file so a reused pool worktree cannot fire signals for a dead task.
   rm -f "$WT/.claude/settings.local.json" "$WT/.opencode/plugins/fm-turn-end.js" \
-    "$WT/.fm-grok-turnend" "$WT/.fm-kimi-turnend" "$WT/.fm-zcode-turnend"
+    "$WT/.fm-grok-turnend" "$WT/.fm-kimi-turnend"
   # Kills remaining processes in the worktree (including the agent), resets, returns
   # to pool. treehouse resolves the pool from the working directory, so run it from
   # the project. teardown_treehouse_return tolerates transient and stale git locks
@@ -3748,7 +3744,6 @@ if [ "$KIND" = secondmate ]; then
 fi
 remove_grok_turnend_auth "$STATE" "$ID" || exit 1
 remove_kimi_turnend_auth "$STATE" "$ID" || exit 1
-remove_zcode_turnend_auth "$STATE" "$ID" || exit 1
 fm_backend_clear_transition "$BACKEND" "$STATE" "$T" || true
 # Remove the per-task temp root (/tmp/fm-<id>/, incl. its gotmp/) recorded by spawn.
 # Read before the state-file rm below; empty (pre-fix tasks without tasktmp=) is a no-op.
@@ -3784,8 +3779,7 @@ fm_wake_queue_prune_task "$STATE" "$ID" "$T" 2>/dev/null || true
 rm -f "$STATE/$ID.turn-ended" "$STATE/$ID.progress" \
   "$(fm_wake_signal_seen_path "$STATE" "$STATE/$ID.turn-ended")" \
   "$STATE/$ID.pi-ext.ts" "$STATE/$ID.omp-ext.ts" "$STATE/$ID.grok-turnend-token" \
-  "$STATE/$ID.kimi-turnend-token" "$STATE/$ID.zcode-turnend-token" \
-  "$STATE/$ID.zcode-session" "$STATE/$ID.muse-session" \
+  "$STATE/$ID.kimi-turnend-token" "$STATE/$ID.muse-session" \
   "$STATE/$ID.muse-session-current" "$STATE/$ID.cursor-session" \
   "$STATE/$ID.control-relaunch" "$STATE/$ID.control-relaunch.meta-prior" \
   "$STATE/$ID.control-relaunch.brief-prior" "$STATE/$ID.control-relaunch.note" \

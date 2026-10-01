@@ -184,8 +184,6 @@ Backend capability comes from each adapter's real surface, not from a policy cho
 | orca | no | yes | yes | no | no |
 
 Per-harness interrupt keys, repeat counts, composer clears, exit commands, and supported task kinds live in `bin/fm-control-lib.sh` and are exercised for every verified harness by `tests/fm-control.test.sh`, with adapters outside its lane pinning their control mechanics in their own harness suites.
-Every adapter `fm_control_harnesses` names must be answered by each interrupt table - the key, the repeat count, the arm signal, the press gap, the picker signal, the composer clear, and the cancellation acknowledgement - because a table that omits one refuses rather than answering, and the exit verb's second interrupt key then terminates the control plane with no diagnostic and the busy record still open; `tests/fm-control.test.sh` drives that completeness from the owner list itself rather than a copied one.
-The exit-command and task-kind tables are deliberately refusable instead, because a refusal there is the answer for a signal-shaped exit with no typed command and for a kind the adapter is not verified to run.
 The empirical basis for each adapter's value is the `harness-adapters` skill's verification record for that adapter.
 
 ## Verification

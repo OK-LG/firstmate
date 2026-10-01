@@ -36,7 +36,6 @@ Today it runs beside a Claude, Cursor, OpenCode, omp, Grok, or Codex primary: aw
   While the daemon's flag `state/.afk` exists, the host stands aside exactly as the plain arm does.
 - Pi keeps its in-process branch whatever the file says, and no Pi engine is built.
 - Kimi has no primary supervision protocol, so it has no arm owner to run the host.
-- Zcode has a primary supervision protocol but is not one of the six primaries above, so no arm owner runs the host there: its model-owned background arm always renders the plain watcher command, and `/afk` still launches the away daemon.
 
 ### Not yet on the host
 
@@ -47,7 +46,7 @@ Until they land, their current behavior stays as described in their own owners.
 
 | Component | Owner | Role |
 |---|---|---|
-| The loop | `bin/fm-supervision-host.sh` | Its header owns the per-close order, the park boundary, ownership checks, predecessor cleanup, state files, and tunables. |
+| The loop | `bin/fm-supervision-host.sh` | Its header owns the per-close order, the park boundary and elapsed clock, arm-exit sampling and signal-observation latency, ownership checks, predecessor cleanup, state files, and tunables. |
 | The arm owners | Each primary's existing arm owner | Runs the host for a home that runs it and delivers a handed-back wake to main; see [Arm owners](#arm-owners). |
 | The engine | `bin/fm-supervision-engine-lib.sh` | Owns the home gate, including the default on Claude and the opt-out, the verified-engine list, and one bounded engine turn, including the reap of engine tool processes that outlive it. |
 | Row eligibility and the offer rule | `bin/fm-branch-dispatch.mjs` | The command entry to `.pi/extensions/lib/fm-branch-dispatch.ts`, so the host and the Pi extension compute branch-claimable rows, their task scope, and whether the branch may take a close (`branchOfferForWake`) from one owner; it also renders the wake message with the same away-posture tail, or the dialog mirror at its head. |

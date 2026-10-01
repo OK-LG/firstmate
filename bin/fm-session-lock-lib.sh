@@ -22,27 +22,18 @@ _FM_SESSION_LOCK_LIB_DIR=${BASH_SOURCE[0]%/*}
 [ "$_FM_SESSION_LOCK_LIB_DIR" != "${BASH_SOURCE[0]}" ] || _FM_SESSION_LOCK_LIB_DIR=.
 # shellcheck source=bin/fm-cursor-lib.sh
 . "${_FM_SESSION_LOCK_LIB_DIR:-/}/fm-cursor-lib.sh"
-# shellcheck source=bin/fm-zcode-lib.sh
-. "${_FM_SESSION_LOCK_LIB_DIR:-/}/fm-zcode-lib.sh"
 unset _FM_SESSION_LOCK_LIB_DIR
 
 # Known harness command names; extend when a new adapter is verified. omp is
 # anchored exactly like pi: its process name is the bare word `omp` (verified,
-# omp 18.1.11), and a substring match would claim ompd or comp. zcode is
-# anchored the same way (verified live on zcode-runtime 0.16.5 by reading
-# /proc/<pid>/comm): the primary session's engine names itself `zcode-cli`,
-# and a wrapper that runs under its own name is the bare word `zcode`, while a
-# substring token would claim unrelated commands such as zcodegraph. The
-# `zcode-node-repl` kernel comm is deliberately NOT here: it names a per-call
-# MCP kernel, not a session-lifetime process, so a lock naming it would look
-# stale moments later; a walk that starts below such a kernel still climbs
-# through it to the `zcode-cli` engine that does own the session.
-FM_HARNESS_RE='claude|codex|opencode|grok|kimi|^pi$|^pi-signed$|^omp$|^zcode$|^zcode-cli$'
+# omp 18.1.11), and a substring match would claim ompd or comp.
+FM_HARNESS_RE='claude|codex|opencode|grok|kimi|^pi$|^pi-signed$|^omp$'
 
-# The same harnesses as exact executable names, for the stricter path evidence
-# below, where the loose regex would also match ordinary firstmate paths such
-# as bin/fm-claude-stop-autoarm.sh. Keep in sync with FM_HARNESS_RE.
-FM_HARNESS_NAMES=(claude codex opencode grok kimi pi-signed pi omp zcode)
+# The same harnesses as exact executable names. Keep in sync with
+# FM_HARNESS_RE. Used only for the stricter path evidence below, where the
+# loose regex would also match ordinary firstmate paths such as
+# bin/fm-claude-stop-autoarm.sh.
+FM_HARNESS_NAMES=(claude codex opencode grok kimi pi-signed pi omp)
 
 # Print the exact harness name carried by executable path $1 - its own basename
 # or any directory component - or return 1.
@@ -95,13 +86,6 @@ fm_harness_process_matches() {  # <comm> <args>
     *node*|*python*)
       if printf '%s' "$args" | grep -qE "$FM_HARNESS_RE"; then
         case "$args" in *claude*) FM_HARNESS_IS_CLAUDE=1 ;; esac
-        return 0
-      fi
-      # zcode's anchored tokens cannot appear in the free-form args grep above
-      # (a path such as /usr/local/bin/zcode never satisfies ^zcode$), so the
-      # node launcher shape is claimed by the structural argv rule instead -
-      # the same single owner the pane-liveness classifier reads.
-      if fm_zcode_args_are_zcode "$args"; then
         return 0
       fi
       ;;

@@ -502,17 +502,32 @@ test_backend_validate_refuses_unknown() {
 }
 
 test_backend_source_shell_portable() {
-  local out status
+  local out status stub probe
   # zsh does not word-split unquoted expansions; sourcing fm-backend.sh from
   # an interactive zsh session must still recognize known backend names.
+  # The claim is name matching and the sibling precheck only: the adapters
+  # find their own siblings through BASH_SOURCE, so zsh is not a full load.
   if command -v zsh >/dev/null 2>&1; then
-    zsh -c "cd '$ROOT' && source bin/fm-backend.sh && fm_backend_source herdr && whence -w fm_backend_herdr_capture >/dev/null" 2>/dev/null \
-      || fail "zsh: fm_backend_source herdr should load the adapter when sourced"
+    zsh -c "cd '$ROOT' && source bin/fm-backend.sh && fm_backend_source herdr" >/dev/null 2>&1 \
+      || fail "zsh: fm_backend_source herdr should accept the known backend name and find its sibling libraries"
     out=$(zsh -c "cd '$ROOT' && source bin/fm-backend.sh && fm_backend_source bogus" 2>&1) \
       && fail "zsh: fm_backend_source bogus should fail"
     assert_contains "$out" "unknown backend 'bogus'" \
       "zsh: fm_backend_source did not reject bogus with the expected error"
     pass "zsh: fm_backend_source recognizes known backends and rejects unknown ones"
+
+    # zsh ties the lowercase `path` array to PATH; a backend loaded while
+    # fm_backend_source clobbers PATH cannot resolve external commands.
+    stub="$TMP_ROOT/zsh-source-path"
+    probe="$stub/probe"
+    mkdir -p "$stub/backends"
+    printf 'command -v dirname > "%s"\n' "$probe" > "$stub/backends/orca.sh"
+    : > "$stub/fm-composer-lib.sh"
+    zsh -c "cd '$ROOT' && source bin/fm-backend.sh && FM_BACKEND_LIB_DIR='$stub' && fm_backend_source orca" >/dev/null 2>&1 \
+      || fail "zsh: fm_backend_source orca should load a stub adapter"
+    [ -s "$probe" ] \
+      || fail "zsh: fm_backend_source clobbered PATH while loading a backend adapter"
+    pass "zsh: fm_backend_source keeps PATH intact while loading a backend adapter"
   else
     pass "zsh: shell-portable backend matching skipped (zsh not found)"
   fi
@@ -560,61 +575,6 @@ test_backend_source_requires_adapter_file() {
     [ ! -e "$continuation" ] || fail "fm_backend_source continued the lifecycle after a $condition adapter"
     pass "fm_backend_source: $condition adapter fails before lifecycle continuation"
   done
-}
-
-# bin/backends/tmux.sh and bin/backends/herdr.sh both reach fm-zcode-lib.sh at
-# load time (through fm-session-lock-lib.sh and fm-agent-process-lib.sh), so a
-# home whose bin/ is missing that one lib must be refused by the same precheck
-# that covers every other sibling. Without the registration the precheck passes
-# and the adapter is dot-sourced anyway, so bin/fm-teardown.sh reports a
-# completed lifecycle it ran with a partially loaded library.
-test_backend_source_requires_the_zcode_sibling() {
-  local dir backend exit_status continuation out rc test_bash
-  dir="$TMP_ROOT/zcode-sibling-precheck"
-  test_bash=${FM_TEST_BASH:-${BASH:-bash}}
-  rm -rf "$dir"
-  mkdir -p "$dir"
-  cp -R "$ROOT/bin/." "$dir/"
-
-  for backend in tmux herdr; do
-    exit_status="$dir/$backend.present.exit"
-    continuation="$dir/$backend.present.continued"
-    # shellcheck disable=SC2016 # The child Bash expands $1..$5 at runtime.
-    out=$("$test_bash" -c '
-      . "$1"
-      FM_BACKEND_LIB_DIR=$2
-      trap '\''printf "%s\n" "$?" > "$4"'\'' EXIT
-      set -e
-      fm_backend_source "$3"
-      : > "$5"
-    ' _ "$dir/fm-backend.sh" "$dir" "$backend" "$exit_status" "$continuation" 2>&1) \
-      || fail "fm_backend_source $backend refused a complete bin/: $out"
-    [ -e "$continuation" ] \
-      || fail "fm_backend_source $backend did not continue the lifecycle on a complete bin/"
-  done
-
-  rm -f "$dir/fm-zcode-lib.sh"
-  for backend in tmux herdr; do
-    exit_status="$dir/$backend.absent.exit"
-    continuation="$dir/$backend.absent.continued"
-    # shellcheck disable=SC2016 # The child Bash expands $1..$5 at runtime.
-    out=$("$test_bash" -c '
-      . "$1"
-      FM_BACKEND_LIB_DIR=$2
-      trap '\''printf "%s\n" "$?" > "$4"'\'' EXIT
-      set -e
-      fm_backend_source "$3"
-      : > "$5"
-    ' _ "$dir/fm-backend.sh" "$dir" "$backend" "$exit_status" "$continuation" 2>&1)
-    rc=$?
-    [ "$rc" -ne 0 ] \
-      || fail "fm_backend_source $backend returned success with fm-zcode-lib.sh absent: $out"
-    [ -f "$exit_status" ] && [ "$(cat "$exit_status")" -ne 0 ] \
-      || fail "fm_backend_source $backend lost the missing-zcode-lib failure at EXIT"
-    [ ! -e "$continuation" ] \
-      || fail "fm_backend_source $backend continued the lifecycle with fm-zcode-lib.sh absent"
-  done
-  pass "fm_backend_source: tmux and herdr refuse a bin/ missing fm-zcode-lib.sh before any lifecycle step"
 }
 
 test_backend_validate_spawn_accepts_orca() {
@@ -1265,7 +1225,6 @@ test_backend_name_explicit_beats_detection
 test_backend_validate_refuses_unknown
 test_backend_source_shell_portable
 test_backend_source_requires_adapter_file
-test_backend_source_requires_the_zcode_sibling
 test_backend_validate_spawn_accepts_orca
 test_meta_get_and_backend_of_meta
 test_resolve_selector_three_forms

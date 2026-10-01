@@ -422,43 +422,6 @@ test_kimi_and_grok_install_no_unverified_wiring() {
   pass "kimi and grok install no unverified semantic wiring and classify through their own gates"
 }
 
-test_zcode_hooks_are_the_semantic_source_and_the_tail_stays_fallback() {
-  local state out trusted gen
-  state="$TMP_ROOT/zcode-gates/state"
-  mkdir -p "$state"
-  trusted=$(fm_busy_sources_for_harness zcode)
-  case " $trusted " in
-    *' zcode-hook '*) : ;;
-    *) fail "zcode must trust its verified zcode-hook semantic source, got '$trusted'" ;;
-  esac
-  case " $trusted " in
-    *' fm-spawn fm-interrupt fm-recovery '*) : ;;
-    *) fail "zcode must keep the firstmate-owned sources, got '$trusted'" ;;
-  esac
-  # The verified open/close pair (UserPromptSubmit opens, Stop closes,
-  # installed by bin/fm-zcode-turnend-hook.sh) classifies through its record
-  # exactly like the converted adapters.
-  gen=fm.zcodegen0001
-  printf '%s\n' "$gen" > "$state/gate-z.busy-gen"
-  printf 'v1 gen=%s seq=1 state=busy source=zcode-hook event=user-prompt-submit ts=1\n' "$gen" \
-    > "$state/gate-z.busy-state"
-  out=$(fm_busy_classify tmux fake:w zcode gate-z "$state" '')
-  [ "$out" = "busy zcode-hook" ] \
-    || fail "an armed zcode-hook record must classify through its own source, got '$out'"
-  # With NO record, the rendered-tail fallback keeps its Phase A contract:
-  # the headless mode renders nothing mid-turn (verified on zcode-runtime
-  # 0.16.5 over pipe and PTY), so no busy signature ships by default and no
-  # tail - not even another harness's busy token - may read busy.
-  rm -f "$state/gate-z.busy-state" "$state/gate-z.busy-gen"
-  out=$(fm_busy_classify tmux fake:w zcode gate-z "$state" 'Ctrl+c:cancel')
-  [ "$out" = "unknown zcode-regex" ] \
-    || fail "zcode must not borrow grok's busy token or any default, got '$out'"
-  out=$(fm_busy_classify tmux fake:w zcode gate-z "$state" 'esc to cancel')
-  [ "$out" = "unknown zcode-regex" ] \
-    || fail "zcode must not borrow agy's busy token either, got '$out'"
-  pass "zcode trusts its zcode-hook record and keeps the configured-signature tail fallback"
-}
-
 test_pi_extension_semantic_lifecycle
 test_pi_extension_serializes_settle_before_next_start
 test_pi_extension_stale_incarnation_rejected
@@ -471,6 +434,5 @@ test_gemini_hooks_stale_incarnation_harmless
 test_raw_gemini_launch_has_no_semantic_wiring
 test_gemini_is_refused_as_a_secondmate
 test_codex_unverified_until_a_semantic_source_exists
-test_zcode_hooks_are_the_semantic_source_and_the_tail_stays_fallback
 
 echo "all fm-busy-adapter-wiring tests passed"

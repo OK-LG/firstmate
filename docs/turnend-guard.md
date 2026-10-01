@@ -290,7 +290,6 @@ The registrations in detail:
   The same marker guard carries every tracked `.claude/settings.json` entry whose event Grok already covers through its own `.grok/hooks/` registration, which is both `Stop` entries, the `SessionStart` entry, and the two `PreToolUse` Bash entries.
   `bin/fm-subagent-pretool-check.sh` is the one deliberate unguarded exception because no Grok registration covers the subagent-spawn event, recorded in [`subagent-guard.md`](subagent-guard.md) "Known residual gap".
   `tests/fm-turnend-guard.test.sh` pins that inventory so neither the guarded set nor the exception can change silently.
-- Zcode has no turn-end integration yet: nothing blocks or forces a follow-up at a Zcode turn boundary, so the completion notification of the background arm in [`supervision-protocols/zcode.md`](supervision-protocols/zcode.md) is the only cycle-end signal, and a healthy background arm must exist before every turn ends.
 - pi-code, Pi's Claude-hook compatibility extension, also loads `<project>/.claude/settings.json` and has no `asyncRewake`, so it awaits every Stop hook it delivers.
   `bin/fm-claude-stop-autoarm.sh` therefore stands down on a pi-code-delivered payload.
   Otherwise its foreground arm would run synchronously and hold Pi's turn open for the declared multi-hour timeout, exactly the wedge Cursor and grok 1.0.0 would produce (issue #3343).

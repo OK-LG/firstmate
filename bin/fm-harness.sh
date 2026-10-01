@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Detect the agent harness this process tree runs on.
-# Usage: fm-harness.sh                  print own harness: claude|codex|opencode|pi|pi-signed|grok|kimi|cursor|gemini|muse|rovo|omp|agy|devin|zcode|unknown
+# Usage: fm-harness.sh                  print own harness: claude|codex|opencode|pi|pi-signed|grok|kimi|cursor|gemini|muse|rovo|omp|agy|devin|unknown
 #        fm-harness.sh crew             print the effective CREWMATE harness
 #                                        (config/crew-harness; "default" resolves to own)
 #        fm-harness.sh secondmate       print the harness the PRIMARY uses to launch
@@ -76,8 +76,6 @@ CONFIG="${FM_CONFIG_OVERRIDE:-$FM_HOME/config}"
 . "$SCRIPT_DIR/fm-cursor-lib.sh"
 # shellcheck source=bin/fm-gemini-lib.sh
 . "$SCRIPT_DIR/fm-gemini-lib.sh"
-# shellcheck source=bin/fm-zcode-lib.sh
-. "$SCRIPT_DIR/fm-zcode-lib.sh"
 
 # Print the harness named by a verified environment marker, or nothing when no
 # marker is present. Markers only report what the environment CLAIMS; detect_own
@@ -130,26 +128,6 @@ harness_marker() {
     echo omp
     return
   fi
-  # zcode (Z.AI's coding-agent harness, Linux via the zcode-app-cli wrapper)
-  # publishes NO harness-identity marker of its own: the runtime's ZCODE_*
-  # env surface carries only configuration (storage, telemetry, plugin paths),
-  # never a child identity. FM_ZCODE_HARNESS=zcode is therefore a
-  # Firstmate-OWNED launch marker, exactly omp's pattern, and like omp's it is
-  # a PRECEDENCE override, never evidence on its own: it wins over an inherited
-  # CLAUDECODE only when a real zcode process is in the ancestry. The wrapper
-  # runs as a node launcher (comm `node`) whose runtime children rename
-  # themselves (verified live on zcode-runtime 0.16.5 by reading
-  # /proc/<pid>/comm under tmux: kernel comm values `zcode-cli` and
-  # `zcode-node-repl`; note `ps --forest` misprints those as `zco` and
-  # `zcode-c` because its tree indentation eats the fixed-width comm column,
-  # so /proc is the authoritative source), so the anchored name
-  # set below covers the launcher's own name plus those kernel comm values,
-  # and the args fallback in harness_process_verdict covers the bare
-  # node launcher via its zcode bin path.
-  if [ "${FM_ZCODE_HARNESS:-}" = zcode ] && ancestry_names_zcode; then
-    echo zcode
-    return
-  fi
   [ "${CLAUDECODE:-}" = "1" ] && { echo claude; return; }
   if [ "${PI_CODING_AGENT:-}" = "true" ]; then
     if [ "${FM_PI_HARNESS:-}" = pi-signed ]; then echo pi-signed; else echo pi; fi
@@ -185,28 +163,6 @@ ancestry_names_omp() {
   for _ in 1 2 3 4 5 6 7 8; do
     comm=$(ps -o comm= -p "$pid" 2>/dev/null) || return 1
     [ "$(basename -- "$comm")" = omp ] && return 0
-    pid=$(ps -o ppid= -p "$pid" 2>/dev/null | tr -d ' ')
-    [ -n "$pid" ] && [ "$pid" -gt 1 ] || return 1
-  done
-  return 1
-}
-
-# True when an exact `zcode`-family process sits within eight parents of this
-# one. The same anchored match as the ancestry walk below, kept separate so the
-# marker precedence above can demand real process evidence before trusting
-# FM_ZCODE_HARNESS. The names are the wrapper's own `zcode` and the kernel
-# comm values of its runtime children, `zcode-cli` and `zcode-node-repl`
-# (verified live on zcode-runtime 0.16.5 via /proc/<pid>/comm; `ps --forest`
-# prints `zco`/`zcode-c` artifacts that no real process carries). Every name
-# is anchored EXACTLY like omp's and agy's rather than globbed, so no longer
-# name claiming to start with these prefixes matches.
-ancestry_names_zcode() {
-  local pid=$$ comm
-  for _ in 1 2 3 4 5 6 7 8; do
-    comm=$(ps -o comm= -p "$pid" 2>/dev/null) || return 1
-    case "$(basename -- "$comm")" in
-      zcode|zcode-cli|zcode-node-repl) return 0 ;;
-    esac
     pid=$(ps -o ppid= -p "$pid" 2>/dev/null | tr -d ' ')
     [ -n "$pid" ] && [ "$pid" -gt 1 ] || return 1
   done
@@ -283,16 +239,6 @@ harness_process_verdict() {  # <pid>
     # detected by ancestry alone.
     agy) echo "comm agy"; return ;;
     devin) echo "comm devin"; return ;;
-    # zcode's wrapper bin is a node launcher (comm `node`), but its runtime
-    # children rename themselves, so the anchored kernel comm names verified
-    # live (zcode-runtime 0.16.5, /proc/<pid>/comm) are `zcode-cli` and
-    # `zcode-node-repl` beside the wrapper's own `zcode`. Every name is
-    # anchored exactly, never *zcode*: a glob would claim unrelated commands
-    # such as zcodegraph, and the short runtime names make an unanchored match
-    # unsafe. It sits above the
-    # node*|python* interpreter fallback deliberately so the node launcher
-    # running the zcode bin is never claimed by another harness's args glob.
-    zcode|zcode-cli|zcode-node-repl) echo "comm zcode"; return ;;
     node*|python*)
       # Bare interpreter: match the harness name in its script path.
       args=$(ps -o args= -p "$pid" 2>/dev/null)
@@ -306,16 +252,7 @@ harness_process_verdict() {  # <pid>
         *opencode*) echo "args opencode"; return ;;
         *grok*) echo "args grok"; return ;;
         *" pi "*|*/pi) echo "args pi"; return ;;
-      esac
-      # zcode's identity is structural rather than a substring glob: only the
-      # bin run directly or an interpreter whose script argument is the zcode
-      # bin or package path matches, so an unrelated node command line that
-      # merely mentions zcode never claims the identity.
-      if fm_zcode_args_are_zcode "$args"; then
-        echo "args zcode"
-        return
-      fi
-      ;;
+      esac ;;
   esac
 }
 
@@ -460,7 +397,7 @@ supervision_primary_pin() {
   local pin=${FM_SUPERVISION_PRIMARY_HARNESS:-}
   [ "${FM_SUPERVISION_ACTOR:-}" = branch ] && [ -n "$pin" ] || return 0
   case "$pin" in
-    claude|codex|opencode|pi|pi-signed|grok|kimi|cursor|gemini|muse|rovo|omp|agy|devin|zcode)
+    claude|codex|opencode|pi|pi-signed|grok|kimi|cursor|gemini|muse|rovo|omp|agy|devin)
       printf '%s\n' "$pin"
       ;;
     *)

@@ -826,6 +826,61 @@ The current pending-composer ring contract is owned by `bin/fm-task-inbox-lib.sh
 Kimi was not installed on the verification machine; its receive path is the same one-line-plus-shell contract, and the portable ladder and enqueue regressions in `tests/fm-task-inbox.test.sh` and `tests/fm-send-inbox.test.sh` cover every harness-independent half.
 This guard is the refresh command after any harness upgrade; it spends a small number of real tokens per installed harness, reports an absent harness explicitly, and refuses a run that verified nothing.
 
+The doorbell no longer prints the inbox's absolute path, so its length no longer grows with the home's depth.
+It names the inbox as `"$FM_TASK_INBOX"`, which `bin/fm-spawn.sh` exports into every launch as the absolute `state/<task>.inbox` path, followed by the short `<task>.inbox` name; the brief's full path remains the fallback for a worker launched without that export.
+The guard now launches each worker with `FM_TASK_INBOX` exported and no brief, so the worker must resolve the inbox from the doorbell and its environment alone.
+It is the refresh command for that shape, which has not yet been recorded live here.
+The run below, on 2026-09-30 on tmux 3.6, Linux (WSL2), with the same command, covered the earlier brief-primed shape, whose doorbell named only the short `<task>.inbox` name and whose guard gave each worker the brief's steering-inbox sentence before the steer:
+
+```text
+ok - claude (2.1.285 (Claude Code)): the doorbell reached a real worker, which acted and acked with the mv
+ok - codex (codex-cli 0.157.0): the doorbell reached a real worker, which acted and acked with the mv
+ok - opencode (1.18.33): the doorbell reached a real worker, which acted and acked with the mv
+# harness absent, not verified here: grok
+# harness absent, not verified here: kimi
+# harness absent, not verified here: muse
+```
+
+OpenCode needed `FM_SEND_INBOX_LIVE_TIMEOUT=560` because its configured model was still mid-turn at the default 240 seconds.
+Pi 0.87.1 was installed but not verified: its configured model returned an account error (`The 'gpt-5.6-sol' model is not supported when using Codex with a ChatGPT account`) before it read the inbox.
+
+## Waiting-worker command ceilings
+
+The `# Waiting` section of the ship and scout briefs (`bin/fm-brief.sh`) has a worker hold every external wait inside one blocking shell command, bounded by what its harness lets one command run.
+That section is generated only when `config/wait-no-turns` is present.
+Those bounds were read from the installed vendor code on 2026-09-11, macOS arm64, with Pi 0.85.1, codex-cli 0.154.0, and Claude Code 2.1.268.
+
+```sh
+grep -n "Timeout in seconds" "$(npm root -g)/@earendil-works/pi-coding-agent/dist/core/tools/bash.js"
+strings -n 20 "$(readlink -f "$(command -v codex)")" | grep -o "Non-empty writes default to [^.]*; empty polls wait [^.]*\."
+strings -n 8 "$(readlink -f "$(command -v claude)")" | grep -oE '=120000,[A-Za-z0-9_$]+=600000;' | head -1
+```
+
+Observed output:
+
+```text
+28:    timeout: Type.Optional(Type.Number({ description: "Timeout in seconds (optional, no default timeout)" })),
+Non-empty writes default to 250 ms and cap at 30000 ms; empty polls wait 5000-300000 ms by default.
+=120000,ARo=600000;
+```
+
+Pi's bash tool runs a command with no time limit unless the call passes `timeout`, so the brief asks for at most 2700 seconds, which stays under the watcher's 3600-second busy-turn bound.
+Codex yields a still-running command back to the model, and one empty `write_stdin` poll then waits up to 300000 ms.
+Claude Code's Bash tool defaults to 120000 ms and accepts at most 600000 ms; `BASH_DEFAULT_TIMEOUT_MS` and `BASH_MAX_TIMEOUT_MS` override those two values.
+
+Claude Code also constrains the shape of a wait, not only its length, so the brief has to name the shape that is allowed rather than only forbid the ones that are not.
+Run as separate Bash tool calls on 2026-09-14 with Claude Code 2.1.268:
+
+```sh
+until [ -e /tmp/fm-wait-probe ]; do sleep 30; done   # ran to completion, rc=0
+sleep 61; echo "rc=$?"                               # rc=0
+sleep 40; echo "checked at $(date +%s)"              # rc=0
+```
+
+An earlier `sleep 60` chained ahead of a status check was refused before execution, with a message pointing at `Monitor` with an until-loop and at `run_in_background: true`, and adding "Do not chain shorter sleeps to work around this block".
+The blocking foreground `until` loop is therefore the wait a Claude Code worker may use, and it is what the brief names, because the refusal's own `run_in_background` suggestion is the one shape a waiting worker must not take: a backgrounded call returns at once and so does not wait at all.
+The brief's portable regression is `tests/fm-brief.test.sh`; rerun these commands after upgrading any of the three harnesses and update the numbers in the brief when they move.
+
 ## Gemini
 
 The Gemini crewmate adapter was verified on 2026-09-04 with gemini-cli 0.58.0 on Linux, Node v24.20.0, tmux 3.4.
@@ -1694,27 +1749,6 @@ ok - real herdr 0.9.0 + pi 0.85.1: the registration left behind by a quit pi rea
 `tests/fm-crew-state.test.sh` pins the recovery classifier: a stale registration over a shell-only pane reports agent gone rather than alive or unreachable, and a stale `working` record never reports the pane working.
 A stale-registration pane is never a husk: create, reclaim, presentation recovery, and session cleanup keep refusing it, and only recovery reuses it.
 
-### Agent view bridge
-
-The zcode agent-view bridge (`bin/fm-busy-event.sh`'s report to `herdr pane report-agent`, docs/herdr-backend.md "Agent view bridge") was verified live on 2026-09-15 on Linux x64 with Herdr 0.9.0, protocol 22, in an isolated `fm-lab-` session while the default server was also running.
-The arm report, sent from a shell with no `HERDR_SESSION` and no `HERDR_SOCKET_PATH` at all (the captain-side shape of `fm-spawn --relaunch`), bound the fixture task as agent `fm-zcode-herdr-bridge-e2e` on the scratch pane and read `agent_status=working`, and the idle apply flipped the same record to `agent_status=idle` through `herdr agent list` and `herdr agent get`.
-The report routed to the recorded session through its explicit `--session` flag and never reached the default server, which is the misroute hazard a second running server creates; the exact invocation is pinned by the portable test.
-Herdr 0.9.0 orders reports by seq per pane and silently drops one that is not above the last it saw: with the raw record seq on the wire, a re-arm into the same pane (record re-seeded at seq 1 after reports at seq 1 to 3) left `agent_status=idle`, which is why the bridge now sends the gen's epoch seconds times 1e9 plus the record seq.
-With that wire seq the same re-arm flipped the agent back to `agent_status=working`; the guard exercises arm, idle, busy, idle, and re-arm on one pane so a Herdr that changes this ordering rule fails it by name.
-
-```sh
-tests/fm-zcode-herdr-bridge-live-e2e.test.sh
-```
-
-Observed 2026-09-15:
-
-```text
-# herdr 0.9.0: fm-zcode-herdr-bridge-e2e bound on w1:p1, flipped working->idle through the real busy record, and a re-arm at record seq 1 after 3 read working again
-ok - real herdr 0.9.0: the busy-record bridge binds the agent and tracks its flips live
-```
-
-That command is the guard that refreshes this record; run it after every Herdr upgrade rather than trusting the version above.
-
 ### Pane status authority across a relaunch
 
 Measured 2026-09-21 on Linux x86_64 against Herdr 0.9.1 (client protocol 22) and Pi 0.86.1, in an isolated `fm-lab-` session (`bin/fm-herdr-lab.sh`), after the same freeze was observed live on a relaunched Pi crewmate whose pane read `idle` while its validation pipeline ran.
@@ -1778,48 +1812,6 @@ The current guard uses one `enter` call for each entry, so no separate confirmat
 The current catch-up reporting boundary is pinned by `tests/fm-afk-return.test.sh` and the same live entry point: Bearings continues through a pending return catch-up, projects its posture as an action-free warning outside Captain's Call, and drops that warning after the gate clears, while an active away window still refuses.
 The fixture captures submitted input through Pi's `input` extension hook, so the lab agent directory needs no provider credentials.
 The daemon injection transport into a live composer keeps its coverage in `tests/fm-afk-inject-herdr-e2e.test.sh` for the harnesses that still run the daemon, and the dedicated Herdr daemon workspace topology is covered by `tests/fm-afk-launch.test.sh` and preserves the captain tab's pane count.
-
-## zcode
-
-The zcode adapter's vendor-controlled facts and their refresh guards: `FM_ZCODE_SIGNALS_LIVE=1 tests/fm-zcode-signals-live-e2e.test.sh` re-proves the hook pair, the session record, the resume contract, the kernel comm set, the error-path exit codes, and the installer round-trip against the installed harness, and `FM_ZCODE_PRIMARY_LIVE=1 tests/fm-zcode-primary-live-e2e.test.sh` re-proves the primary session role (own-harness detection and fleet-lock acquisition from inside a real zcode session).
-Both are opt-in because each submits a real model prompt against the GLM Coding Plan credential.
-Rerun them after any zcode-app-cli or zcode-runtime upgrade and update the versions below rather than trusting this record across releases.
-
-### 2026-09-14 Phase B live pass
-
-Observed against `zcode-app-cli` 3.11.2-24 wrapping `zcode-runtime` 0.16.5 on Linux with Node 22.22.3, using the guarded hook install and real headless turns:
-
-| Fact | Observed |
-| --- | --- |
-| Headless hook firing | user-config `hooks.events` entries fire in `--prompt` mode with a Claude-compatible stdin payload (`hook_event_name`, `cwd`, `session_id`, `permission_mode`), gated on `hooks.enabled=true`; a project-level `.zcode/config.json` hook did NOT fire without zcode's workspace-hook trust grant |
-| Busy open/close | `UserPromptSubmit` opens and `Stop` closes the record through source `zcode-hook` on real wiring; the live guard classified `idle zcode-hook` after a real turn |
-| Interrupt | a mid-turn SIGINT to the foreground group ends the process with status 130 and fires NO Stop hook; the headless process IS the turn |
-| Kernel comm names | `/proc/<pid>/comm`: wrapper `node`, runtime child `zcode-cli`, MCP grandchild `zcode-node-repl`; `ps --forest` prints `zco`/`zcode-c` artifacts for the same processes |
-| Resume | `--resume <sessionId>` restored cross-turn context headless (recalled the session's secret numbers); `-c` resumed the latest session for the cwd (and in a two-session cwd it resumed the WRONG one - direct evidence for never using it); both error paths printed to stderr and exited 1 (re-verified 2026-09-15 piped and under a real PTY) |
-| Effort flags | `--model`, `--effort`, and `--reasoning-effort` are all rejected headless with the help dump on stderr, exit 1 (re-verified 2026-09-15 piped and under a real PTY); no headless flag exists for either axis |
-| Quota windows | `GET https://api.z.ai/api/monitor/usage/quota/limit` with the plan key returned two `CREDIT_LIMIT` windows (`unit=3,number=5` 5-hour and `unit=6,number=1` weekly) with `percentage` and `nextResetTime` plus plan `level`; quota-axi 0.1.42's `zai` provider reads exactly that endpoint and normalizes exactly those windows |
-
-### 2026-09-15 Phase B review correction pass
-
-Observed against the same installed `zcode-app-cli` 3.11.2-24 wrapping `zcode-runtime` 0.16.5, re-verified piped and under a real PTY (`script -qec`) after the independent review falsified the exit-0 wording the Phase B pass had shipped:
-
-| Fact | Observed |
-| --- | --- |
-| Exit codes on error paths | every probed headless error path prints to stderr and EXITS 1: unknown options (`--model`, `--effort`, `--reasoning-effort`, bare and with `--prompt`), unresumable sessions (`--resume <bad id>`, `-c` with no session), the credential not-configured refusal, and the dummy-key request-signing error (the last two re-verified credential-less against a key-stripped staged config); `--help` exits 0 with its output on stdout, and a rejected option's help dump goes to stderr - the research-era record had claimed exit-0 failures for the credential paths and exit-0 for the option/resume paths, both corrected by re-measurement, which is why the supervisor-side blindness posture (never trust exit status) stands on policy rather than on any one observation |
-| Hook removal fidelity | `install` then `remove` against the real vendor-default config (`hooks.enabled:false`, all seven event keys present but empty, plus `timeoutMs`/`maxOutputBytes`) restored the config semantically exactly, including `hooks.enabled:false` and the present-but-empty `UserPromptSubmit`/`Stop` keys, via the install-state record written beside the hook; the same round trip is exact through a double install and for `enabled:true` and `enabled`-absent shapes |
-| Interrupt busy lifecycle | a mid-turn SIGINT still ends the process (130, no `Stop` hook), so nothing on the vendor side ever closes the busy record; the interrupt verb must retire it itself, pinned in `tests/fm-control.test.sh` |
-
-### 2026-09-15 primary live pass
-
-Observed against the same installed `zcode-app-cli` 3.11.2-24 wrapping `zcode-runtime` 0.16.5, in a live firstmate session inside the zcode TUI and through the primary live guard:
-
-| Fact | Observed |
-| --- | --- |
-| Own-harness detection | `bin/fm-harness.sh`, run from the session's own tool shell, resolved `zcode` from the real process ancestry |
-| Fleet lock | `bin/fm-lock.sh` from the same shell acquired the home lock naming the session's `zcode-cli` engine pid, and `bin/fm-lock.sh status` in the same session read that holder as a live harness rather than stale; the per-call `zcode-node-repl` MCP kernel is excluded from the lock walk by design (`bin/fm-session-lock-lib.sh`) |
-| Background-notify wake | the TUI Bash tool's `run_in_background` tasks survived the tool call and re-invoked the model on completion, so one backgrounded `bin/fm-watch-arm.sh` carried the live supervision cycle; observed in the live TUI session, not exercised by the guard |
-| Turn-end backstop | none: no hook or follow-up fires at a zcode turn boundary, so the arm's completion notification is the only cycle-end signal (`docs/turnend-guard.md`) |
-| Headless `--prompt` | one-shot: it cannot host the supervision cycle, so the interactive TUI is the only supported primary host |
 
 ## Zellij
 
