@@ -1,0 +1,3 @@
+# real bash 3.2 - supervision-engine shape: a backgrounded subshell calls fm_exec_timed with no named owner and its calling script dies during startup
+FIXED library (this change): owner died during startup, the watchdog ended the 60s-bounded command after 1s -> owner captured correctly
+NAIVE ${BASHPID:-$$} fallback (the mutant this change must rule out): owner died during startup, yet the watchdog was STILL RUNNING after 15s (bound is 60s) -> owner-death detection lost

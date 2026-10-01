@@ -1,0 +1,5 @@
+# real bash 3.2, fixed library, top-level call whose PATH has perl+bash+sleep but no sh (the fallback's own helper)
+/root/.no-mistakes/worktrees/7f0ec18181b6/01M3V7F3VZE9ZN95DNKZGTYXT8/bin/fm-timeout-lib.sh: line 225: exec: sh: not found
+bounded command ran under a PATH with no sh
+rc=4
+(the bound itself must still be enforced and the status passed through)

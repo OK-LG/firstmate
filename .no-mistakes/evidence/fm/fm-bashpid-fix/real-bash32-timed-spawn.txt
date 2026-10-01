@@ -1,0 +1,10 @@
+# real bash 3.2 (3.2.0(1)-release) - a timed spawn from a stock-bash caller under set -u
+## PRE-FIX library (base commit be03cb5)
+--- lib=/tmp/basebug
+/tmp/basebug/bin/fm-timeout-lib.sh: line 224: BASHPID: unbound variable
+rc=92
+## FIXED library (this change)
+--- lib=/root/.no-mistakes/worktrees/7f0ec18181b6/01M3V7F3VZE9ZN95DNKZGTYXT8
+top-level
+rc=3
+(expected: fixed prints 'top-level' and exits 3, the bounded command's own status)

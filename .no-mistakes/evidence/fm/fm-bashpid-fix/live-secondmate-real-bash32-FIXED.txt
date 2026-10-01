@@ -1,0 +1,20 @@
+not ok - the host never started a watcher cycle (2.1.286 (Claude Code))
+--- host.out
+/tmp/fm-supervision-host-live.2Ihcj3/fm/bin/fm-pr-lib.sh: line 265: syntax error in conditional expression: unexpected token `|'
+/tmp/fm-supervision-host-live.2Ihcj3/fm/bin/fm-pr-lib.sh: line 265: syntax error near `|^'
+/tmp/fm-supervision-host-live.2Ihcj3/fm/bin/fm-pr-lib.sh: line 265: `  [[ "$head" =~ ^[0-9a-f]{40}$|^[0-9a-f]{64}$ ]]'
+/tmp/fm-supervision-host-live.2Ihcj3/fm/bin/fm-pr-lib.sh: line 265: syntax error in conditional expression: unexpected token `|'
+/tmp/fm-supervision-host-live.2Ihcj3/fm/bin/fm-pr-lib.sh: line 265: syntax error near `|^'
+/tmp/fm-supervision-host-live.2Ihcj3/fm/bin/fm-pr-lib.sh: line 265: `  [[ "$head" =~ ^[0-9a-f]{40}$|^[0-9a-f]{64}$ ]]'
+/tmp/fm-supervision-host-live.2Ihcj3/fm/bin/fm-pr-lib.sh: line 265: syntax error in conditional expression: unexpected token `|'
+/tmp/fm-supervision-host-live.2Ihcj3/fm/bin/fm-pr-lib.sh: line 265: syntax error near `|^'
+/tmp/fm-supervision-host-live.2Ihcj3/fm/bin/fm-pr-lib.sh: line 265: `  [[ "$head" =~ ^[0-9a-f]{40}$|^[0-9a-f]{64}$ ]]'
+/tmp/fm-supervision-host-live.2Ihcj3/fm/bin/fm-watch.sh: line 764: syntax error in conditional expression: unexpected token `('
+/tmp/fm-supervision-host-live.2Ihcj3/fm/bin/fm-watch.sh: line 764: syntax error near `^(0'
+/tmp/fm-supervision-host-live.2Ihcj3/fm/bin/fm-watch.sh: line 764: `    [[ $since =~ ^(0|[1-9][0-9]*)$ ]] || return 1'
+watcher: FAILED - watcher cycle exited 2 without an actionable reason
+--- host log
+1790843556	start	gen=host-853428-1790843556	primary=claude
+1790843557	pass-through	a close without a wake
+--- queue
+rc=1

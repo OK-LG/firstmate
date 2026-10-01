@@ -1,0 +1,10 @@
+not ok - the real engine did not handle the away wake (2.1.286 (Claude Code))
+--- host.out
+watcher: started pid=676201 (beacon fresh)
+--- host log
+1790843166	start	gen=host-675709-1790843166	primary=claude
+1790843170	failed	turn=host-675709-1790843166.1	posture=away	rc=1	reports=0	unacked=1 2	no-result	/tmp/fm-supervision-host-live.G1Ck7x/fm/bin/fm-timeout-lib.sh: line 224: BASHPID: unbound variable 	signal: /tmp/fm-supervision-host-live.G1Ck7x/fm/state/demo.status
+--- queue
+1790843168	1	signal	demo.status	signal: /tmp/fm-supervision-host-live.G1Ck7x/fm/state/demo.status
+1790843168	2	signal	demo.status	signal: /tmp/fm-supervision-host-live.G1Ck7x/fm/state/demo.status
+rc=1
