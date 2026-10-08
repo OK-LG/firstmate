@@ -603,6 +603,33 @@ test_ring_never_clears_a_doorbell_sharing_the_composer_with_a_paste() {
   pass "inbox: a composer mixing a paste placeholder with our doorbell is never cleared or submitted"
 }
 
+# The head-truncation shape with a swallowed Enter: Claude collapses the head
+# of our burst into `[Pasted text #1]` and leaves the literal tail, the submit
+# core cannot clear it, and nothing was submitted. The ring used to report that
+# as rung, which left a fire-and-forget record with no retry and the worker
+# never read it.
+test_ring_reports_an_unsubmitted_collapsed_head_as_not_reached() {
+  local dir state rec doorbell pane rc
+  dir="$TMP_ROOT/ring-collapsed-head"
+  state="$dir/state"
+  pane="$dir/pane"
+  mkdir -p "$state" "$dir/fakebin"
+  fm_fake_herdr_claude_pane "$dir/fakebin" "$pane"
+  rec=$(inbox_lib "$state" fm_task_inbox_write "$state" t1 "please continue")
+  doorbell=$(inbox_lib "$state" fm_task_inbox_doorbell_line "$rec")
+  : > "$pane/composer"; echo idle > "$pane/status"; echo 99 > "$pane/drops"
+  echo 99 > "$pane/u-drops"
+  rc=0
+  PATH="$dir/fakebin:$PATH" FM_TASK_INBOX_SETTLE_SECS=0 FM_BACKEND_HERDR_SUBMIT_POLLS=1 \
+    FM_FAKE_PASTE_COLLAPSE=head \
+    inbox_lib "$state" fm_task_inbox_ring herdr default:w1:p2 "$rec" fm-t1 || rc=$?
+  [ "$rc" = 2 ] || fail "a doorbell left unsubmitted in the composer should report not reached, got rc $rc"
+  [ "$(cat "$pane/composer")" = "$doorbell" ] || fail "the typed doorbell was changed: $(cat "$pane/composer")"
+  [ ! -e "$pane/submits" ] || fail "nothing should have been submitted:"$'\n'"$(cat "$pane/submits")"
+  [ -f "$rec" ] || fail "the unreached record should still be unhandled and owed a re-ring"
+  pass "inbox: a doorbell left in the composer as a collapsed head plus a literal tail reports not reached"
+}
+
 # The composer read must see the same screen the composer verdict does: a
 # harness whose idle composer draws a dim ghost hint reads as empty when
 # styling is kept and as someone's text when it is stripped, which used to make
@@ -1200,6 +1227,7 @@ test_ring_recovers_a_stuck_doorbell_on_claude_herdr
 test_ring_submits_a_doorbell_collapsed_into_a_paste_placeholder
 test_ring_never_submits_a_collapsed_paste_it_did_not_type
 test_ring_never_clears_a_doorbell_sharing_the_composer_with_a_paste
+test_ring_reports_an_unsubmitted_collapsed_head_as_not_reached
 test_ring_rings_after_clearing_into_a_ghost_hint
 test_idempotent_write_dedups_exact_body
 test_idempotent_write_follows_concurrent_ack

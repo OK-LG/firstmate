@@ -432,6 +432,10 @@ SH
 # With FM_FAKE_PASTE_COLLAPSE=1 the read renders any held text as the
 # `[Pasted text #1]` placeholder instead, as live Claude draws one fast literal
 # burst; the composer still holds the real text and Enter still submits it.
+# With FM_FAKE_PASTE_COLLAPSE=head the read renders the placeholder plus the
+# last wrapped row of the held text, the head-truncation shape Claude draws
+# when it collapses only the head of a burst. `u-drops` holds a count of
+# ctrl+u presses to swallow, a composer the harness will not clear.
 # `paste-on-read` holding <n>, with the text in `paste-text`, drops that text
 # into the composer just before the nth `pane read` of the run: a person
 # pasting into the pane while a caller is mid-send.
@@ -460,6 +464,9 @@ case "${1:-} ${2:-}" in
       printf '  ❯ \n'
     elif [ "${FM_FAKE_PASTE_COLLAPSE:-0}" = 1 ]; then
       printf '  ❯ [Pasted text #1]\n'
+    elif [ "${FM_FAKE_PASTE_COLLAPSE:-0}" = head ]; then
+      text=$(cat "$D/composer")
+      printf '  ❯ [Pasted text #1]\n    %s\n' "${text: -60}"
     else
       fold -w 60 "$D/composer" | awk 'NR == 1 { print "  ❯ " $0; next } { print "    " $0 }'
     fi
@@ -480,9 +487,14 @@ case "${1:-} ${2:-}" in
           fi
         fi ;;
       ctrl+u)
-        text=$(cat "$D/composer")
-        rows=$(( (${#text} + 59) / 60 ))
-        printf '%s' "${text:0:$(( (rows - 1) * 60 ))}" > "$D/composer" ;;
+        drops=$(cat "$D/u-drops" 2>/dev/null || echo 0)
+        if [ "$drops" -gt 0 ]; then
+          echo $((drops - 1)) > "$D/u-drops"
+        else
+          text=$(cat "$D/composer")
+          rows=$(( (${#text} + 59) / 60 ))
+          printf '%s' "${text:0:$(( (rows - 1) * 60 ))}" > "$D/composer"
+        fi ;;
     esac ;;
 esac
 exit 0

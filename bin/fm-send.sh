@@ -145,11 +145,10 @@
 # seconds (default 30, and any override must be a positive integer): a bound
 # hit is completion-unknown and exits through this same unconfirmed contract
 # instead of waiting out a busy remote queue.
-# The remote host re-rings an unacknowledged ordinary record on the same
-# ladder the watcher runs locally (bin/fm-task-inbox-lib.sh); one still unread
-# after that ladder surfaces through the parent's pending-reply recovery and
-# escalation, whose recovery request re-rings the remote doorbell when it is
-# enqueued; fire-and-forget delivery deliberately arms neither mechanism. Internal
+# The remote host runs no re-ring ladder of its own: a swallowed ordinary
+# doorbell surfaces through the parent's pending-reply recovery and escalation,
+# whose recovery request re-rings the remote doorbell when it is enqueued;
+# fire-and-forget delivery deliberately arms neither mechanism. Internal
 # semantic callers may set FM_SEND_EXPECTED_SPAWN_GEN or
 # FM_SEND_EXPECTED_REMOTE_HOST to require that sampled identity to still match
 # during the final locked remote-route validation; unset or empty guards do not

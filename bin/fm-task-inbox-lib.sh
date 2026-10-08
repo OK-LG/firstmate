@@ -73,10 +73,8 @@
 # escalates. A waiting worker does not poll its inbox (bin/fm-brief.sh), so
 # without this retry the record could sit unread until a checkpoint. A pending ordinary record's
 # ladder rings the same inbox, so the retry waits behind it, and an
-# acknowledged record drops its mark. The parent's watcher cannot see a remote
-# secondmate's inbox, so the remote host runs this same ladder for it
-# (bin/fm-remote-secondmate-control.sh cmd_follow), started by each remote
-# send; that follower owes no fire-and-forget retry ring.
+# acknowledged record drops its mark. The remote steer leg has no watcher
+# ladder and owes no retry.
 #
 # Inbox names containing bytes outside printable ASCII are unsupported. The
 # doorbell refuses them rather than sending terminal control bytes to a pane.
@@ -102,6 +100,7 @@ _FM_TASK_INBOX_LIB_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 FM_TASK_INBOX_SCHEMA='fm-task-inbox.v1'
 FM_TASK_INBOX_GRACE_DEFAULT=90
 FM_TASK_INBOX_RING_MAX_DEFAULT=3
+FM_TASK_INBOX_SETTLE_DEFAULT=0.5
 FM_TASK_INBOX_LOCK_WAIT_DEFAULT=5
 # Non-space characters a composer piece of our doorbell needs before it is
 # claimed as ours, verified Enters for a held doorbell, and Ctrl-U presses for
@@ -114,6 +113,16 @@ fm_task_inbox_grace_secs() {
   local g=${FM_TASK_INBOX_GRACE_SECS:-$FM_TASK_INBOX_GRACE_DEFAULT}
   case "$g" in ''|*[!0-9]*) g=$FM_TASK_INBOX_GRACE_DEFAULT ;; esac
   printf '%s' "$g"
+}
+
+# Seconds to let a composer settle before reading it back. Fractional, and
+# validated like every other knob here: a value that is not a plain decimal
+# would make the `sleep` fail, and this library degrades instead of aborting
+# the watcher that calls the ring bare under `set -e`.
+fm_task_inbox_settle_secs() {
+  local s=${FM_TASK_INBOX_SETTLE_SECS:-$FM_TASK_INBOX_SETTLE_DEFAULT}
+  case "$s" in ''|.|*[!0-9.]*|*.*.*) s=$FM_TASK_INBOX_SETTLE_DEFAULT ;; esac
+  printf '%s' "$s"
 }
 
 fm_task_inbox_ring_max() {
@@ -335,7 +344,10 @@ fm_task_inbox_doorbell_line() {  # <record-path>
 # positively identify (that classifier is advisory here by design).
 # A fresh ring whose submit stays unconfirmed is read back once more, so a line
 # that was typed but not submitted is submitted (or a partial one cleared) now
-# rather than left for the next ring.
+# rather than left for the next ring. A composer this call proved empty before
+# typing, holding text it cannot match after an unconfirmed submit, still holds
+# that unsubmitted line in a shape the classifier cannot name, so the ring
+# reports it unreached rather than rung.
 fm_task_inbox_ring() {  # <backend> <target> <record-path> [expected-label]
   local backend=$1 target=$2 rec=$3 label=${4:-} line cstate verdict
   case "$(fm_backend_agent_state "$backend" "$target" 2>/dev/null || true)" in
@@ -365,7 +377,7 @@ fm_task_inbox_ring() {  # <backend> <target> <record-path> [expected-label]
   # Only a confirmed submit skips the read-back; every other verdict (pending,
   # unknown, send-failed after a refused proof, ...) is never proof either way.
   [ "$verdict" != empty ] || return 0
-  sleep "${FM_TASK_INBOX_SETTLE_SECS:-0.5}"
+  sleep "$(fm_task_inbox_settle_secs)"
   case "$(fm_task_inbox_composer_own "$backend" "$target" "$line" "$label")" in
     exact)
       _fm_task_inbox_submit_own "$backend" "$target" "$line" "$label"
@@ -383,6 +395,15 @@ fm_task_inbox_ring() {  # <backend> <target> <record-path> [expected-label]
     fragment)
       _fm_task_inbox_clear_own "$backend" "$target" "$line" "$label" || true
       return 2
+      ;;
+    foreign)
+      # Text in a composer this call proved empty before typing is the line we
+      # typed, in whatever shape the harness renders it now, and the submit was
+      # never confirmed: report it unreached so the ladder and the
+      # fire-and-forget retry both own it.
+      if [ "$cstate" = empty ] && [ "$verdict" != send-failed ]; then
+        return 2
+      fi
       ;;
   esac
   [ "$verdict" != send-failed ] || return 2
@@ -455,7 +476,7 @@ _fm_task_inbox_submit_own() {  # <backend> <target> <line> <expected-label>
   local i=0
   while [ "$i" -lt "$FM_TASK_INBOX_SUBMIT_TRIES" ]; do
     fm_backend_send_key "$1" "$2" Enter "$4" >/dev/null 2>&1 || return 2
-    sleep "${FM_TASK_INBOX_SETTLE_SECS:-0.5}"
+    sleep "$(fm_task_inbox_settle_secs)"
     case "$(fm_task_inbox_composer_own "$1" "$2" "$3" "$4")" in
       exact|fragment|collapsed) ;;
       *) return 0 ;;
