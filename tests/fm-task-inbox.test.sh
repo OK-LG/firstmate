@@ -756,6 +756,93 @@ test_ring_never_submits_a_paste_that_lands_after_its_enter() {
   pass "inbox: a paste landing after our Enter is never submitted by the retry"
 }
 
+# A harness that accepts Enter mid-turn, queues it, and keeps the typed text
+# visible (opencode 1.18.4 is the verified one). The queued Enter has already
+# delivered the line, so pressing again would deliver it twice: the shared
+# queued-Enter policy stops the retries and the ring reports it rung.
+test_ring_trusts_a_queued_enter_on_a_busy_agent() {
+  local dir state rec doorbell pane rc
+  dir="$TMP_ROOT/ring-queued-enter"
+  state="$dir/state"
+  pane="$dir/pane"
+  mkdir -p "$state" "$dir/fakebin"
+  fm_fake_herdr_claude_pane "$dir/fakebin" "$pane"
+  rec=$(inbox_lib "$state" fm_task_inbox_write "$state" t1 "please continue")
+  doorbell=$(inbox_lib "$state" fm_task_inbox_doorbell_line "$rec")
+  printf '%s' "$doorbell" > "$pane/composer"
+  echo working > "$pane/status"; echo 99 > "$pane/drops"
+  rc=0
+  PATH="$dir/fakebin:$PATH" FM_TASK_INBOX_SETTLE_SECS=0 FM_BACKEND_HERDR_SUBMIT_POLLS=1 \
+    inbox_lib "$state" fm_task_inbox_ring herdr default:w1:p2 "$rec" fm-t1 || rc=$?
+  [ "$rc" = 0 ] || fail "a doorbell whose Enter a busy agent queued should report rung, got rc $rc"
+  [ "$(grep -c '^enter$' "$pane/keys")" = 1 ] \
+    || fail "a queued Enter should not be pressed again:"$'\n'"$(cat "$pane/keys")"
+  [ "$(cat "$pane/composer")" = "$doorbell" ] || fail "the queued line was changed: $(cat "$pane/composer")"
+  pass "inbox: an Enter a busy agent queued is trusted once instead of pressed again"
+}
+
+# A line that is no longer whole must not be submitted: a truncated doorbell
+# names no inbox and instructs nothing. The submit loop stops and hands the
+# shape back to the ring, whose fragment path clears it and types it fresh.
+test_ring_never_submits_a_truncated_doorbell_from_the_submit_loop() {
+  local dir state rec doorbell pane rc
+  dir="$TMP_ROOT/ring-truncated-mid-submit"
+  state="$dir/state"
+  pane="$dir/pane"
+  mkdir -p "$state" "$dir/fakebin"
+  fm_fake_herdr_claude_pane "$dir/fakebin" "$pane"
+  rec=$(inbox_lib "$state" fm_task_inbox_write "$state" t1 "please continue")
+  doorbell=$(inbox_lib "$state" fm_task_inbox_doorbell_line "$rec")
+  printf '%s' "$doorbell" > "$pane/composer"
+  echo idle > "$pane/status"; echo 99 > "$pane/drops"
+  printf '%s' "${doorbell:0:120}" > "$pane/paste-text"
+  # Read one proves the stuck doorbell ours; its Enter is swallowed, and by
+  # read two the worker's human has deleted part of the line.
+  echo 2 > "$pane/paste-on-read"
+  rc=0
+  PATH="$dir/fakebin:$PATH" FM_TASK_INBOX_SETTLE_SECS=0 FM_BACKEND_HERDR_SUBMIT_POLLS=1 \
+    inbox_lib "$state" fm_task_inbox_ring herdr default:w1:p2 "$rec" fm-t1 || rc=$?
+  [ "$rc" = 2 ] || fail "a doorbell truncated under the submit should report not reached, got rc $rc"
+  [ "$(grep -c '^enter$' "$pane/keys")" = 1 ] \
+    || fail "no Enter should go onto a truncated line:"$'\n'"$(cat "$pane/keys")"
+  [ ! -e "$pane/submits" ] || fail "a truncated doorbell was submitted:"$'\n'"$(cat "$pane/submits")"
+  [ "$(cat "$pane/composer")" = "${doorbell:0:120}" ] \
+    || fail "the truncated line was changed: $(cat "$pane/composer")"
+  pass "inbox: the submit loop never presses Enter onto a truncated doorbell"
+}
+
+# The collapsed twin of the paste-after-Enter guard: from a collapsed entry the
+# first Enter may land, so a placeholder still showing on the next read-back is
+# no longer attributable to our own burst and must not be pressed again.
+test_ring_never_submits_a_paste_that_replaces_a_collapsed_burst() {
+  local dir state rec doorbell pane rc paste
+  dir="$TMP_ROOT/ring-collapsed-replaced"
+  state="$dir/state"
+  pane="$dir/pane"
+  mkdir -p "$state" "$dir/fakebin"
+  fm_fake_herdr_claude_pane "$dir/fakebin" "$pane"
+  rec=$(inbox_lib "$state" fm_task_inbox_write "$state" t1 "please continue")
+  doorbell=$(inbox_lib "$state" fm_task_inbox_doorbell_line "$rec")
+  paste='[Pasted text #2 +40 lines]'
+  : > "$pane/composer"; echo idle > "$pane/status"; echo 2 > "$pane/drops"
+  printf '%s' "$paste" > "$pane/paste-text"
+  # The ring's own read-back sees our burst collapsed and presses one Enter;
+  # read nine is the read-back after it, by when the person's paste has
+  # replaced what that Enter submitted.
+  echo 9 > "$pane/paste-on-read"
+  rc=0
+  PATH="$dir/fakebin:$PATH" FM_TASK_INBOX_SETTLE_SECS=0 FM_BACKEND_HERDR_SUBMIT_POLLS=1 \
+    FM_FAKE_PASTE_COLLAPSE=1 \
+    inbox_lib "$state" fm_task_inbox_ring herdr default:w1:p2 "$rec" fm-t1 || rc=$?
+  [ "$rc" = 2 ] || fail "a placeholder that outlived our Enter should report not reached, got rc $rc"
+  [ "$(cat "$pane/composer")" = "$paste" ] || fail "the person's paste was changed: $(cat "$pane/composer")"
+  [ "$(grep -c '^enter$' "$pane/keys")" = 3 ] \
+    || fail "the submit core's two swallowed Enters and one verified Enter should go out, no more:"$'\n'"$(cat "$pane/keys")"
+  [ "$(cat "$pane/submits")" = "SUBMIT: $doorbell" ] \
+    || fail "only the collapsed burst our Enter submitted should appear:"$'\n'"$(cat "$pane/submits")"
+  pass "inbox: a paste replacing our collapsed burst after the first Enter is never submitted"
+}
+
 # The composer read must see the same screen the composer verdict does: a
 # harness whose idle composer draws a dim ghost hint reads as empty when
 # styling is kept and as someone's text when it is stripped, which used to make
@@ -1358,6 +1445,9 @@ test_ring_stops_clearing_when_the_composer_stops_being_ours
 test_ring_reports_an_unreadable_readback_as_not_reached
 test_ring_stops_clearing_on_an_interior_phrase_of_the_cleared_piece
 test_ring_never_submits_a_paste_that_lands_after_its_enter
+test_ring_trusts_a_queued_enter_on_a_busy_agent
+test_ring_never_submits_a_truncated_doorbell_from_the_submit_loop
+test_ring_never_submits_a_paste_that_replaces_a_collapsed_burst
 test_ring_rings_after_clearing_into_a_ghost_hint
 test_idempotent_write_dedups_exact_body
 test_idempotent_write_follows_concurrent_ack

@@ -329,8 +329,9 @@ fm_task_inbox_doorbell_line() {  # <record-path>
 # the worker never read the message. It is recognized from the composer's
 # text, whatever the classifier verdict (fm_task_inbox_composer_own): the whole
 # line is submitted with Enter and verified, busy or not, because a busy agent
-# queues it; its head or its tail (a truncated or partly cleared line) is
-# cleared and the doorbell rung fresh. Text that is not ours is never touched:
+# queues it and the shared queued-Enter policy stops the retries there; its
+# head or its tail (a truncated or partly cleared line) is cleared and the
+# doorbell rung fresh. Text that is not ours is never touched:
 # a composer showing only a paste placeholder is our collapsed burst only in
 # the read-back below, and only when THIS call proved the composer empty and
 # then typed the line into it. Every other reading of that shape - a cold
@@ -359,7 +360,7 @@ fm_task_inbox_ring() {  # <backend> <target> <record-path> [expected-label]
   fi
   case "$(fm_task_inbox_composer_own "$backend" "$target" "$line" "$label")" in
     exact)
-      _fm_task_inbox_submit_own "$backend" "$target" "$line" "$label" exact
+      _fm_task_inbox_submit_own "$backend" "$target" "$line" "$label"
       return
       ;;
     fragment)
@@ -381,7 +382,7 @@ fm_task_inbox_ring() {  # <backend> <target> <record-path> [expected-label]
   sleep "$(fm_task_inbox_settle_secs)"
   case "$(fm_task_inbox_composer_own "$backend" "$target" "$line" "$label")" in
     exact)
-      _fm_task_inbox_submit_own "$backend" "$target" "$line" "$label" exact
+      _fm_task_inbox_submit_own "$backend" "$target" "$line" "$label"
       return
       ;;
     collapsed)
@@ -390,7 +391,7 @@ fm_task_inbox_ring() {  # <backend> <target> <record-path> [expected-label]
       if [ "$cstate" != empty ] || [ "$verdict" = send-failed ]; then
         return 2
       fi
-      _fm_task_inbox_submit_own "$backend" "$target" "$line" "$label" collapsed
+      _fm_task_inbox_submit_own "$backend" "$target" "$line" "$label"
       return
       ;;
     fragment)
@@ -495,27 +496,35 @@ _fm_task_inbox_anchored_in() {  # <text> <held>
 
 # Submit our own doorbell already in the composer: Enter, then read back, at
 # most FM_TASK_INBOX_SUBMIT_TRIES times. 0 once the composer no longer holds
-# any of it, 2 when it is still there after the last Enter, when a key could
-# not be sent, or when the read-back cannot see the composer at all - an
+# any of it, or once a busy agent accounts for the Enter it still shows:
+# fm_composer_queued_enter_verdict owns that policy fleet-wide - a proven
+# pending composer plus a delivery-busy signal means the Enter was accepted and
+# queued, so pressing again would deliver the line twice.
+# 2 when our whole line is still there after the last Enter, when a key could
+# not be sent, when the read-back cannot see the composer at all - an
 # unreadable screen is no proof of a submit, and pressing Enter blind into one
-# could answer a dialog the harness put over the composer. Never retypes.
-# <entry-verdict> is the classification that proved the composer ours. A
-# read-back showing only a paste placeholder counts as our line still held just
-# when that entry verdict was itself `collapsed`, because only there did this
-# call watch the harness collapse its own burst; reached from an `exact` entry
-# the same shape means the composer changed under us, and pressing Enter again
-# would submit a paste nobody proved ours, so it stops and reports unreached.
-_fm_task_inbox_submit_own() {  # <backend> <target> <line> <expected-label> <entry-verdict>
+# could answer a dialog the harness put over the composer - and when the
+# read-back is only a piece of the line: submitting a truncated doorbell would
+# name no inbox, so that shape goes back to the ring, whose fragment path
+# clears it and types the whole line fresh. Never retypes.
+# A read-back showing just a paste placeholder is no reason to press again
+# either: before the first Enter the ring could attribute that shape to the
+# harness collapsing its own burst, but an
+# Enter that may have landed empties the composer, so the same shape afterwards
+# carries no identity and could be a person's own paste.
+_fm_task_inbox_submit_own() {  # <backend> <target> <line> <expected-label>
   local i=0
+  fm_backend_source "$1" || return 2
   while [ "$i" -lt "$FM_TASK_INBOX_SUBMIT_TRIES" ]; do
     fm_backend_send_key "$1" "$2" Enter "$4" >/dev/null 2>&1 || return 2
     sleep "$(fm_task_inbox_settle_secs)"
     case "$(fm_task_inbox_composer_own "$1" "$2" "$3" "$4")" in
-      exact|fragment) ;;
-      collapsed) [ "$5" = collapsed ] || return 2 ;;
-      unreadable) return 2 ;;
+      exact) ;;
+      collapsed|fragment|unreadable) return 2 ;;
       *) return 0 ;;
     esac
+    [ "$(fm_composer_queued_enter_verdict pending \
+      "$(fm_backend_busy_state "$1" "$2" 2>/dev/null)")" != empty ] || return 0
     i=$((i + 1))
   done
   return 2
@@ -537,7 +546,7 @@ _fm_task_inbox_clear_own() {  # <backend> <target> <line> <expected-label>
   _fm_task_inbox_own_piece "$3" "$proven" || return 1
   while [ "$i" -lt "$FM_TASK_INBOX_CLEAR_PRESSES" ]; do
     fm_backend_send_key "$1" "$2" C-u "$4" >/dev/null 2>&1 || return 1
-    sleep 0.2
+    sleep "$(fm_task_inbox_settle_secs)"
     held=$(_fm_task_inbox_composer_text "$1" "$2" "$4") || return 1
     [ -n "$held" ] || return 0
     _fm_task_inbox_anchored_in "$proven" "$held" || return 1
