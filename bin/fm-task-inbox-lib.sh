@@ -320,7 +320,7 @@ fm_task_inbox_doorbell_line() {  # <record-path>
 # the worker never read the message. It is recognized from the composer's
 # text, whatever the classifier verdict (fm_task_inbox_composer_own): the whole
 # line is submitted with Enter and verified, busy or not, because a busy agent
-# queues it; a contiguous piece of it (a truncated or partly cleared line) is
+# queues it; its head or its tail (a truncated or partly cleared line) is
 # cleared and the doorbell rung fresh. Text that is not ours is never touched:
 # a composer showing only a paste placeholder is our collapsed burst only in
 # the read-back below, and only when THIS call proved the composer empty and
@@ -392,12 +392,17 @@ fm_task_inbox_ring() {  # <backend> <target> <record-path> [expected-label]
 # What the composer holds relative to our doorbell <line>, ignoring line
 # wrapping, whitespace, and the invisible U+2063 operational mark:
 #   exact       our line, once or repeated, and nothing else
-#   fragment    a contiguous piece of our line at least <min-chars> long
-#               (FM_TASK_INBOX_FRAGMENT_MIN non-space characters by default,
-#               long enough that a person's draft cannot plausibly match),
-#               alone or behind paste placeholders
+#   fragment    the HEAD or the TAIL of our line, at least
+#               FM_TASK_INBOX_FRAGMENT_MIN non-space characters of it.
+#               Anchored at one end because that is the only shape a
+#               truncated type or a row-wise clear can leave: an interior
+#               phrase of the line is ordinary English a person plausibly
+#               typed themselves ("read and act on each in numeric order"),
+#               and reads `foreign` however long it is.
 #   collapsed   paste placeholders alone
-#   foreign     any other text
+#   foreign     any other text, including any mix of placeholders and literal
+#               text: a placeholder hides whatever it swallowed, so nothing in
+#               such a composer can be proved ours
 #   empty       nothing
 #   unreadable  no composer could be read
 # `collapsed` is the shape Claude leaves when it collapses one fast literal
@@ -406,8 +411,12 @@ fm_task_inbox_ring() {  # <backend> <target> <record-path> [expected-label]
 # proves ownership only to a caller that itself proved our doorbell was the
 # last thing typed into that composer: nothing else can tell it from a
 # person's own collapsed paste.
-fm_task_inbox_composer_own() {  # <backend> <target> <line> [expected-label] [min-chars]
-  local held want literal min=${5:-$FM_TASK_INBOX_FRAGMENT_MIN}
+# A non-empty <piece> says the caller is part way through clearing text it
+# already proved ours, and asks the weaker question that state needs:
+# `fragment` then covers any contiguous piece of our line, of any length,
+# because each Ctrl-U press leaves one.
+fm_task_inbox_composer_own() {  # <backend> <target> <line> [expected-label] [piece]
+  local held want literal piece=${5:-}
   fm_backend_source "$1" || { printf 'unreadable'; return 0; }
   held=$(fm_backend_composer_content "$1" "$2" "${4:-}" 2>/dev/null) || { printf 'unreadable'; return 0; }
   want=$3
@@ -424,7 +433,12 @@ fm_task_inbox_composer_own() {  # <backend> <target> <line> [expected-label] [mi
     printf 'exact'
   elif [ -z "$literal" ]; then
     printf 'collapsed'
-  elif [ "${#literal}" -ge "$min" ] && case "$want" in *"$literal"*) true ;; *) false ;; esac; then
+  elif [ "$literal" != "$held" ]; then
+    printf 'foreign'
+  elif [ -n "$piece" ] && case "$want" in *"$held"*) true ;; *) false ;; esac; then
+    printf 'fragment'
+  elif [ -z "$piece" ] && [ "${#held}" -ge "$FM_TASK_INBOX_FRAGMENT_MIN" ] \
+    && case "$want" in "$held"*|*"$held") true ;; *) false ;; esac; then
     printf 'fragment'
   else
     printf 'foreign'
@@ -454,22 +468,23 @@ _fm_task_inbox_submit_own() {  # <backend> <target> <line> <expected-label>
 # Clear a piece of our own doorbell from the composer with Ctrl-U, which
 # deletes one wrapped row per press in the verified harnesses, until it reads
 # empty. Every press first re-proves that what remains is still only a piece
-# of our line (any length), or the paste placeholder the caller already proved
-# was ours, so text that is not ours is never deleted.
+# of our own line, so text that is not ours is never deleted: a paste
+# placeholder appearing there proves nothing, and stops the clear with the
+# record left to the ladder.
 # 0 cleared, 1 not cleared.
 _fm_task_inbox_clear_own() {  # <backend> <target> <line> <expected-label>
   local i=0
   while [ "$i" -lt "$FM_TASK_INBOX_CLEAR_PRESSES" ]; do
-    case "$(fm_task_inbox_composer_own "$1" "$2" "$3" "$4" 1)" in
+    case "$(fm_task_inbox_composer_own "$1" "$2" "$3" "$4" piece)" in
       empty) return 0 ;;
-      exact|fragment|collapsed) ;;
+      exact|fragment) ;;
       *) return 1 ;;
     esac
     fm_backend_send_key "$1" "$2" C-u "$4" >/dev/null 2>&1 || return 1
     sleep 0.2
     i=$((i + 1))
   done
-  [ "$(fm_task_inbox_composer_own "$1" "$2" "$3" "$4" 1)" = empty ]
+  [ "$(fm_task_inbox_composer_own "$1" "$2" "$3" "$4" piece)" = empty ]
 }
 
 fm_task_inbox_is_fire_and_forget() {  # <record-path>

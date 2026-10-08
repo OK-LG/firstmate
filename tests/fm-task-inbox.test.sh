@@ -443,14 +443,16 @@ test_ring_recovers_a_stuck_doorbell_and_verifies_its_submit() {
   [ "$(cat "$log")" = "SUBMIT: $doorbell" ] \
     || fail "the tail piece should be cleared and the whole doorbell submitted once:"$'\n'"$(cat "$log")"
 
-  # Words that merely occur in the doorbell but are too short to prove it is
-  # ours are someone's draft: skipped, never cleared.
-  piece='numeric order'
-  : > "$log"; printf '%s' "$piece" > "$composer"
-  rc=0; ring || rc=$?
-  [ "$rc" = 1 ] || fail "a short draft that happens to occur in the doorbell should skip, got rc $rc"
-  [ "$(cat "$composer")" = "$piece" ] || fail "a short draft was changed: $(cat "$composer")"
-  [ ! -s "$log" ] || fail "a short draft was submitted:"$'\n'"$(cat "$log")"
+  # Words that occur INSIDE the doorbell are ordinary English a person types
+  # themselves, however long the phrase is: skipped, never cleared. Only the
+  # head or the tail of the line proves our own truncated type.
+  for piece in 'numeric order' 'read and act on each in numeric order'; do
+    : > "$log"; printf '%s' "$piece" > "$composer"
+    rc=0; ring || rc=$?
+    [ "$rc" = 1 ] || fail "a draft from inside the doorbell should skip, got rc $rc for: $piece"
+    [ "$(cat "$composer")" = "$piece" ] || fail "a draft was changed: $(cat "$composer")"
+    [ ! -s "$log" ] || fail "a draft was submitted:"$'\n'"$(cat "$log")"
+  done
 
   # Our whole doorbell whose Enter never lands is reported as not reached, so
   # the ladder retries and escalates, and it is never retyped.
@@ -459,7 +461,7 @@ test_ring_recovers_a_stuck_doorbell_and_verifies_its_submit() {
   [ "$rc" = 2 ] || fail "a doorbell whose Enter never lands should report not reached, got rc $rc"
   [ "$(cat "$composer")" = "$doorbell" ] || fail "the unsubmitted doorbell was retyped or changed: $(cat "$composer")"
   [ ! -s "$log" ] || fail "nothing should have been submitted:"$'\n'"$(cat "$log")"
-  pass "inbox: the ring recovers a truncated doorbell, protects short drafts, and reports an unsubmitted doorbell as not reached"
+  pass "inbox: the ring recovers a truncated doorbell, protects drafts from inside its own prose, and reports an unsubmitted doorbell as not reached"
 }
 
 # The same incident on Claude over Herdr, whose submit core refuses to type into
@@ -572,6 +574,33 @@ test_ring_never_submits_a_collapsed_paste_it_did_not_type() {
   [ ! -e "$pane/keys" ] || fail "a key was sent into a composer holding the person's paste:"$'\n'"$(cat "$pane/keys")"
   [ -f "$rec" ] || fail "the unrung record should still be unhandled and owed a re-ring"
   pass "inbox: a ring that typed nothing never submits the collapsed paste it found, and reports not reached"
+}
+
+# A person's paste sitting above a doorbell an earlier ring typed on top of it:
+# the placeholder hides what it swallowed, so nothing in that composer is
+# provably ours. Clearing the rows we can recognise would walk Ctrl-U straight
+# into their unsent block, so the whole composer is left alone and the record
+# goes back to the ladder.
+test_ring_never_clears_a_doorbell_sharing_the_composer_with_a_paste() {
+  local dir state rec doorbell pane rc held
+  dir="$TMP_ROOT/ring-paste-above"
+  state="$dir/state"
+  pane="$dir/pane"
+  mkdir -p "$state" "$dir/fakebin"
+  fm_fake_herdr_claude_pane "$dir/fakebin" "$pane"
+  rec=$(inbox_lib "$state" fm_task_inbox_write "$state" t1 "please continue")
+  doorbell=$(inbox_lib "$state" fm_task_inbox_doorbell_line "$rec")
+  held="[Pasted text #1 +40 lines]$doorbell"
+  printf '%s' "$held" > "$pane/composer"; echo idle > "$pane/status"; echo 0 > "$pane/drops"
+  rc=0
+  PATH="$dir/fakebin:$PATH" FM_TASK_INBOX_SETTLE_SECS=0 FM_BACKEND_HERDR_SUBMIT_POLLS=1 \
+    inbox_lib "$state" fm_task_inbox_ring herdr default:w1:p2 "$rec" fm-t1 || rc=$?
+  [ "$rc" = 1 ] || fail "a composer mixing a paste with our doorbell should skip the ring, got rc $rc"
+  [ "$(cat "$pane/composer")" = "$held" ] || fail "the person's paste was changed: $(cat "$pane/composer")"
+  [ ! -e "$pane/keys" ] || fail "a key was sent into a composer holding the person's paste:"$'\n'"$(cat "$pane/keys")"
+  [ ! -e "$pane/submits" ] || fail "something was submitted:"$'\n'"$(cat "$pane/submits")"
+  [ -f "$rec" ] || fail "the skipped record should still be unhandled and owed a re-ring"
+  pass "inbox: a composer mixing a paste placeholder with our doorbell is never cleared or submitted"
 }
 
 # The composer read must see the same screen the composer verdict does: a
@@ -1170,6 +1199,7 @@ test_ring_recovers_a_stuck_doorbell_and_verifies_its_submit
 test_ring_recovers_a_stuck_doorbell_on_claude_herdr
 test_ring_submits_a_doorbell_collapsed_into_a_paste_placeholder
 test_ring_never_submits_a_collapsed_paste_it_did_not_type
+test_ring_never_clears_a_doorbell_sharing_the_composer_with_a_paste
 test_ring_rings_after_clearing_into_a_ghost_hint
 test_idempotent_write_dedups_exact_body
 test_idempotent_write_follows_concurrent_ack
