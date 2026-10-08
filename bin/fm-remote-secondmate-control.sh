@@ -7,6 +7,7 @@
 #   fm-remote-secondmate-control.sh state <id>
 #   fm-remote-secondmate-control.sh route <id>
 #   fm-remote-secondmate-control.sh send <id> <message> [fire-and-forget]
+#   fm-remote-secondmate-control.sh follow <id>
 #   fm-remote-secondmate-control.sh key <id> <key>
 #   fm-remote-secondmate-control.sh capture <id> [lines]
 #   fm-remote-secondmate-control.sh observe <id>
@@ -71,7 +72,7 @@ REMOTE_HERDR_SESSION=fm-remote
 . "$SCRIPT_DIR/fm-task-inbox-lib.sh"
 
 die() { printf 'error: %s\n' "$1" >&2; exit 1; }
-usage() { sed -n '2,24p' "$0" | sed 's/^# \{0,1\}//'; exit 2; }
+usage() { sed -n '2,25p' "$0" | sed 's/^# \{0,1\}//'; exit 2; }
 validate_id() { case "$1" in ''|*[!A-Za-z0-9._-]*) die "invalid secondmate id: $1" ;; esac; }
 
 validate_home() { # <id> [allow-absent]
@@ -304,11 +305,84 @@ cmd_send() {
       ;;
   esac
   fm_task_inbox_ring "$REMOTE_ENDPOINT_BACKEND" "$REMOTE_ENDPOINT_TARGET" "$rec" "fm-$id" || ring_rc=$?
+  [ "$ring_rc" = 3 ] || follow_start "$id"
   case "$ring_rc" in
-    1) printf 'notice: doorbell skipped (composer visibly holds pending text); the steer is durably recorded at %s\n' "$rec" >&2 ;;
-    2) printf 'notice: doorbell did not reach %s; the steer is durably recorded at %s\n' "$REMOTE_ENDPOINT_TARGET" "$rec" >&2 ;;
+    1) printf 'notice: doorbell skipped (composer visibly holds pending text); the steer is durably recorded at %s and this host will re-ring it\n' "$rec" >&2 ;;
+    2) printf 'notice: doorbell did not reach %s; the steer is durably recorded at %s and this host will re-ring it\n' "$REMOTE_ENDPOINT_TARGET" "$rec" >&2 ;;
     3) printf 'notice: doorbell not typed because the agent in %s has exited; the steer is durably recorded at %s for recovery\n' "$REMOTE_ENDPOINT_TARGET" "$rec" >&2 ;;
   esac
+}
+
+# Start this mate's re-ring follower in the background, detached from the
+# caller's transport so the send leg returns at once. FM_REMOTE_INBOX_FOLLOW=0
+# disables it. A follower already running for this mate keeps the job.
+follow_start() {  # <id>
+  [ "${FM_REMOTE_INBOX_FOLLOW:-1}" != 0 ] || return 0
+  nohup env FM_HOME="$TARGET_HOME" FM_ROOT_OVERRIDE="$FM_ROOT" \
+    "$SCRIPT_DIR/fm-remote-secondmate-control.sh" follow "$1" \
+    </dev/null >/dev/null 2>&1 &
+}
+
+# The remote host's re-ring ladder for this mate's steering inbox: the same
+# policy the parent's watcher runs for a local task (fm_task_inbox_due_action
+# owns the schedule), driven here because the parent's watcher cannot see a
+# remote inbox. While an unhandled ordinary record remains, each due attempt
+# waits out a busy agent, then rings; our own doorbell stuck in the composer is
+# submitted by the ring itself. A spent attempt budget is marked escalated and
+# ends the follower: the parent's pending-reply recovery surfaces the unread
+# request, as before. It exits when the inbox is empty or handled, the agent
+# has exited, the endpoint record is gone, or FM_TASK_INBOX_FOLLOW_SECS
+# (default 7200) has elapsed. One follower runs per mate.
+cmd_follow() {
+  local id=$1 dir lock deadline tick polls action verb rec ring_rc
+  validate_id "$id"
+  validate_home "$id"
+  dir=$(fm_task_inbox_dir "$CONTROL_STATE" "$id")
+  [ -d "$dir" ] || return 0
+  lock="$dir/.follow.lock"
+  fm_lock_try_acquire "$lock" || return 0
+  deadline=${FM_TASK_INBOX_FOLLOW_SECS:-7200}
+  case "$deadline" in ''|*[!0-9]*) deadline=7200 ;; esac
+  tick=$(fm_task_inbox_grace_secs)
+  [ "$tick" -le 15 ] || tick=15
+  [ "$tick" -ge 1 ] || tick=1
+  # Bounded by poll count as well as wall clock, so a sleep that returns early
+  # can never turn this into a hot loop.
+  polls=$(( deadline / tick + 1 ))
+  deadline=$(( $(date +%s) + deadline ))
+  while [ "$polls" -gt 0 ] && [ "$(date +%s)" -lt "$deadline" ] && [ -d "$dir" ]; do
+    polls=$((polls - 1))
+    action=$(fm_task_inbox_due_action "$CONTROL_STATE" "$id") || break
+    verb=${action%% *}
+    rec=${action#* }
+    case "$verb" in
+      quiet)
+        # Nothing left to deliver, or the oldest record was already escalated.
+        rec=$(fm_task_inbox_oldest_unhandled "$CONTROL_STATE" "$id") || break
+        [ "$(cat "$dir/.escalated" 2>/dev/null || true)" != "${rec##*/}" ] || break
+        ;;
+      ring|retry)
+        remote_endpoint_load "$id" || break
+        if [ "$(fm_backend_busy_state "$REMOTE_ENDPOINT_BACKEND" "$REMOTE_ENDPOINT_TARGET" 2>/dev/null)" != busy ]; then
+          ring_rc=0
+          fm_task_inbox_ring "$REMOTE_ENDPOINT_BACKEND" "$REMOTE_ENDPOINT_TARGET" "$rec" "fm-$id" || ring_rc=$?
+          [ "$ring_rc" != 3 ] || break
+          if [ "$verb" = ring ]; then
+            fm_task_inbox_record_ring "$CONTROL_STATE" "$id" "$rec" || break
+          else
+            fm_task_inbox_clear_retry "$CONTROL_STATE" "$id" "$rec" || break
+          fi
+        fi
+        ;;
+      escalate)
+        fm_task_inbox_record_escalated "$CONTROL_STATE" "$id" "${rec% *}" || true
+        break
+        ;;
+      *) break ;;
+    esac
+    sleep "$tick"
+  done
+  fm_lock_release "$lock" || true
 }
 
 cmd_key() {
@@ -440,6 +514,7 @@ case "${1:-}" in
   state) shift; [ "$#" -eq 1 ] || usage; validate_id "$1"; validate_home "$1"; state_value "$1" ;;
   route) shift; [ "$#" -eq 1 ] || usage; cmd_route "$1" ;;
   send) shift; [ "$#" -ge 2 ] && [ "$#" -le 3 ] || usage; cmd_send "$@" ;;
+  follow) shift; [ "$#" -eq 1 ] || usage; cmd_follow "$1" ;;
   key) shift; [ "$#" -eq 2 ] || usage; cmd_key "$@" ;;
   capture) shift; [ "$#" -ge 1 ] && [ "$#" -le 2 ] || usage; cmd_capture "$@" ;;
   observe) shift; [ "$#" -eq 1 ] || usage; cmd_observe "$@" ;;

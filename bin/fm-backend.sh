@@ -915,6 +915,25 @@ fm_backend_composer_state() {  # <backend> <target> [expected-label] -> empty|pe
   esac
 }
 
+# fm_backend_composer_content: the text the composer of <target> holds, read
+# through the same capture its composer classifier uses where the adapter has
+# one (herdr's full visible viewport, zellij's styled screen dump), so a caller
+# comparing composer text never reads a different screen than the verdict did.
+# Other backends extract from a bounded plain capture. Empty output with
+# success is an empty composer; failure means no composer could be selected.
+fm_backend_composer_content() {  # <backend> <target> [expected-label]
+  local backend=$1 target=$2 label=${3:-} cap
+  fm_backend_source "$backend" || return 1
+  case "$backend" in
+    herdr) fm_backend_herdr_composer_content "$target" ;;
+    zellij) fm_backend_zellij_composer_content "$target" "$label" ;;
+    *)
+      cap=$(fm_backend_capture "$backend" "$target" "$FM_COMPOSER_CAPTURE_LINES" "$label" 2>/dev/null) || return 1
+      fm_composer_extract_selected_content styled=0 "$cap"
+      ;;
+  esac
+}
+
 # fm_backend_target_exists: cheap, READ-ONLY existence check - does the
 # recorded TARGET endpoint still exist on BACKEND? Never starts a server or
 # session: for herdr this deliberately queries the pane directly instead of

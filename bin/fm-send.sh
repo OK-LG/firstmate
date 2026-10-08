@@ -56,8 +56,9 @@
 # exactly once more.
 # bin/fm-task-inbox-lib.sh owns the record format, the doorbell line, and the
 # re-ring ladder. The composer pre-check before the ring is ADVISORY only: when
-# the composer visibly holds pending text the ring is skipped with a notice and
-# the watcher re-rings an ordinary record later; no composer verdict is
+# the composer visibly holds pending text other than our own doorbell the ring
+# is skipped with a notice and the watcher re-rings an ordinary record later
+# (our own stuck doorbell is submitted instead); no composer verdict is
 # delivery proof on this plane, and a failed ring never fails the send.
 #
 # TYPED - the LOCAL text that must reach the terminal itself: a harness-native
@@ -144,10 +145,11 @@
 # seconds (default 30, and any override must be a positive integer): a bound
 # hit is completion-unknown and exits through this same unconfirmed contract
 # instead of waiting out a busy remote queue.
-# The remote host runs no re-ring ladder of its own: a swallowed ordinary
-# doorbell surfaces through the parent's pending-reply recovery and escalation,
-# whose recovery request re-rings the remote doorbell when it is enqueued;
-# fire-and-forget delivery deliberately arms neither mechanism. Internal
+# The remote host re-rings an unacknowledged ordinary record on the same
+# ladder the watcher runs locally (bin/fm-task-inbox-lib.sh); one still unread
+# after that ladder surfaces through the parent's pending-reply recovery and
+# escalation, whose recovery request re-rings the remote doorbell when it is
+# enqueued; fire-and-forget delivery deliberately arms neither mechanism. Internal
 # semantic callers may set FM_SEND_EXPECTED_SPAWN_GEN or
 # FM_SEND_EXPECTED_REMOTE_HOST to require that sampled identity to still match
 # during the final locked remote-route validation; unset or empty guards do not

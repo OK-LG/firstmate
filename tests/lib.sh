@@ -419,6 +419,64 @@ SH
   done
 }
 
+# fm_fake_herdr_claude_pane <fakebin> <pane-dir>
+# Drops a stateful `herdr` stub whose one pane is a Claude-on-Herdr composer.
+# <pane-dir> holds the state: `composer` (held text; `pane send-text` appends),
+# `status` (the native agent_status, default idle), and `drops` (a count of
+# Enters to swallow). `pane read` renders the composer wrapped at 60 columns
+# between solid rules, as live Claude draws it; Enter appends `SUBMIT: <text>`
+# to `submits` and empties the composer, or, with FM_FAKE_PANE_ACK set to a
+# record path, also moves that record into its handled/ (the worker reading
+# the doorbell); ctrl+u deletes the last wrapped row; every send-keys call is
+# appended to `keys`.
+fm_fake_herdr_claude_pane() {
+  local fakebin=$1 pane=$2
+  mkdir -p "$pane"
+  cat > "$fakebin/herdr" <<SH
+#!/usr/bin/env bash
+set -u
+D='$pane'
+SH
+  cat >> "$fakebin/herdr" <<'SH'
+rule=$(printf '─%.0s' $(seq 60))
+case "${1:-} ${2:-}" in
+  "status --json") printf '{"client":{"version":"0.7.1","protocol":14},"server":{"running":true}}\n' ;;
+  "agent get")
+    printf '{"result":{"agent":{"agent":"claude","agent_status":"%s"}}}\n' "$(cat "$D/status" 2>/dev/null || echo idle)" ;;
+  "pane read")
+    printf '● done\n  %s\n' "$rule"
+    if [ -s "$D/composer" ]; then
+      fold -w 60 "$D/composer" | awk 'NR == 1 { print "  ❯ " $0; next } { print "    " $0 }'
+    else
+      printf '  ❯ \n'
+    fi
+    printf '  %s\n  ⏵⏵ bypass permissions on\n' "$rule" ;;
+  "pane send-text") printf '%s' "$4" >> "$D/composer" ;;
+  "pane send-keys")
+    printf '%s\n' "$4" >> "$D/keys"
+    case "$4" in
+      enter)
+        drops=$(cat "$D/drops" 2>/dev/null || echo 0)
+        if [ "$drops" -gt 0 ]; then
+          echo $((drops - 1)) > "$D/drops"
+        elif [ -s "$D/composer" ]; then
+          printf 'SUBMIT: %s\n' "$(cat "$D/composer")" >> "$D/submits"
+          : > "$D/composer"
+          if [ -n "${FM_FAKE_PANE_ACK:-}" ] && [ -f "$FM_FAKE_PANE_ACK" ]; then
+            mv "$FM_FAKE_PANE_ACK" "${FM_FAKE_PANE_ACK%/*}/handled/"
+          fi
+        fi ;;
+      ctrl+u)
+        text=$(cat "$D/composer")
+        rows=$(( (${#text} + 59) / 60 ))
+        printf '%s' "${text:0:$(( (rows - 1) * 60 ))}" > "$D/composer" ;;
+    esac ;;
+esac
+exit 0
+SH
+  chmod +x "$fakebin/herdr"
+}
+
 # fm_fake_crash_injector <fakebin>
 # Drops an `fm-crash-inject <pid>` shim that a PATH fake calls to simulate a
 # hard crash of the process under test. It SIGKILLs <pid> and then returns only

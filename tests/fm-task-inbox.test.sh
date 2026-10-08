@@ -295,8 +295,9 @@ test_ring_skips_dead_agent() {
 
 # A fake tmux whose pane is a Claude-style composer that keeps its content in
 # FM_FAKE_COMPOSER: literal input appends to it, capture renders it wrapped
-# between rules, and Enter submits it (logged as SUBMIT) unless
-# FM_FAKE_DROP_ENTERS still holds a count of Enters to swallow.
+# between rules, C-u deletes the last wrapped row, and Enter submits it
+# (logged as SUBMIT) unless FM_FAKE_DROP_ENTERS still holds a count of Enters
+# to swallow.
 make_composer_stub() {  # <dir>
   mkdir -p "$1/fakebin"
   cat > "$1/fakebin/tmux" <<'SH'
@@ -315,6 +316,10 @@ case "${1:-}" in
     done
     if [ "$literal" = 1 ]; then
       printf '%s' "$1" >> "$FM_FAKE_COMPOSER"
+    elif [ "${1:-}" = C-u ]; then
+      text=$(cat "$FM_FAKE_COMPOSER")
+      rows=$(( (${#text} + 59) / 60 ))
+      printf '%s' "${text:0:$(( (rows - 1) * 60 ))}" > "$FM_FAKE_COMPOSER"
     elif [ "${1:-}" = Enter ]; then
       drops=$(cat "$FM_FAKE_DROP_ENTERS" 2>/dev/null || echo 0)
       if [ "$drops" -gt 0 ]; then
@@ -392,6 +397,99 @@ test_ring_submits_its_own_stuck_doorbell() {
     || fail "the retry Enter should submit the doorbell once:"$'\n'"$(cat "$log")"
   [ ! -s "$composer" ] || fail "a lost Enter left the doorbell unsubmitted"
   pass "inbox: the ring submits its own stuck doorbell, skips other pending text, and retries a lost Enter once on both paths"
+}
+
+# The stuck-steer incident shapes: the composer keeps a truncated piece of our
+# doorbell, which every ring used to skip as someone's draft, or our whole
+# doorbell whose Enter never lands, which the ring used to report as rung.
+test_ring_recovers_a_stuck_doorbell_and_verifies_its_submit() {
+  local dir state rec doorbell log composer drops rc piece
+  dir="$TMP_ROOT/ring-recover"
+  state="$dir/state"
+  mkdir -p "$state"
+  make_composer_stub "$dir"
+  rec=$(inbox_lib "$state" fm_task_inbox_write "$state" t1 "please continue")
+  doorbell=$(inbox_lib "$state" fm_task_inbox_doorbell_line "$rec")
+  log="$dir/send.log"; composer="$dir/composer"; drops="$dir/drops"
+  ring() {
+    PATH="$dir/fakebin:$PATH" FM_SEND_LOG="$log" FM_FAKE_COMPOSER="$composer" \
+      FM_FAKE_DROP_ENTERS="$drops" FM_TASK_INBOX_SETTLE_SECS=0 \
+      inbox_lib "$state" fm_task_inbox_ring tmux sess:fm-t1 "$rec" fm-t1
+  }
+
+  # A head piece two wrapped rows long is cleared row by row, then the whole
+  # doorbell is rung fresh and submitted once.
+  : > "$log"; printf '%s' "${doorbell:0:120}" > "$composer"; echo 0 > "$drops"
+  rc=0; ring || rc=$?
+  [ "$rc" = 0 ] || fail "a composer holding a piece of our doorbell should be recovered, got rc $rc"
+  [ "$(cat "$log")" = "SUBMIT: $doorbell" ] \
+    || fail "the piece should be cleared and the whole doorbell submitted once:"$'\n'"$(cat "$log")"
+  [ ! -s "$composer" ] || fail "the recovered doorbell was left in the composer: $(cat "$composer")"
+
+  # A tail piece is ours too.
+  : > "$log"; printf '%s' "${doorbell:60}" > "$composer"
+  rc=0; ring || rc=$?
+  [ "$rc" = 0 ] || fail "a composer holding the tail of our doorbell should be recovered, got rc $rc"
+  [ "$(cat "$log")" = "SUBMIT: $doorbell" ] \
+    || fail "the tail piece should be cleared and the whole doorbell submitted once:"$'\n'"$(cat "$log")"
+
+  # Words that merely occur in the doorbell but are too short to prove it is
+  # ours are someone's draft: skipped, never cleared.
+  piece='numeric order'
+  : > "$log"; printf '%s' "$piece" > "$composer"
+  rc=0; ring || rc=$?
+  [ "$rc" = 1 ] || fail "a short draft that happens to occur in the doorbell should skip, got rc $rc"
+  [ "$(cat "$composer")" = "$piece" ] || fail "a short draft was changed: $(cat "$composer")"
+  [ ! -s "$log" ] || fail "a short draft was submitted:"$'\n'"$(cat "$log")"
+
+  # Our whole doorbell whose Enter never lands is reported as not reached, so
+  # the ladder retries and escalates, and it is never retyped.
+  : > "$log"; printf '%s' "$doorbell" > "$composer"; echo 99 > "$drops"
+  rc=0; ring || rc=$?
+  [ "$rc" = 2 ] || fail "a doorbell whose Enter never lands should report not reached, got rc $rc"
+  [ "$(cat "$composer")" = "$doorbell" ] || fail "the unsubmitted doorbell was retyped or changed: $(cat "$composer")"
+  [ ! -s "$log" ] || fail "nothing should have been submitted:"$'\n'"$(cat "$log")"
+  pass "inbox: the ring recovers a truncated doorbell, protects short drafts, and reports an unsubmitted doorbell as not reached"
+}
+
+# The same incident on Claude over Herdr, whose submit core refuses to type into
+# a composer that is not empty: our own doorbell left there while the agent is
+# busy is submitted (a busy Claude queues it), a truncated piece is cleared and
+# rung fresh, and a draft is never touched.
+test_ring_recovers_a_stuck_doorbell_on_claude_herdr() {
+  local dir state rec doorbell pane rc
+  dir="$TMP_ROOT/ring-recover-herdr"
+  state="$dir/state"
+  pane="$dir/pane"
+  mkdir -p "$state" "$dir/fakebin"
+  fm_fake_herdr_claude_pane "$dir/fakebin" "$pane"
+  rec=$(inbox_lib "$state" fm_task_inbox_write "$state" t1 "please continue")
+  doorbell=$(inbox_lib "$state" fm_task_inbox_doorbell_line "$rec")
+  ring() {
+    PATH="$dir/fakebin:$PATH" FM_TASK_INBOX_SETTLE_SECS=0 FM_BACKEND_HERDR_SUBMIT_POLLS=1 \
+      inbox_lib "$state" fm_task_inbox_ring herdr default:w1:p2 "$rec" fm-t1
+  }
+
+  rm -f "$pane/submits" "$pane/keys"; printf '%s' "$doorbell" > "$pane/composer"; echo working > "$pane/status"
+  rc=0; ring || rc=$?
+  [ "$rc" = 0 ] || fail "our own doorbell held while the agent is busy should be submitted, got rc $rc"
+  [ "$(cat "$pane/submits" 2>/dev/null)" = "SUBMIT: $doorbell" ] \
+    || fail "the held doorbell should be submitted once, not retyped:"$'\n'"$(cat "$pane/submits" 2>/dev/null)"
+
+  rm -f "$pane/submits" "$pane/keys"; printf '%s' "${doorbell:0:120}" > "$pane/composer"; echo idle > "$pane/status"
+  rc=0; ring || rc=$?
+  [ "$rc" = 0 ] || fail "a truncated doorbell on an idle Claude should be recovered, got rc $rc"
+  [ "$(cat "$pane/submits" 2>/dev/null)" = "SUBMIT: $doorbell" ] \
+    || fail "the truncated doorbell should be cleared and the whole line submitted once:"$'\n'"$(cat "$pane/submits" 2>/dev/null)"
+  [ "$(grep -c '^ctrl+u$' "$pane/keys")" = 2 ] \
+    || fail "clearing two wrapped rows should take two Ctrl-U presses:"$'\n'"$(cat "$pane/keys")"
+
+  rm -f "$pane/submits" "$pane/keys"; printf '%s' 'a half-typed draft of my own' > "$pane/composer"
+  rc=0; ring || rc=$?
+  [ "$rc" = 1 ] || fail "a draft in the composer should skip the ring, got rc $rc"
+  [ "$(cat "$pane/composer")" = 'a half-typed draft of my own' ] || fail "the draft was changed: $(cat "$pane/composer")"
+  [ ! -e "$pane/keys" ] || fail "a key was sent into a composer holding a draft:"$'\n'"$(cat "$pane/keys")"
+  pass "inbox: on Claude over Herdr the ring submits our own held doorbell even while busy, recovers a truncated one, and never touches a draft"
 }
 
 test_idempotent_write_dedups_exact_body() {
@@ -960,6 +1058,8 @@ test_doorbell_is_a_shell_noop
 test_doorbell_rejects_terminal_controls
 test_ring_skips_dead_agent
 test_ring_submits_its_own_stuck_doorbell
+test_ring_recovers_a_stuck_doorbell_and_verifies_its_submit
+test_ring_recovers_a_stuck_doorbell_on_claude_herdr
 test_idempotent_write_dedups_exact_body
 test_idempotent_write_follows_concurrent_ack
 test_handled_mv_dedups_by_sequence

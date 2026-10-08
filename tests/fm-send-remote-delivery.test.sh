@@ -211,7 +211,7 @@ send_env() {  # <fakebin> <parent-home> <ssh-log> [extra env...] -- <cmd...>
   local fb=$1 home=$2 ssh_log=$3
   shift 3
   env PATH="$fb:$PATH" \
-    FM_ROOT_OVERRIDE="$ROOT" FM_HOME="$home" FM_SEND_SETTLE=0 \
+    FM_ROOT_OVERRIDE="$ROOT" FM_HOME="$home" FM_SEND_SETTLE=0 FM_REMOTE_INBOX_FOLLOW=0 \
     FM_SSH_BIN="$fb/fake-ssh" FM_SSH_LOG="$ssh_log" \
     FM_SSH_COUNT="$ssh_log.count" FM_REMOTE_CODE_ROOT="$ROOT" \
     "$@"
@@ -707,6 +707,64 @@ test_remote_send_budget_bounds_busy_lane() {
   pass "fm-send remote: the remote leg is budget-bounded and stays idempotent across the bound"
 }
 
+# The remote host's re-ring follower: a doorbell the send could not deliver -
+# here because a draft sat in the composer - is rung again once the composer
+# frees up, until the mate acknowledges the record, exactly as the parent's
+# watcher does for a local task. A draft that never clears is never touched,
+# and the spent attempt budget ends the follower with the escalation marker.
+test_remote_follower_rerings_until_acknowledged() {
+  local dir rhome pane fb inbox rec doorbell rc out i
+  dir="$TMP_ROOT/remote-follow"; mkdir -p "$dir"
+  rhome=$(setup_remote_secondmate_home remote-follow)
+  pane="$dir/pane"; fb="$dir/fakebin"; mkdir -p "$fb"
+  fm_fake_herdr_claude_pane "$fb" "$pane"
+  inbox="$rhome/state/parent-route/rsm.inbox"
+  rec="$inbox/001.msg"
+  printf '%s' 'my own unsent draft' > "$pane/composer"
+
+  rc=0
+  out=$(env PATH="$fb:$PATH" FM_HOME="$rhome" FM_ROOT_OVERRIDE="$ROOT" \
+    FM_TASK_INBOX_GRACE_SECS=1 FM_TASK_INBOX_SETTLE_SECS=0 FM_FAKE_PANE_ACK="$rec" \
+    "$ROOT/bin/fm-remote-secondmate-control.sh" send rsm "please rename the metric" 2>&1) || rc=$?
+  expect_code 0 "$rc" "the remote send leg must record the steer: $out"
+  assert_contains "$out" "this host will re-ring it" "a skipped remote doorbell must name the re-ring"
+  [ -f "$rec" ] || fail "the steer was not recorded at $rec"
+  [ "$(cat "$pane/composer")" = 'my own unsent draft' ] || fail "the send changed the draft: $(cat "$pane/composer")"
+  # The person submits their draft; the follower then rings the doorbell.
+  : > "$pane/composer"
+  for i in $(seq 1 100); do
+    [ -f "$inbox/handled/001.msg" ] && break
+    sleep 0.2
+  done
+  [ -f "$inbox/handled/001.msg" ] || fail "the follower never re-rang the doorbell once the composer was free"
+  doorbell=$(fm_task_inbox_doorbell_line "$inbox/handled/001.msg")
+  [ "$(cat "$pane/submits")" = "SUBMIT: $doorbell" ] \
+    || fail "the follower should submit the doorbell exactly once:"$'\n'"$(cat "$pane/submits")"
+  for i in $(seq 1 100); do
+    [ ! -e "$inbox/.follow.lock" ] && break
+    sleep 0.2
+  done
+  [ ! -e "$inbox/.follow.lock" ] || fail "the follower did not exit after the acknowledgement"
+
+  # A draft that never clears: the follower never touches it and stops once
+  # its attempt budget is spent, marking the record escalated.
+  rm -f "$pane/submits" "$pane/keys"
+  printf '%s' 'another draft that stays' > "$pane/composer"
+  rec=$(FM_STATE_OVERRIDE="$rhome/state/parent-route" fm_task_inbox_write "$rhome/state/parent-route" rsm "second steer")
+  fm_touch_epoch "$(( $(date +%s) - 30 ))" "$rec"
+  rc=0
+  env PATH="$fb:$PATH" FM_HOME="$rhome" FM_ROOT_OVERRIDE="$ROOT" \
+    FM_TASK_INBOX_GRACE_SECS=1 FM_TASK_INBOX_RING_MAX=2 FM_TASK_INBOX_FOLLOW_SECS=60 \
+    "$ROOT/bin/fm-remote-secondmate-control.sh" follow rsm >/dev/null 2>&1 || rc=$?
+  expect_code 0 "$rc" "the follower must end cleanly after escalating"
+  [ "$(cat "$inbox/.escalated" 2>/dev/null)" = "${rec##*/}" ] \
+    || fail "the spent budget must mark the record escalated, got: $(cat "$inbox/.escalated" 2>/dev/null)"
+  [ "$(cat "$pane/composer")" = 'another draft that stays' ] || fail "the follower changed a draft: $(cat "$pane/composer")"
+  [ ! -e "$pane/keys" ] || fail "the follower sent a key into a draft:"$'\n'"$(cat "$pane/keys")"
+  [ -f "$rec" ] || fail "the escalated record must stay unhandled for recovery"
+  pass "fm-send remote: the host re-rings an undelivered doorbell until acknowledged and never touches a draft"
+}
+
 test_local_secondmate_pending_keeps_expectation_armed() {
   local dir fb log home rc rec corr
   dir="$TMP_ROOT/local-pending-expectation"; mkdir -p "$dir"
@@ -798,6 +856,7 @@ test_remote_real_failure_still_fails
 test_remote_exit3_no_longer_delivered
 test_remote_transport_loss_preserves_expectation
 test_remote_send_budget_bounds_busy_lane
+test_remote_follower_rerings_until_acknowledged
 test_local_pending_reports_delivered_unconfirmed
 test_local_pending_does_not_close_resolve_key
 test_local_secondmate_pending_keeps_expectation_armed
