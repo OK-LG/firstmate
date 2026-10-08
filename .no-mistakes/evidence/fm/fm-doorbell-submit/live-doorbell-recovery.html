@@ -1,0 +1,191 @@
+<!doctype html><meta charset="utf-8"><title>live doorbell recovery</title><style>body{background:#111418;color:#d8dee9;font-family:-apple-system,Segoe UI,sans-serif;margin:24px}h1{font-size:19px}h2{font-size:14px;font-weight:600;color:#8fbcbb;margin:28px 0 6px}pre{background:#000;border:1px solid #2a2f36;border-radius:6px;padding:12px;overflow-x:auto;font:12px/1.35 ui-monospace,SFMono-Regular,Menlo,monospace;white-space:pre}</style><h1>Steering-inbox doorbell: a stuck message is submitted (live Claude Code 2.1.295 in a lab tmux pane)</h1><h2>1. tmux backend, the incident shape: a real Claude composer left holding a TRUNCATED doorbell (classifier verdict: fragment). On the base commit every ring skipped this as someone else&#x27;s draft, so the worker never read the message.</h2><pre><span>
+
+</span><span style="color:#ffffff">●</span><span> Captain, the turn-end check blocked again with the same warning, and the steering inbox has no new messages. I still will not start monitoring here, because I am the worker for test task t2, not a supervisor.
+
+  - </span><span style="font-weight:700">Test results:</span><span> all six steering message tests passed. Their marker files exist in </span><span style="color:#afd7ff">/tmp/fm-lab.ow7EPk/</span><span>, and messages </span><span style="color:#afd7ff">001.msg</span><span> to </span><span style="color:#afd7ff">006.msg</span><span> are in </span><span style="color:#afd7ff">handled/</span><span>.
+  - </span><span style="font-weight:700">Notice gaps:</span><span> the notice for </span><span style="color:#afd7ff">002.msg</span><span> arrived several turns late. No separate notice reached me for </span><span style="color:#afd7ff">003.msg</span><span> or </span><span style="color:#afd7ff">004.msg</span><span>. I found both with my own inbox checks.
+  - </span><span style="font-weight:700">Probable defect:</span><span> the turn-end check repeats its warning without limit when the hook that would start monitoring automatically is not registered.
+
+  I have not changed any code. To end the loop, stop this session or the test script, or tell me to start monitoring in this test environment.
+
+● Ran </span><span style="font-weight:700">4</span><span> stop hooks
+  </span><span style="color:#949494">⎿  </span><span>Stop hook error: [[ -z &quot;${GROK_AGENT:-}${GROK_HOOK_EVENT:-}&quot; ] || exit 0; exec &quot;$CLAUDE_PROJECT_DIR&quot;/bin/fm-turnend-guard.sh --claude]:
+  ●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  ●  TURN WOULD END BLIND - SUPERVISION IS OFF
+  ●  2 task(s) in flight, but no live watcher holds this home lock (last beat: never).
+  ●  The Stop-owned auto-arm did not claim this home either, so recovery is NOT already under way.
+  ●  watcher supervision needs Stop-owned automatic recovery; inspect the hook registration and startup status before ending the turn.
+  ●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+
+  </span><span style="color:#949494">Listed </span><span style="color:#949494;font-weight:700">1</span><span style="color:#949494"> directory </span><span>
+
+</span><span style="color:#ffffff">●</span><span> Captain, the turn-end check blocked again with the same warning, and the steering inbox has no new messages. I still will not start monitoring here, because I am the worker for test task t2, not a supervisor.
+
+  - </span><span style="font-weight:700">Test results:</span><span> all six steering message tests passed. Their marker files exist in </span><span style="color:#afd7ff">/tmp/fm-lab.ow7EPk/</span><span>, and messages </span><span style="color:#afd7ff">001.msg</span><span> to </span><span style="color:#afd7ff">006.msg</span><span> are in </span><span style="color:#afd7ff">handled/</span><span>.
+  - </span><span style="font-weight:700">Notice gaps:</span><span> the notice for </span><span style="color:#afd7ff">002.msg</span><span> arrived several turns late. No separate notice reached me for </span><span style="color:#afd7ff">003.msg</span><span> or </span><span style="color:#afd7ff">004.msg</span><span>. I found both with my own inbox checks.
+  - </span><span style="font-weight:700">Probable defect:</span><span> the turn-end check repeats its warning without limit when the hook that would start monitoring automatically is not registered.
+
+  I have not changed any code. To end the loop, stop this session or the test script, or tell me to start monitoring in this test environment.
+
+● Ran </span><span style="font-weight:700">4</span><span> stop hooks
+  </span><span style="color:#949494">⎿  </span><span>Stop hook error: [[ -z &quot;${GROK_AGENT:-}${GROK_HOOK_EVENT:-}&quot; ] || exit 0; exec &quot;$CLAUDE_PROJECT_DIR&quot;/bin/fm-turnend-guard.sh --claude]:
+  ●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  ●  TURN WOULD END BLIND - SUPERVISION IS OFF
+  ●  2 task(s) in flight, but no live watcher holds this home lock (last beat: never).
+  ●  The Stop-owned auto-arm did not claim this home either, so recovery is NOT already under way.
+  ●  watcher supervision needs Stop-owned automatic recovery; inspect the hook registration and startup status before ending the turn.
+  ●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+
+</span><span style="color:#949494"> </span><span> Listing </span><span style="font-weight:700">1</span><span> directory, running </span><span style="font-weight:700">1</span><span> shell command…
+</span><span style="color:#949494">  ⎿  $ ls /tmp/fm-lab.ow7EPk/state/t2.inbox/</span><span>
+
+</span><span style="color:#d78787">✽</span><span> </span><span style="color:#d78787">Befuddling… </span><span style="color:#949494">(1m 8s · ↓</span><span> </span><span style="color:#949494">4.2k tokens)</span><span>
+</span><span style="color:#949494">  ⎿  Tip: Did you know you can drag and drop image files into your terminal?</span><span>
+
+</span><span style="color:#808080">────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+</span><span style="color:#949494">❯ </span><span>: Firstmate instruction waiting: list &quot;$FM_TASK_INBOX&quot;/*.msg in your &#x27;t2.inbox&#x27; steering inbox, read and act on each in
+</span><span style="color:#808080">────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+</span><span>  </span><span style="color:#ff87af">⏵⏵ bypass permissions on</span><span style="color:#949494"> (shift+tab to cycle)</span><span>
+</span></pre><h2>2. tmux backend, after one re-ring on the fixed code: the piece was cleared with Ctrl-U, the WHOLE doorbell was typed and SUBMITTED (it is a user message now and the composer is empty), and the worker is acting on it.</h2><pre><span>● Ran </span><span style="font-weight:700">4</span><span> stop hooks
+  </span><span style="color:#949494">⎿  </span><span>Stop hook error: [[ -z &quot;${GROK_AGENT:-}${GROK_HOOK_EVENT:-}&quot; ] || exit 0; exec &quot;$CLAUDE_PROJECT_DIR&quot;/bin/fm-turnend-guard.sh --claude]:
+  ●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  ●  TURN WOULD END BLIND - SUPERVISION IS OFF
+  ●  2 task(s) in flight, but no live watcher holds this home lock (last beat: never).
+  ●  The Stop-owned auto-arm did not claim this home either, so recovery is NOT already under way.
+  ●  watcher supervision needs Stop-owned automatic recovery; inspect the hook registration and startup status before ending the turn.
+  ●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+
+  </span><span style="color:#949494">Listed </span><span style="color:#949494;font-weight:700">1</span><span style="color:#949494"> directory </span><span>
+
+</span><span style="color:#ffffff">●</span><span> Captain, the turn-end check blocked again with the same warning, and the steering inbox has no new messages. I still will not start monitoring here, because I am the worker for test task t2, not a supervisor.
+
+  - </span><span style="font-weight:700">Test results:</span><span> all six steering message tests passed. Their marker files exist in </span><span style="color:#afd7ff">/tmp/fm-lab.ow7EPk/</span><span>, and messages </span><span style="color:#afd7ff">001.msg</span><span> to </span><span style="color:#afd7ff">006.msg</span><span> are in </span><span style="color:#afd7ff">handled/</span><span>.
+  - </span><span style="font-weight:700">Notice gaps:</span><span> the notice for </span><span style="color:#afd7ff">002.msg</span><span> arrived several turns late. No separate notice reached me for </span><span style="color:#afd7ff">003.msg</span><span> or </span><span style="color:#afd7ff">004.msg</span><span>. I found both with my own inbox checks.
+  - </span><span style="font-weight:700">Probable defect:</span><span> the turn-end check repeats its warning without limit when the hook that would start monitoring automatically is not registered.
+
+  I have not changed any code. To end the loop, stop this session or the test script, or tell me to start monitoring in this test environment.
+
+● Ran </span><span style="font-weight:700">4</span><span> stop hooks
+  </span><span style="color:#949494">⎿  </span><span>Stop hook error: [[ -z &quot;${GROK_AGENT:-}${GROK_HOOK_EVENT:-}&quot; ] || exit 0; exec &quot;$CLAUDE_PROJECT_DIR&quot;/bin/fm-turnend-guard.sh --claude]:
+  ●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  ●  TURN WOULD END BLIND - SUPERVISION IS OFF
+  ●  2 task(s) in flight, but no live watcher holds this home lock (last beat: never).
+  ●  The Stop-owned auto-arm did not claim this home either, so recovery is NOT already under way.
+  ●  watcher supervision needs Stop-owned automatic recovery; inspect the hook registration and startup status before ending the turn.
+  ●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+
+  </span><span style="color:#949494">Read </span><span style="color:#949494;font-weight:700">1</span><span style="color:#949494"> file, listed </span><span style="color:#949494;font-weight:700">1</span><span style="color:#949494"> directory, ran </span><span style="color:#949494;font-weight:700">1</span><span style="color:#949494"> shell command </span><span>
+
+</span><span style="color:#87d787">●</span><span> </span><span style="font-weight:700">Bash</span><span>(I=/tmp/fm-lab.ow7EPk/state/t2.inbox; touch /tmp/fm-lab.ow7EPk/acted-visual &amp;&amp; mv $I/007.msg $I/handled/ &amp;&amp; ls $I $I/handled)
+</span><span style="color:#949494">  ⎿  </span><span>/tmp/fm-lab.ow7EPk/state/t2.inbox:
+     handled
+     </span><span style="opacity:.55">… +8 lines</span><span>
+</span><span style="color:#949494">  ⎿  </span><span>Created </span><span style="font-weight:700">acted-visual</span><span> </span><span style="color:#949494">(+0 -0)</span><span>
+
+</span><span style="color:#949494;background:#3a3a3a">❯ </span><span style="color:#ffffff;background:#3a3a3a">: Firstmate instruction waiting: list &quot;$FM_TASK_INBOX&quot;/*.msg in your &#x27;t2.inbox&#x27; steering inbox, read and act on each in numeric order, then mv each into its handled/.</span><span style="background:#3a3a3a">
+
+</span><span style="color:#949494"> </span><span> Listing </span><span style="font-weight:700">1</span><span> directory…
+</span><span style="color:#949494">  ⎿  $ ls /tmp/fm-lab.ow7EPk/state/t2.inbox/</span><span>
+
+</span><span style="color:#d78787">✻</span><span> </span><span style="color:#ffaf87">Befuddling…</span><span style="color:#d78787"> </span><span style="color:#949494">(1m 14s · ↓</span><span> </span><span style="color:#949494">4.7k tokens · thinking)</span><span>
+</span><span style="color:#949494">  ⎿  Tip: Did you know you can drag and drop image files into your terminal?</span><span>
+                                                                                                                                                                                              </span><span style="color:#949494">Ctrl+Y to paste deleted text</span><span>
+</span><span style="color:#808080">────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+</span><span style="color:#949494">❯ </span><span>
+</span><span style="color:#808080">────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+</span><span>  </span><span style="color:#ff87af">⏵⏵ bypass permissions on</span><span style="color:#949494"> (shift+tab to cycle) · esc to interrupt · ← 2 agents</span><span>
+</span></pre><h2>3. tmux backend: the worker acted on the message and acknowledged it by moving the record into handled/.</h2><pre><span>● Ran </span><span style="font-weight:700">4</span><span> stop hooks
+  </span><span style="color:#949494">⎿  </span><span>Stop hook error: [[ -z &quot;${GROK_AGENT:-}${GROK_HOOK_EVENT:-}&quot; ] || exit 0; exec &quot;$CLAUDE_PROJECT_DIR&quot;/bin/fm-turnend-guard.sh --claude]:
+  ●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  ●  TURN WOULD END BLIND - SUPERVISION IS OFF
+  ●  2 task(s) in flight, but no live watcher holds this home lock (last beat: never).
+  ●  The Stop-owned auto-arm did not claim this home either, so recovery is NOT already under way.
+  ●  watcher supervision needs Stop-owned automatic recovery; inspect the hook registration and startup status before ending the turn.
+  ●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+
+  </span><span style="color:#949494">Listed </span><span style="color:#949494;font-weight:700">1</span><span style="color:#949494"> directory </span><span>
+
+</span><span style="color:#ffffff">●</span><span> Captain, the turn-end check blocked again with the same warning, and the steering inbox has no new messages. I still will not start monitoring here, because I am the worker for test task t2, not a supervisor.
+
+  - </span><span style="font-weight:700">Test results:</span><span> all six steering message tests passed. Their marker files exist in </span><span style="color:#afd7ff">/tmp/fm-lab.ow7EPk/</span><span>, and messages </span><span style="color:#afd7ff">001.msg</span><span> to </span><span style="color:#afd7ff">006.msg</span><span> are in </span><span style="color:#afd7ff">handled/</span><span>.
+  - </span><span style="font-weight:700">Notice gaps:</span><span> the notice for </span><span style="color:#afd7ff">002.msg</span><span> arrived several turns late. No separate notice reached me for </span><span style="color:#afd7ff">003.msg</span><span> or </span><span style="color:#afd7ff">004.msg</span><span>. I found both with my own inbox checks.
+  - </span><span style="font-weight:700">Probable defect:</span><span> the turn-end check repeats its warning without limit when the hook that would start monitoring automatically is not registered.
+
+  I have not changed any code. To end the loop, stop this session or the test script, or tell me to start monitoring in this test environment.
+
+● Ran </span><span style="font-weight:700">4</span><span> stop hooks
+  </span><span style="color:#949494">⎿  </span><span>Stop hook error: [[ -z &quot;${GROK_AGENT:-}${GROK_HOOK_EVENT:-}&quot; ] || exit 0; exec &quot;$CLAUDE_PROJECT_DIR&quot;/bin/fm-turnend-guard.sh --claude]:
+  ●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  ●  TURN WOULD END BLIND - SUPERVISION IS OFF
+  ●  2 task(s) in flight, but no live watcher holds this home lock (last beat: never).
+  ●  The Stop-owned auto-arm did not claim this home either, so recovery is NOT already under way.
+  ●  watcher supervision needs Stop-owned automatic recovery; inspect the hook registration and startup status before ending the turn.
+  ●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+
+  </span><span style="color:#949494">Read </span><span style="color:#949494;font-weight:700">1</span><span style="color:#949494"> file, listed </span><span style="color:#949494;font-weight:700">1</span><span style="color:#949494"> directory, ran </span><span style="color:#949494;font-weight:700">1</span><span style="color:#949494"> shell command </span><span>
+
+</span><span style="color:#87d787">●</span><span> </span><span style="font-weight:700">Bash</span><span>(I=/tmp/fm-lab.ow7EPk/state/t2.inbox; touch /tmp/fm-lab.ow7EPk/acted-visual &amp;&amp; mv $I/007.msg $I/handled/ &amp;&amp; ls $I $I/handled)
+</span><span style="color:#949494">  ⎿  </span><span>/tmp/fm-lab.ow7EPk/state/t2.inbox:
+     handled
+     </span><span style="opacity:.55">… +8 lines</span><span>
+</span><span style="color:#949494">  ⎿  </span><span>Created </span><span style="font-weight:700">acted-visual</span><span> </span><span style="color:#949494">(+0 -0)</span><span>
+
+</span><span style="color:#949494;background:#3a3a3a">❯ </span><span style="color:#ffffff;background:#3a3a3a">: Firstmate instruction waiting: list &quot;$FM_TASK_INBOX&quot;/*.msg in your &#x27;t2.inbox&#x27; steering inbox, read and act on each in numeric order, then mv each into its handled/.</span><span style="background:#3a3a3a">
+
+</span><span style="color:#949494"> </span><span> Listing </span><span style="font-weight:700">1</span><span> directory…
+</span><span style="color:#949494">  ⎿  $ ls /tmp/fm-lab.ow7EPk/state/t2.inbox/</span><span>
+
+</span><span style="color:#d78787">✻</span><span> </span><span style="color:#ffaf87">Befuddling…</span><span style="color:#d78787"> </span><span style="color:#949494">(1m 14s · ↓</span><span> </span><span style="color:#949494">4.7k tokens · thinking)</span><span>
+</span><span style="color:#949494">  ⎿  Tip: Did you know you can drag and drop image files into your terminal?</span><span>
+                                                                                                                                                                                              </span><span style="color:#949494">Ctrl+Y to paste deleted text</span><span>
+</span><span style="color:#808080">────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+</span><span style="color:#949494">❯ </span><span>
+</span><span style="color:#808080">────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+</span><span>  </span><span style="color:#ff87af">⏵⏵ bypass permissions on</span><span style="color:#949494"> (shift+tab to cycle) · esc to interrupt · ← 2 agents</span><span>
+</span></pre><h2>4. herdr backend, same shape on real Claude over Herdr in an isolated fm-lab-* session: the truncated doorbell was cleared, the whole line submitted, and the worker acted and acknowledged.</h2><pre><span>▝▜██████▀  Opus 5.5 · Claude Max
+ ▝▝   ▝▝   /tmp/fm-lab.ow7EPk
+
+
+❯ : Firstmate instruction waiting: list &quot;$FM_TASK_INBOX&quot;/*.msg in your &#x27;h1.inbox&#x27; steering inbox, read and act on each
+  in numeric order, then mv each into its handled/.
+
+  Listed 2 directories, ran 1 shell command
+
+● Bash(touch /tmp/fm-lab.ow7EPk/h-acted-base &amp;&amp; mv &quot;$FM_TASK_INBOX&quot;/001.msg &quot;$FM_TASK_INBOX&quot;/handled/ &amp;&amp; ls
+      &quot;$FM_TASK_INBOX&quot; &quot;$FM_TASK_INBOX&quot;/handled)
+  ⎿  /tmp/fm-lab.ow7EPk/hstate/h1.inbox:
+     handled
+     … +2 lines
+  ⎿  Created h-acted-base (+0 -0)
+  ⎿  Deleted hstate/h1.inbox/001.msg (+0 -4)
+      1 -schema=fm-task-inbox.v1
+      2 -at=2026-10-08T21:43:13Z
+      3 ---
+      4 -Herdr live check: run exactly this shell command now: touch /tmp/fm-lab.ow7EPk/h-acted-base - then mv t
+        -his message into handled/. Reply with one short line.
+      1   No newline at end of file
+  ⎿  Created hstate/h1.inbox/handled/001.msg (+4 -0)
+      1 +schema=fm-task-inbox.v1
+      2 +at=2026-10-08T21:43:13Z
+      3 +--
+      4 +Herdr live check: run exactly this shell command now: touch /tmp/fm-lab.ow7EPk/h-acted-base - then mv t
+        +his message into handled/. Reply with one short line.
+      5   No newline at end of file
+
+● Captain, I handled the one message in the inbox: I created /tmp/fm-lab.ow7EPk/h-acted-base and moved the message to
+  handled/.
+
+✻ Worked for 11s · done 9:43 PM
+
+───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+❯
+───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+  ⚠ Transcript saving is off — inherited CLAUDE_CODE_CHILD_SESSION marker · restart with CLAUDE_CODE_FORCE_SESSION_P…
+  ⏵⏵ bypass permissions on (shift+tab to cycle)
+</span></pre>

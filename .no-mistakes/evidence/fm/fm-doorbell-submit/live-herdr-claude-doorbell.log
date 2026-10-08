@@ -1,0 +1,23 @@
+herdr lab session: fm-lab-inbox-doorbell-l-4000260-13467   pane: w1:p1
+claude idle in the herdr pane (version 2.1.295 (Claude Code), herdr herdr 0.9.1)
+
+doorbell: : Firstmate instruction waiting: list "$FM_TASK_INBOX"/*.msg in your 'h1.inbox' steering inbox, read and act on each in numeric order, then mv each into its handled/.
+
+### 1. baseline 8a11c86f: a TRUNCATED doorbell stuck in the real Claude-on-Herdr composer
+verdict (target classifier): fragment
+baseline ring rc=1
+composer still holds: [: Firstmate instruction waiting: list "$FM_TASK_INBOX"/*.msg in your 'h1.inbox' steering inbox, read and act on each in]
+record still unhandled: yes
+
+### 2. target 6595e87f: the SAME shape, same pane
+target ring rc=0
+composer now holds: []
+acted=yes acked=yes
+
+### 3. adversarial: an operator draft in the composer is never touched
+verdict: foreign
+ring rc=1 (1 = skipped)
+composer still holds: [my own half-typed note about the deploy plan, do not send this]
+record still unhandled: yes
+
+DONE

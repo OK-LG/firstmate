@@ -1,0 +1,45 @@
+Live lab: Claude Code 2.1.295 (Opus 5.5) worker panes on a private tmux server and in an isolated
+Herdr fm-lab-* session (herdr 0.9.1), disposable FM_HOME /tmp/fm-lab.ow7EPk
+Backends exercised: tmux and herdr.  Driver: the product's own bin/fm-send.sh and fm_task_inbox_ring (bin/fm-task-inbox-lib.sh).
+Baseline code = base commit 8a11c86f, extracted to $LAB/base and driven against the SAME live pane.
+
+RESULTS (ring return code / what the worker observed)
+live scenario                                  | baseline 8a11c86f      | fixed 6595e87f        
+-----------------------------------------------+------------------------+-----------------------
+fresh fm-send to an idle worker                | n/a                    | rc 0, acted+acked     
+truncated doorbell stuck in composer           | rc 1, never delivered  | rc 0, acted+acked     
+whole doorbell stuck in composer               | rc 0, acted+acked      | rc 0, acted+acked     
+fresh ring, both Enters lost                   | rc 0 but NOT delivered | rc 0, acted+acked     
+operator draft in composer                     | rc 1, draft intact     | rc 1, draft intact    
+lost Enter + human types during settle         | n/a                    | rc 2, nothing submitted
+truncated doorbell, HERDR backend              | rc 1, never delivered  | rc 0, acted+acked     
+operator draft, HERDR backend                  | n/a                    | rc 1, draft intact    
+
+Durable records the real worker acknowledged (mv into handled/):
+  t1.inbox/handled/001.msg
+  t2.inbox/handled/001.msg
+  t2.inbox/handled/002.msg
+  t2.inbox/handled/003.msg
+  t2.inbox/handled/004.msg
+  t2.inbox/handled/005.msg
+  t2.inbox/handled/006.msg
+  t2.inbox/handled/007.msg
+Note on the two baseline failures, measured immediately after each baseline ring:
+  - truncated doorbell: ring rc 1, the composer still held the truncated line,
+    the record was still unhandled, nothing was ever submitted.
+  - fresh ring with both Enters lost: ring rc 0 ("rang"), yet the composer still
+    held the whole unsubmitted doorbell and the record was still unhandled.
+  This worker later swept its own inbox on its own initiative and handled those
+  records, which is why every record below shows up in handled/. It said so in
+  the pane: "No separate notice for it reached me. I found it with my own inbox
+  check." The doorbell itself never reached it on the baseline code.
+
+Marker files the real worker created by acting on each message:
+  acted-base-lostenter
+  acted-fixed-lostenter
+  acted-fragment
+  acted-fresh
+  acted-mixed
+  acted-visual
+  acted-whole
+  acted-whole-fixed

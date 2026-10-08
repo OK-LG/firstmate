@@ -1,0 +1,9 @@
+scenario: a fresh steer with the real bin/fm-send.sh reaches a real Claude Code 2.1.295 worker
+fm-send exit: 0; durable record written to state/t1.inbox/001.msg
+worker's own actions in the pane (from scenarioA-pane-full.txt):
+3:● Bash(touch /tmp/fm-lab.ow7EPk/acted-fresh && mv "$FM_TASK_INBOX"/001.msg "$FM_TASK_INBOX"/handled/ && ls "$FM_TASK_INBOX" "$FM_TASK_INBOX"/handled /tmp/fm-lab.ow7EPk…)
+4:  ⎿  /tmp/fm-lab.ow7EPk/acted-fresh
+8:  ⎿  Created acted-fresh (+0 -0)
+10:● I created /tmp/fm-lab.ow7EPk/acted-fresh and moved 001.msg into handled/; the inbox has no other messages.
+30:  The guard warning is therefore expected here. A watcher would also change the state that the lab test measures. I finished the one inbox instruction: I created acted-fresh and moved 001.msg into handled/.
+end state: 001.msg in handled/, marker file acted-fresh created by the worker

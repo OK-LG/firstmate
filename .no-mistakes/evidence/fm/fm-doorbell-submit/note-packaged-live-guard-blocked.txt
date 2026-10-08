@@ -1,0 +1,16 @@
+The repository's packaged live doorbell guard, tests/fm-send-inbox-doorbell-live-e2e.test.sh,
+launches its harnesses with the repo root as cwd. Inside a no-mistakes gate worktree that path
+has never been opened by hand, so Claude Code stops on its workspace-trust dialog and the guard
+reports the pane unsteerable. bin/fm-claude-trust.sh deliberately refuses to pre-register trust
+for a gate worktree (it accepts a task worktree, a seeded second-mate home, or a marked lab home).
+Output of that attempt:
+
+not ok - claude (2.1.295 (Claude Code)): composer stayed visibly pending; the pane is not steerable
+#    Quick safety check: Is this a project you created or one you trust? ...
+#    ❯ No, exit
+#      Yes, I trust this folder
+not ok - live steering-inbox doorbell guard found failures above
+
+The same delivery was therefore driven by hand into a marked lab home (bin/fm-lab-home.sh create
+plus bin/fm-claude-trust.sh --lab-home), using the real bin/fm-send.sh and the real
+fm_task_inbox_ring against real Claude Code 2.1.295 panes. See live-scenarios-results.txt.
