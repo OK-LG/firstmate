@@ -811,6 +811,37 @@ test_ring_never_submits_a_truncated_doorbell_from_the_submit_loop() {
   pass "inbox: the submit loop never presses Enter onto a truncated doorbell"
 }
 
+# Our whole doorbell with someone else's text after it is still unsubmitted,
+# whatever else is on the line. Reporting that as rung left a fire-and-forget
+# record with no retry while the message sat in the composer.
+test_ring_reports_a_doorbell_followed_by_a_draft_as_not_reached() {
+  local dir state rec doorbell pane rc held
+  dir="$TMP_ROOT/ring-doorbell-plus-draft"
+  state="$dir/state"
+  pane="$dir/pane"
+  mkdir -p "$state" "$dir/fakebin"
+  fm_fake_herdr_claude_pane "$dir/fakebin" "$pane"
+  rec=$(inbox_lib "$state" fm_task_inbox_write "$state" t1 "please continue")
+  doorbell=$(inbox_lib "$state" fm_task_inbox_doorbell_line "$rec")
+  held="$doorbell ok do that"
+  printf '%s' "$doorbell" > "$pane/composer"
+  echo idle > "$pane/status"; echo 99 > "$pane/drops"
+  printf '%s' "$held" > "$pane/paste-text"
+  # Read one proves the stuck doorbell ours; its Enter is swallowed, and by
+  # read two the worker's human has typed after the line.
+  echo 2 > "$pane/paste-on-read"
+  rc=0
+  PATH="$dir/fakebin:$PATH" FM_TASK_INBOX_SETTLE_SECS=0 FM_BACKEND_HERDR_SUBMIT_POLLS=1 \
+    inbox_lib "$state" fm_task_inbox_ring herdr default:w1:p2 "$rec" fm-t1 || rc=$?
+  [ "$rc" = 2 ] || fail "a doorbell still held behind someone's text should report not reached, got rc $rc"
+  [ "$(cat "$pane/composer")" = "$held" ] || fail "the composer was changed: $(cat "$pane/composer")"
+  [ ! -e "$pane/submits" ] || fail "nothing should have been submitted:"$'\n'"$(cat "$pane/submits")"
+  [ "$(grep -c '^enter$' "$pane/keys")" = 1 ] \
+    || fail "no Enter should go onto a line carrying someone else's text:"$'\n'"$(cat "$pane/keys")"
+  [ -f "$rec" ] || fail "the record should still be unhandled and owed a re-ring"
+  pass "inbox: a doorbell still held behind someone else's text reports not reached"
+}
+
 # The collapsed twin of the paste-after-Enter guard: from a collapsed entry the
 # first Enter may land, so a placeholder still showing on the next read-back is
 # no longer attributable to our own burst and must not be pressed again.
@@ -1447,6 +1478,7 @@ test_ring_stops_clearing_on_an_interior_phrase_of_the_cleared_piece
 test_ring_never_submits_a_paste_that_lands_after_its_enter
 test_ring_trusts_a_queued_enter_on_a_busy_agent
 test_ring_never_submits_a_truncated_doorbell_from_the_submit_loop
+test_ring_reports_a_doorbell_followed_by_a_draft_as_not_reached
 test_ring_never_submits_a_paste_that_replaces_a_collapsed_burst
 test_ring_rings_after_clearing_into_a_ghost_hint
 test_idempotent_write_dedups_exact_body

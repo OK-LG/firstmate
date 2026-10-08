@@ -495,23 +495,22 @@ _fm_task_inbox_anchored_in() {  # <text> <held>
 }
 
 # Submit our own doorbell already in the composer: Enter, then read back, at
-# most FM_TASK_INBOX_SUBMIT_TRIES times. 0 once the composer no longer holds
-# any of it, or once a busy agent accounts for the Enter it still shows:
-# fm_composer_queued_enter_verdict owns that policy fleet-wide - a proven
-# pending composer plus a delivery-busy signal means the Enter was accepted and
-# queued, so pressing again would deliver the line twice.
-# 2 when our whole line is still there after the last Enter, when a key could
-# not be sent, when the read-back cannot see the composer at all - an
-# unreadable screen is no proof of a submit, and pressing Enter blind into one
-# could answer a dialog the harness put over the composer - and when the
-# read-back is only a piece of the line: submitting a truncated doorbell would
-# name no inbox, so that shape goes back to the ring, whose fragment path
-# clears it and types the whole line fresh. Never retypes.
-# A read-back showing just a paste placeholder is no reason to press again
-# either: before the first Enter the ring could attribute that shape to the
-# harness collapsing its own burst, but an
-# Enter that may have landed empties the composer, so the same shape afterwards
-# carries no identity and could be a person's own paste.
+# most FM_TASK_INBOX_SUBMIT_TRIES times. An EMPTY read-back is the only proof
+# of a submit and returns 0, with one addition the fleet already owns: a busy
+# agent accounts for an Enter it still shows, because
+# fm_composer_queued_enter_verdict reads a proven pending composer plus a
+# delivery-busy signal as an Enter accepted and queued, so pressing again would
+# deliver the line twice.
+# Every other read-back is unconfirmed and returns 2, as does a key that could
+# not be sent. Only our whole line still being there justifies another Enter:
+# a composer that cannot be read proves nothing, and an Enter pressed blind
+# into one could answer a dialog the harness put over the composer; only a
+# piece of the line goes back to the ring, whose fragment path clears it and
+# types the line fresh, because a truncated doorbell names no inbox; just a
+# paste placeholder is no longer attributable to the harness collapsing our own
+# burst once an Enter that may have landed has emptied the composer, so it
+# could be a person's own paste; and our line with someone else's text after it
+# is provably still unsubmitted. Never retypes.
 _fm_task_inbox_submit_own() {  # <backend> <target> <line> <expected-label>
   local i=0
   fm_backend_source "$1" || return 2
@@ -520,8 +519,8 @@ _fm_task_inbox_submit_own() {  # <backend> <target> <line> <expected-label>
     sleep "$(fm_task_inbox_settle_secs)"
     case "$(fm_task_inbox_composer_own "$1" "$2" "$3" "$4")" in
       exact) ;;
-      collapsed|fragment|unreadable) return 2 ;;
-      *) return 0 ;;
+      empty) return 0 ;;
+      *) return 2 ;;
     esac
     [ "$(fm_composer_queued_enter_verdict pending \
       "$(fm_backend_busy_state "$1" "$2" 2>/dev/null)")" != empty ] || return 0
