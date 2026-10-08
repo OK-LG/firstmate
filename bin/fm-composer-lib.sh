@@ -231,6 +231,25 @@ fm_composer_normalize_trim_var() {  # <varname>
   printf -v "$__fmnt_name" '%s' "$__fmnt_text"
 }
 
+# fm_composer_strip_paste_placeholders_var: remove every Claude paste
+# placeholder - `[Pasted text #N]`, or `[Pasted text #N +M lines]` for the
+# multi-line form (both verified live on Claude 2.1.278) - from the
+# whitespace-stripped composer text in <varname>, in place. Claude collapses
+# one fast literal burst into that placeholder and expands it again on submit,
+# so a composer read can show the placeholder exactly where a payload was
+# typed. This is the ONE definition of that shape: the herdr submit proof and
+# the steering inbox's own-doorbell classifier both compare against it, so a
+# composer the one accepts can never read as someone else's text to the other.
+# Expects the caller to have stripped whitespace already (the placeholder is
+# matched without its spaces), which is what both comparisons do.
+fm_composer_strip_paste_placeholders_var() {  # <varname>
+  local __fmpp_name=$1 __fmpp_text=${!1}
+  while [[ $__fmpp_text =~ \[Pastedtext#[0-9]+(\+[0-9]+lines?)?\] ]]; do
+    __fmpp_text=${__fmpp_text/"${BASH_REMATCH[0]}"/}
+  done
+  printf -v "$__fmpp_name" '%s' "$__fmpp_text"
+}
+
 # fm_composer_strip_ghost: the ONE fleet-wide ANSI-aware extractor of "real typed
 # content" from a captured, styled composer row. Reads the styled line on stdin
 # (from `tmux capture-pane -e`, `herdr pane read --format ansi`, or

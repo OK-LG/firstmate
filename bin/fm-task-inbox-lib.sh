@@ -88,9 +88,6 @@
 # Tunables (env):
 #   FM_TASK_INBOX_GRACE_SECS   default 90; delivery-attempt grace and spacing
 #   FM_TASK_INBOX_RING_MAX     default 3; delivery attempts before escalation
-#   FM_TASK_INBOX_FRAGMENT_MIN default 24; non-space characters a composer
-#                              piece of our doorbell needs to be claimed as ours
-#   FM_TASK_INBOX_SUBMIT_TRIES default 3; verified Enters for a held doorbell
 #   FM_TASK_INBOX_SETTLE_SECS  default 0.5; pause before each composer read-back
 
 _FM_TASK_INBOX_LIB_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -106,6 +103,12 @@ FM_TASK_INBOX_SCHEMA='fm-task-inbox.v1'
 FM_TASK_INBOX_GRACE_DEFAULT=90
 FM_TASK_INBOX_RING_MAX_DEFAULT=3
 FM_TASK_INBOX_LOCK_WAIT_DEFAULT=5
+# Non-space characters a composer piece of our doorbell needs before it is
+# claimed as ours, verified Enters for a held doorbell, and Ctrl-U presses for
+# a held piece of one. Constants: no caller has a reason to vary them.
+FM_TASK_INBOX_FRAGMENT_MIN=24
+FM_TASK_INBOX_SUBMIT_TRIES=3
+FM_TASK_INBOX_CLEAR_PRESSES=12
 
 fm_task_inbox_grace_secs() {
   local g=${FM_TASK_INBOX_GRACE_SECS:-$FM_TASK_INBOX_GRACE_DEFAULT}
@@ -318,7 +321,11 @@ fm_task_inbox_doorbell_line() {  # <record-path>
 # text, whatever the classifier verdict (fm_task_inbox_composer_own): the whole
 # line is submitted with Enter and verified, busy or not, because a busy agent
 # queues it; a contiguous piece of it (a truncated or partly cleared line) is
-# cleared and the doorbell rung fresh. Text that is not ours is never touched.
+# cleared and the doorbell rung fresh. Text that is not ours is never touched:
+# a composer showing only a paste placeholder is our collapsed burst only in
+# the read-back below, where we typed it ourselves a moment earlier, so a cold
+# read of that shape leaves it to the ladder rather than submit a person's own
+# collapsed paste.
 # The skip is deliberately narrow: only an exact `pending` verdict can defer,
 # because there our Enter could submit someone's real half-typed content.
 # `pending-unproven` and `unknown` still ring - the worst outcome is a garbled
@@ -358,8 +365,11 @@ fm_task_inbox_ring() {  # <backend> <target> <record-path> [expected-label]
   # unknown, send-failed after a refused proof, ...) is never proof either way.
   [ "$verdict" != empty ] || return 0
   sleep "${FM_TASK_INBOX_SETTLE_SECS:-0.5}"
+  # Here, and only here, a composer that collapsed our burst into a paste
+  # placeholder is provably holding our doorbell: we just typed it into a
+  # composer that was not pending.
   case "$(fm_task_inbox_composer_own "$backend" "$target" "$line" "$label")" in
-    exact)
+    exact|collapsed)
       _fm_task_inbox_submit_own "$backend" "$target" "$line" "$label"
       return
       ;;
@@ -376,13 +386,21 @@ fm_task_inbox_ring() {  # <backend> <target> <record-path> [expected-label]
 # wrapping, whitespace, and the invisible U+2063 operational mark:
 #   exact       our line, once or repeated, and nothing else
 #   fragment    a contiguous piece of our line at least <min-chars> long
-#               (default FM_TASK_INBOX_FRAGMENT_MIN, 24 non-space characters,
-#               long enough that a person's draft cannot plausibly match)
+#               (FM_TASK_INBOX_FRAGMENT_MIN non-space characters by default,
+#               long enough that a person's draft cannot plausibly match),
+#               alone or behind paste placeholders
+#   collapsed   paste placeholders alone
 #   foreign     any other text
 #   empty       nothing
 #   unreadable  no composer could be read
+# `collapsed` is the shape Claude leaves when it collapses one fast literal
+# burst (fm_composer_strip_paste_placeholders_var owns it, and the herdr submit
+# proof accepts it as our payload shown). It carries no text of its own, so it
+# proves ownership only to a caller that already knows our doorbell was the
+# last thing typed into that composer: a cold read cannot tell it from a
+# person's own collapsed paste, and never acts on it.
 fm_task_inbox_composer_own() {  # <backend> <target> <line> [expected-label] [min-chars]
-  local held want min=${5:-${FM_TASK_INBOX_FRAGMENT_MIN:-24}}
+  local held want literal min=${5:-$FM_TASK_INBOX_FRAGMENT_MIN}
   fm_backend_source "$1" || { printf 'unreadable'; return 0; }
   held=$(fm_backend_composer_content "$1" "$2" "${4:-}" 2>/dev/null) || { printf 'unreadable'; return 0; }
   want=$3
@@ -391,11 +409,15 @@ fm_task_inbox_composer_own() {  # <backend> <target> <line> [expected-label] [mi
   held=${held//[$' \t\r\n\v\f']/}
   held=${held//$'\xE2\x81\xA3'/}
   want=${want//[$' \t\r\n\v\f']/}
+  literal=$held
+  fm_composer_strip_paste_placeholders_var literal
   if [ -z "$held" ]; then
     printf 'empty'
   elif [ -n "$want" ] && [ -z "${held//"$want"/}" ]; then
     printf 'exact'
-  elif [ "${#held}" -ge "$min" ] && case "$want" in *"$held"*) true ;; *) false ;; esac; then
+  elif [ -z "$literal" ] && [ "$literal" != "$held" ]; then
+    printf 'collapsed'
+  elif [ "${#literal}" -ge "$min" ] && case "$want" in *"$literal"*) true ;; *) false ;; esac; then
     printf 'fragment'
   else
     printf 'foreign'
@@ -403,17 +425,18 @@ fm_task_inbox_composer_own() {  # <backend> <target> <line> [expected-label] [mi
 }
 
 # Submit our own doorbell already in the composer: Enter, then read back, at
-# most FM_TASK_INBOX_SUBMIT_TRIES times (default 3). 0 once the composer no
-# longer holds any of it, 2 when it is still there after the last Enter or a
-# key could not be sent. Never retypes.
+# most FM_TASK_INBOX_SUBMIT_TRIES times. 0 once the composer no longer holds
+# any of it, 2 when it is still there after the last Enter or a key could not
+# be sent. Never retypes. The caller has already proven the composer holds our
+# doorbell, so a read-back that collapses it into a paste placeholder still
+# counts as held.
 _fm_task_inbox_submit_own() {  # <backend> <target> <line> <expected-label>
-  local tries=${FM_TASK_INBOX_SUBMIT_TRIES:-3} i=0
-  case "$tries" in ''|*[!0-9]*|0) tries=3 ;; esac
-  while [ "$i" -lt "$tries" ]; do
+  local i=0
+  while [ "$i" -lt "$FM_TASK_INBOX_SUBMIT_TRIES" ]; do
     fm_backend_send_key "$1" "$2" Enter "$4" >/dev/null 2>&1 || return 2
     sleep "${FM_TASK_INBOX_SETTLE_SECS:-0.5}"
     case "$(fm_task_inbox_composer_own "$1" "$2" "$3" "$4")" in
-      exact|fragment) ;;
+      exact|fragment|collapsed) ;;
       *) return 0 ;;
     esac
     i=$((i + 1))
@@ -424,15 +447,15 @@ _fm_task_inbox_submit_own() {  # <backend> <target> <line> <expected-label>
 # Clear a piece of our own doorbell from the composer with Ctrl-U, which
 # deletes one wrapped row per press in the verified harnesses, until it reads
 # empty. Every press first re-proves that what remains is still only a piece
-# of our line (any length), so text that is not ours is never deleted.
+# of our line (any length), or the paste placeholder the caller already proved
+# was ours, so text that is not ours is never deleted.
 # 0 cleared, 1 not cleared.
 _fm_task_inbox_clear_own() {  # <backend> <target> <line> <expected-label>
-  local presses=${FM_TASK_INBOX_CLEAR_PRESSES:-12} i=0
-  case "$presses" in ''|*[!0-9]*) presses=12 ;; esac
-  while [ "$i" -lt "$presses" ]; do
+  local i=0
+  while [ "$i" -lt "$FM_TASK_INBOX_CLEAR_PRESSES" ]; do
     case "$(fm_task_inbox_composer_own "$1" "$2" "$3" "$4" 1)" in
       empty) return 0 ;;
-      exact|fragment) ;;
+      exact|fragment|collapsed) ;;
       *) return 1 ;;
     esac
     fm_backend_send_key "$1" "$2" C-u "$4" >/dev/null 2>&1 || return 1

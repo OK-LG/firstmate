@@ -429,6 +429,9 @@ SH
 # record path, also moves that record into its handled/ (the worker reading
 # the doorbell); ctrl+u deletes the last wrapped row; every send-keys call is
 # appended to `keys`.
+# With FM_FAKE_PASTE_COLLAPSE=1 the read renders any held text as the
+# `[Pasted text #1]` placeholder instead, as live Claude draws one fast literal
+# burst; the composer still holds the real text and Enter still submits it.
 fm_fake_herdr_claude_pane() {
   local fakebin=$1 pane=$2
   mkdir -p "$pane"
@@ -445,10 +448,12 @@ case "${1:-} ${2:-}" in
     printf '{"result":{"agent":{"agent":"claude","agent_status":"%s"}}}\n' "$(cat "$D/status" 2>/dev/null || echo idle)" ;;
   "pane read")
     printf '● done\n  %s\n' "$rule"
-    if [ -s "$D/composer" ]; then
-      fold -w 60 "$D/composer" | awk 'NR == 1 { print "  ❯ " $0; next } { print "    " $0 }'
-    else
+    if [ ! -s "$D/composer" ]; then
       printf '  ❯ \n'
+    elif [ "${FM_FAKE_PASTE_COLLAPSE:-0}" = 1 ]; then
+      printf '  ❯ [Pasted text #1]\n'
+    else
+      fold -w 60 "$D/composer" | awk 'NR == 1 { print "  ❯ " $0; next } { print "    " $0 }'
     fi
     printf '  %s\n  ⏵⏵ bypass permissions on\n' "$rule" ;;
   "pane send-text") printf '%s' "$4" >> "$D/composer" ;;

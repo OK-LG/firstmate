@@ -328,7 +328,10 @@ follow_start() {  # <id>
 # owns the schedule), driven here because the parent's watcher cannot see a
 # remote inbox. While an unhandled ordinary record remains, each due attempt
 # waits out a busy agent, then rings; our own doorbell stuck in the composer is
-# submitted by the ring itself. A spent attempt budget is marked escalated and
+# submitted by the ring itself. Only an ordinary record's ring is delivered
+# here: a fire-and-forget retry ring belongs to the local plane alone
+# (docs/remote-secondmates.md), so any other verb ends the follower rather than
+# invent a policy the watcher does not run. A spent attempt budget is marked escalated and
 # ends the follower: the parent's pending-reply recovery surfaces the unread
 # request, as before. It exits when the inbox is empty or handled, the agent
 # has exited, the endpoint record is gone, or FM_TASK_INBOX_FOLLOW_SECS
@@ -361,17 +364,13 @@ cmd_follow() {
         rec=$(fm_task_inbox_oldest_unhandled "$CONTROL_STATE" "$id") || break
         [ "$(cat "$dir/.escalated" 2>/dev/null || true)" != "${rec##*/}" ] || break
         ;;
-      ring|retry)
+      ring)
         remote_endpoint_load "$id" || break
         if [ "$(fm_backend_busy_state "$REMOTE_ENDPOINT_BACKEND" "$REMOTE_ENDPOINT_TARGET" 2>/dev/null)" != busy ]; then
           ring_rc=0
           fm_task_inbox_ring "$REMOTE_ENDPOINT_BACKEND" "$REMOTE_ENDPOINT_TARGET" "$rec" "fm-$id" || ring_rc=$?
           [ "$ring_rc" != 3 ] || break
-          if [ "$verb" = ring ]; then
-            fm_task_inbox_record_ring "$CONTROL_STATE" "$id" "$rec" || break
-          else
-            fm_task_inbox_clear_retry "$CONTROL_STATE" "$id" "$rec" || break
-          fi
+          fm_task_inbox_record_ring "$CONTROL_STATE" "$id" "$rec" || break
         fi
         ;;
       escalate)

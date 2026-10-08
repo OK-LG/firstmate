@@ -492,6 +492,47 @@ test_ring_recovers_a_stuck_doorbell_on_claude_herdr() {
   pass "inbox: on Claude over Herdr the ring submits our own held doorbell even while busy, recovers a truncated one, and never touches a draft"
 }
 
+# The paste-placeholder shape of the same incident: Claude collapses one fast
+# literal burst into `[Pasted text #1]` and expands it again on submit, so a
+# ring whose Enter is swallowed reads that placeholder back instead of its own
+# line. Every ring used to call it someone else's draft, report the doorbell as
+# rung, and then skip for good, so the worker never read the message.
+test_ring_submits_a_doorbell_collapsed_into_a_paste_placeholder() {
+  local dir state rec doorbell pane rc draft
+  dir="$TMP_ROOT/ring-collapsed"
+  state="$dir/state"
+  pane="$dir/pane"
+  mkdir -p "$state" "$dir/fakebin"
+  fm_fake_herdr_claude_pane "$dir/fakebin" "$pane"
+  rec=$(inbox_lib "$state" fm_task_inbox_write "$state" t1 "please continue")
+  doorbell=$(inbox_lib "$state" fm_task_inbox_doorbell_line "$rec")
+  ring() {
+    PATH="$dir/fakebin:$PATH" FM_TASK_INBOX_SETTLE_SECS=0 FM_BACKEND_HERDR_SUBMIT_POLLS=1 \
+      FM_FAKE_PASTE_COLLAPSE=1 \
+      inbox_lib "$state" fm_task_inbox_ring herdr default:w1:p2 "$rec" fm-t1
+  }
+
+  # Every Enter the submit core sends is swallowed, so the ring's own read-back
+  # owns the recovery: it presses Enter again and the collapsed doorbell lands.
+  : > "$pane/composer"; echo idle > "$pane/status"; echo 2 > "$pane/drops"
+  rc=0; ring || rc=$?
+  [ "$rc" = 0 ] || fail "a doorbell collapsed into a paste placeholder should be submitted, got rc $rc"
+  [ "$(cat "$pane/submits" 2>/dev/null)" = "SUBMIT: $doorbell" ] \
+    || fail "the collapsed doorbell should be submitted once, not retyped:"$'\n'"$(cat "$pane/submits" 2>/dev/null)"
+  [ ! -s "$pane/composer" ] || fail "the collapsed doorbell was left in the composer: $(cat "$pane/composer")"
+
+  # A person's own paste collapses to the same placeholder and carries no
+  # identity of its own, so a ring that did not type it submits nothing and
+  # clears nothing: the ladder re-rings instead.
+  draft='a half-typed draft of my own'
+  rm -f "$pane/submits" "$pane/keys"; printf '%s' "$draft" > "$pane/composer"; echo 0 > "$pane/drops"
+  rc=0; ring || rc=$?
+  [ "$rc" = 1 ] || fail "a collapsed draft this ring did not type should skip, got rc $rc"
+  [ "$(cat "$pane/composer")" = "$draft" ] || fail "a collapsed draft was changed: $(cat "$pane/composer")"
+  [ ! -e "$pane/keys" ] || fail "a key was sent into a composer holding a collapsed draft:"$'\n'"$(cat "$pane/keys")"
+  pass "inbox: the ring submits its doorbell when Claude collapses it into a paste placeholder, and never acts on a collapsed draft"
+}
+
 test_idempotent_write_dedups_exact_body() {
   local state r1 r2 r3 r4 count text
   state="$TMP_ROOT/idem/state"; mkdir -p "$state"
@@ -1060,6 +1101,7 @@ test_ring_skips_dead_agent
 test_ring_submits_its_own_stuck_doorbell
 test_ring_recovers_a_stuck_doorbell_and_verifies_its_submit
 test_ring_recovers_a_stuck_doorbell_on_claude_herdr
+test_ring_submits_a_doorbell_collapsed_into_a_paste_placeholder
 test_idempotent_write_dedups_exact_body
 test_idempotent_write_follows_concurrent_ack
 test_handled_mv_dedups_by_sequence
