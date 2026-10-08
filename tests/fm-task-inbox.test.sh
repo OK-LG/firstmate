@@ -693,6 +693,69 @@ test_ring_reports_an_unreadable_readback_as_not_reached() {
   pass "inbox: an unreadable read-back reports not reached instead of a submitted doorbell"
 }
 
+# Mid-clear, a phrase typed from inside the piece being cleared is not that
+# piece shrinking. Ctrl-U deletes one wrapped row, so a genuine remnant is the
+# head or the tail of what was proved ours; an interior run of it is someone
+# else typing, and the clear must stop with their text where they left it.
+test_ring_stops_clearing_on_an_interior_phrase_of_the_cleared_piece() {
+  local dir state rec doorbell pane rc typed
+  dir="$TMP_ROOT/ring-clear-interior"
+  state="$dir/state"
+  pane="$dir/pane"
+  mkdir -p "$state" "$dir/fakebin"
+  fm_fake_herdr_claude_pane "$dir/fakebin" "$pane"
+  rec=$(inbox_lib "$state" fm_task_inbox_write "$state" t1 "please continue")
+  doorbell=$(inbox_lib "$state" fm_task_inbox_doorbell_line "$rec")
+  # Occurs inside the head piece below, anchored to neither of its ends.
+  typed='instruction waiting: list'
+  printf '%s' "${doorbell:0:120}" > "$pane/composer"
+  echo idle > "$pane/status"; echo 0 > "$pane/drops"
+  printf '%s' "$typed" > "$pane/paste-text"
+  # Read three is the one after the first Ctrl-U: the two before it are the
+  # cold read and the read the clear proves itself on.
+  echo 3 > "$pane/paste-on-read"
+  rc=0
+  PATH="$dir/fakebin:$PATH" FM_TASK_INBOX_SETTLE_SECS=0 FM_BACKEND_HERDR_SUBMIT_POLLS=1 \
+    inbox_lib "$state" fm_task_inbox_ring herdr default:w1:p2 "$rec" fm-t1 || rc=$?
+  [ "$rc" = 2 ] || fail "a clear interrupted from inside its own piece should report not reached, got rc $rc"
+  [ "$(cat "$pane/composer")" = "$typed" ] || fail "the text typed mid-clear was changed: $(cat "$pane/composer")"
+  [ "$(grep -c '^ctrl+u$' "$pane/keys")" = 1 ] \
+    || fail "the clear should stop at the first press that reveals foreign text:"$'\n'"$(cat "$pane/keys")"
+  [ ! -e "$pane/submits" ] || fail "nothing should have been submitted:"$'\n'"$(cat "$pane/submits")"
+  pass "inbox: a clear stops on an interior phrase of the very piece it was clearing"
+}
+
+# A paste that lands in the composer our Enter just emptied: the read-back sees
+# only its placeholder, which is no proof our line is still held. Pressing
+# Enter again there would submit the person's unreviewed paste to their agent.
+test_ring_never_submits_a_paste_that_lands_after_its_enter() {
+  local dir state rec doorbell pane rc paste
+  dir="$TMP_ROOT/ring-paste-after-enter"
+  state="$dir/state"
+  pane="$dir/pane"
+  mkdir -p "$state" "$dir/fakebin"
+  fm_fake_herdr_claude_pane "$dir/fakebin" "$pane"
+  rec=$(inbox_lib "$state" fm_task_inbox_write "$state" t1 "please continue")
+  doorbell=$(inbox_lib "$state" fm_task_inbox_doorbell_line "$rec")
+  paste='[Pasted text #1 +40 lines]'
+  printf '%s' "$doorbell" > "$pane/composer"
+  echo idle > "$pane/status"; echo 0 > "$pane/drops"
+  printf '%s' "$paste" > "$pane/paste-text"
+  # Read one proves the stuck doorbell ours; its Enter submits and empties the
+  # composer, and the person's paste lands before read two reads it back.
+  echo 2 > "$pane/paste-on-read"
+  rc=0
+  PATH="$dir/fakebin:$PATH" FM_TASK_INBOX_SETTLE_SECS=0 FM_BACKEND_HERDR_SUBMIT_POLLS=1 \
+    inbox_lib "$state" fm_task_inbox_ring herdr default:w1:p2 "$rec" fm-t1 || rc=$?
+  [ "$rc" = 2 ] || fail "a composer that changed under the submit should report not reached, got rc $rc"
+  [ "$(cat "$pane/submits")" = "SUBMIT: $doorbell" ] \
+    || fail "only our own doorbell should have been submitted:"$'\n'"$(cat "$pane/submits")"
+  [ "$(cat "$pane/composer")" = "$paste" ] || fail "the person's paste was changed: $(cat "$pane/composer")"
+  [ "$(grep -c '^enter$' "$pane/keys")" = 1 ] \
+    || fail "no further Enter should go into a composer holding their paste:"$'\n'"$(cat "$pane/keys")"
+  pass "inbox: a paste landing after our Enter is never submitted by the retry"
+}
+
 # The composer read must see the same screen the composer verdict does: a
 # harness whose idle composer draws a dim ghost hint reads as empty when
 # styling is kept and as someone's text when it is stripped, which used to make
@@ -1293,6 +1356,8 @@ test_ring_never_clears_a_doorbell_sharing_the_composer_with_a_paste
 test_ring_reports_an_unsubmitted_collapsed_head_as_not_reached
 test_ring_stops_clearing_when_the_composer_stops_being_ours
 test_ring_reports_an_unreadable_readback_as_not_reached
+test_ring_stops_clearing_on_an_interior_phrase_of_the_cleared_piece
+test_ring_never_submits_a_paste_that_lands_after_its_enter
 test_ring_rings_after_clearing_into_a_ghost_hint
 test_idempotent_write_dedups_exact_body
 test_idempotent_write_follows_concurrent_ack

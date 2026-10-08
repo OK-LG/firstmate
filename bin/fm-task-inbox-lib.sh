@@ -359,7 +359,7 @@ fm_task_inbox_ring() {  # <backend> <target> <record-path> [expected-label]
   fi
   case "$(fm_task_inbox_composer_own "$backend" "$target" "$line" "$label")" in
     exact)
-      _fm_task_inbox_submit_own "$backend" "$target" "$line" "$label"
+      _fm_task_inbox_submit_own "$backend" "$target" "$line" "$label" exact
       return
       ;;
     fragment)
@@ -381,7 +381,7 @@ fm_task_inbox_ring() {  # <backend> <target> <record-path> [expected-label]
   sleep "$(fm_task_inbox_settle_secs)"
   case "$(fm_task_inbox_composer_own "$backend" "$target" "$line" "$label")" in
     exact)
-      _fm_task_inbox_submit_own "$backend" "$target" "$line" "$label"
+      _fm_task_inbox_submit_own "$backend" "$target" "$line" "$label" exact
       return
       ;;
     collapsed)
@@ -390,7 +390,7 @@ fm_task_inbox_ring() {  # <backend> <target> <record-path> [expected-label]
       if [ "$cstate" != empty ] || [ "$verdict" = send-failed ]; then
         return 2
       fi
-      _fm_task_inbox_submit_own "$backend" "$target" "$line" "$label"
+      _fm_task_inbox_submit_own "$backend" "$target" "$line" "$label" collapsed
       return
       ;;
     fragment)
@@ -480,7 +480,16 @@ _fm_task_inbox_own_piece() {  # <line> <held>
   [ "${#2}" -ge "$FM_TASK_INBOX_FRAGMENT_MIN" ] || return 1
   fm_composer_normalize_spaces_var want
   want=${want//[$' \t\r\n\v\f']/}
-  case "$want" in "$2"*|*"$2") return 0 ;; esac
+  _fm_task_inbox_anchored_in "$want" "$2"
+}
+
+# The anchor behind that rule and behind every later check against text already
+# proved ours: <held> is the head or the tail of <text>, both space-stripped.
+# Anchored because those are the only shapes typing a line and deleting it row
+# by row can leave; an interior run of <text> is something else that happens to
+# occur inside it.
+_fm_task_inbox_anchored_in() {  # <text> <held>
+  case "$1" in "$2"*|*"$2") return 0 ;; esac
   return 1
 }
 
@@ -489,16 +498,21 @@ _fm_task_inbox_own_piece() {  # <line> <held>
 # any of it, 2 when it is still there after the last Enter, when a key could
 # not be sent, or when the read-back cannot see the composer at all - an
 # unreadable screen is no proof of a submit, and pressing Enter blind into one
-# could answer a dialog the harness put over the composer. Never retypes. The
-# caller has already proven the composer holds our doorbell, so a read-back
-# that collapses it into a paste placeholder still counts as held.
-_fm_task_inbox_submit_own() {  # <backend> <target> <line> <expected-label>
+# could answer a dialog the harness put over the composer. Never retypes.
+# <entry-verdict> is the classification that proved the composer ours. A
+# read-back showing only a paste placeholder counts as our line still held just
+# when that entry verdict was itself `collapsed`, because only there did this
+# call watch the harness collapse its own burst; reached from an `exact` entry
+# the same shape means the composer changed under us, and pressing Enter again
+# would submit a paste nobody proved ours, so it stops and reports unreached.
+_fm_task_inbox_submit_own() {  # <backend> <target> <line> <expected-label> <entry-verdict>
   local i=0
   while [ "$i" -lt "$FM_TASK_INBOX_SUBMIT_TRIES" ]; do
     fm_backend_send_key "$1" "$2" Enter "$4" >/dev/null 2>&1 || return 2
     sleep "$(fm_task_inbox_settle_secs)"
     case "$(fm_task_inbox_composer_own "$1" "$2" "$3" "$4")" in
-      exact|fragment|collapsed) ;;
+      exact|fragment) ;;
+      collapsed) [ "$5" = collapsed ] || return 2 ;;
       unreadable) return 2 ;;
       *) return 0 ;;
     esac
@@ -510,10 +524,10 @@ _fm_task_inbox_submit_own() {  # <backend> <target> <line> <expected-label>
 # Clear the piece of our own doorbell the caller proved ours with Ctrl-U, which
 # deletes one wrapped row per press in the verified harnesses, until the
 # composer reads empty. The first read must still be a piece of our line by the
-# one rule above; after every press what remains must still be contained in
-# that first read, so a row-wise remnant of our own piece carries on while a
-# draft, a paste, or an unreadable screen appearing mid-clear ends the clear
-# with everything left where it was.
+# one rule above; after every press what remains must still be the head or the
+# tail of that first read, so a row-wise remnant of our own piece carries on
+# while a draft, a paste, or an unreadable screen appearing mid-clear ends the
+# clear with everything left where it was.
 # 0 cleared, 1 not cleared.
 _fm_task_inbox_clear_own() {  # <backend> <target> <line> <expected-label>
   local i=0 proven held
@@ -526,7 +540,7 @@ _fm_task_inbox_clear_own() {  # <backend> <target> <line> <expected-label>
     sleep 0.2
     held=$(_fm_task_inbox_composer_text "$1" "$2" "$4") || return 1
     [ -n "$held" ] || return 0
-    case "$proven" in *"$held"*) ;; *) return 1 ;; esac
+    _fm_task_inbox_anchored_in "$proven" "$held" || return 1
     i=$((i + 1))
   done
   return 1
