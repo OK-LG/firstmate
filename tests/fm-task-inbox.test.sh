@@ -630,6 +630,69 @@ test_ring_reports_an_unsubmitted_collapsed_head_as_not_reached() {
   pass "inbox: a doorbell left in the composer as a collapsed head plus a literal tail reports not reached"
 }
 
+# Mid-clear ownership: once the ring starts clearing a truncated doorbell, each
+# Ctrl-U press is allowed only while what remains is still part of the piece it
+# proved ours. A person who starts typing into that composer between presses -
+# here a phrase that occurs inside the doorbell's own prose - keeps their text.
+test_ring_stops_clearing_when_the_composer_stops_being_ours() {
+  local dir state rec doorbell pane rc draft
+  dir="$TMP_ROOT/ring-clear-interrupted"
+  state="$dir/state"
+  pane="$dir/pane"
+  mkdir -p "$state" "$dir/fakebin"
+  fm_fake_herdr_claude_pane "$dir/fakebin" "$pane"
+  rec=$(inbox_lib "$state" fm_task_inbox_write "$state" t1 "please continue")
+  doorbell=$(inbox_lib "$state" fm_task_inbox_doorbell_line "$rec")
+  draft='read and act on each in numeric order'
+  printf '%s' "${doorbell:0:120}" > "$pane/composer"
+  echo idle > "$pane/status"; echo 0 > "$pane/drops"
+  printf '%s' "$draft" > "$pane/paste-text"
+  # The third composer read of the ring is the one after the first Ctrl-U: the
+  # two before it are the cold read and the read the clear proves itself on.
+  echo 3 > "$pane/paste-on-read"
+  rc=0
+  PATH="$dir/fakebin:$PATH" FM_TASK_INBOX_SETTLE_SECS=0 FM_BACKEND_HERDR_SUBMIT_POLLS=1 \
+    inbox_lib "$state" fm_task_inbox_ring herdr default:w1:p2 "$rec" fm-t1 || rc=$?
+  [ "$rc" = 2 ] || fail "a clear interrupted by someone else's text should report not reached, got rc $rc"
+  [ "$(cat "$pane/composer")" = "$draft" ] || fail "the draft typed mid-clear was changed: $(cat "$pane/composer")"
+  [ "$(grep -c '^ctrl+u$' "$pane/keys")" = 1 ] \
+    || fail "the clear should stop at the first press that reveals foreign text:"$'\n'"$(cat "$pane/keys")"
+  [ ! -e "$pane/submits" ] || fail "nothing should have been submitted:"$'\n'"$(cat "$pane/submits")"
+  [ -f "$rec" ] || fail "the record should still be unhandled and owed a re-ring"
+  pass "inbox: a clear stops as soon as the composer holds anything outside the piece it proved ours"
+}
+
+# A read-back that cannot see the composer at all is no proof the Enter landed.
+# The ring used to count it as a submitted doorbell, which both stopped the
+# remaining Enters and reported the record delivered, so nothing ever rang it
+# again while the line sat in the composer.
+test_ring_reports_an_unreadable_readback_as_not_reached() {
+  local dir state rec doorbell pane rc
+  dir="$TMP_ROOT/ring-unreadable"
+  state="$dir/state"
+  pane="$dir/pane"
+  mkdir -p "$state" "$dir/fakebin"
+  fm_fake_herdr_claude_pane "$dir/fakebin" "$pane"
+  rec=$(inbox_lib "$state" fm_task_inbox_write "$state" t1 "please continue")
+  doorbell=$(inbox_lib "$state" fm_task_inbox_doorbell_line "$rec")
+  printf '%s' "$doorbell" > "$pane/composer"
+  echo idle > "$pane/status"; echo 99 > "$pane/drops"
+  # Read one is the cold read that proves the stuck doorbell ours. Reads two
+  # and three are the styled and plain attempts of the read-back after its
+  # Enter, and neither can see the composer.
+  echo '2 3' > "$pane/read-fails-on"
+  rc=0
+  PATH="$dir/fakebin:$PATH" FM_TASK_INBOX_SETTLE_SECS=0 FM_BACKEND_HERDR_SUBMIT_POLLS=1 \
+    inbox_lib "$state" fm_task_inbox_ring herdr default:w1:p2 "$rec" fm-t1 || rc=$?
+  [ "$rc" = 2 ] || fail "an unreadable read-back should report not reached, got rc $rc"
+  [ "$(cat "$pane/composer")" = "$doorbell" ] || fail "the stuck doorbell was changed: $(cat "$pane/composer")"
+  [ ! -e "$pane/submits" ] || fail "nothing should have been submitted:"$'\n'"$(cat "$pane/submits")"
+  [ "$(grep -c '^enter$' "$pane/keys")" = 1 ] \
+    || fail "no further Enter should go into a composer that cannot be read:"$'\n'"$(cat "$pane/keys")"
+  [ -f "$rec" ] || fail "the record should still be unhandled and owed a re-ring"
+  pass "inbox: an unreadable read-back reports not reached instead of a submitted doorbell"
+}
+
 # The composer read must see the same screen the composer verdict does: a
 # harness whose idle composer draws a dim ghost hint reads as empty when
 # styling is kept and as someone's text when it is stripped, which used to make
@@ -1228,6 +1291,8 @@ test_ring_submits_a_doorbell_collapsed_into_a_paste_placeholder
 test_ring_never_submits_a_collapsed_paste_it_did_not_type
 test_ring_never_clears_a_doorbell_sharing_the_composer_with_a_paste
 test_ring_reports_an_unsubmitted_collapsed_head_as_not_reached
+test_ring_stops_clearing_when_the_composer_stops_being_ours
+test_ring_reports_an_unreadable_readback_as_not_reached
 test_ring_rings_after_clearing_into_a_ghost_hint
 test_idempotent_write_dedups_exact_body
 test_idempotent_write_follows_concurrent_ack

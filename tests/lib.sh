@@ -437,8 +437,12 @@ SH
 # when it collapses only the head of a burst. `u-drops` holds a count of
 # ctrl+u presses to swallow, a composer the harness will not clear.
 # `paste-on-read` holding <n>, with the text in `paste-text`, drops that text
-# into the composer just before the nth `pane read` of the run: a person
-# pasting into the pane while a caller is mid-send.
+# into the composer just before the nth `pane read` of the run: a person typing
+# or pasting into the pane while a caller is mid-ring. `read-fails-on` holding a
+# space-separated list of read numbers makes each of those reads fail outright,
+# the shape a `pane read` hiccup or a frame with no selectable composer leaves;
+# one composer read falls back to a second `pane read`, so a read that must
+# come back unreadable needs both of its numbers listed.
 fm_fake_herdr_claude_pane() {
   local fakebin=$1 pane=$2
   mkdir -p "$pane"
@@ -454,11 +458,10 @@ case "${1:-} ${2:-}" in
   "agent get")
     printf '{"result":{"agent":{"agent":"claude","agent_status":"%s"}}}\n' "$(cat "$D/status" 2>/dev/null || echo idle)" ;;
   "pane read")
-    if [ -s "$D/paste-on-read" ]; then
-      reads=$(( $(cat "$D/reads" 2>/dev/null || echo 0) + 1 ))
-      printf '%s' "$reads" > "$D/reads"
-      [ "$reads" != "$(cat "$D/paste-on-read")" ] || cat "$D/paste-text" > "$D/composer"
-    fi
+    reads=$(( $(cat "$D/reads" 2>/dev/null || echo 0) + 1 ))
+    printf '%s' "$reads" > "$D/reads"
+    [ "$reads" != "$(cat "$D/paste-on-read" 2>/dev/null || echo 0)" ] || cat "$D/paste-text" > "$D/composer"
+    case " $(cat "$D/read-fails-on" 2>/dev/null || true) " in *" $reads "*) exit 1 ;; esac
     printf '● done\n  %s\n' "$rule"
     if [ ! -s "$D/composer" ]; then
       printf '  ❯ \n'
