@@ -505,12 +505,12 @@ _fm_task_inbox_anchored_in() {  # <text> <held>
 # not be sent. Only our whole line still being there justifies another Enter:
 # a composer that cannot be read proves nothing, and an Enter pressed blind
 # into one could answer a dialog the harness put over the composer; only a
-# piece of the line goes back to the ring, whose fragment path clears it and
-# types the line fresh, because a truncated doorbell names no inbox; just a
-# paste placeholder is no longer attributable to the harness collapsing our own
-# burst once an Enter that may have landed has emptied the composer, so it
-# could be a person's own paste; and our line with someone else's text after it
-# is provably still unsubmitted. Never retypes.
+# piece of the line goes back to the ring unconfirmed, for the next ring's
+# fragment path to clear and type fresh, because a truncated doorbell names no
+# inbox; just a paste placeholder is no longer attributable to the harness
+# collapsing our own burst once an Enter that may have landed has emptied the
+# composer, so it could be a person's own paste; and our line with someone
+# else's text after it is provably still unsubmitted. Never retypes.
 _fm_task_inbox_submit_own() {  # <backend> <target> <line> <expected-label>
   local i=0
   fm_backend_source "$1" || return 2

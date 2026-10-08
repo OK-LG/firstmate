@@ -605,8 +605,8 @@ A missed native transition falls through to the composer verdict rather than rep
 
 `pane read --lines N` can return empty output when N is below the viewport height.
 The capture owner requests at least 200 lines from Herdr and trims locally to the caller's bound.
-This generous floor is required for the small bounded reads that remain: peek and watch tails, the rendered busy-footer read, and the shared steering-inbox pending-line read.
-The adapter's own composer reads are exempt because they read the visible viewport instead, which takes no line count (see [Claude composer proof](#claude-composer-proof)).
+This generous floor is required for the small bounded reads that remain: peek and watch tails, and the rendered busy-footer read.
+Every composer read is exempt, the adapter's own and the shared steering-inbox read that now goes through it, because they read the visible viewport instead, which takes no line count (see [Claude composer proof](#claude-composer-proof)).
 
 ### Native idle state
 
