@@ -298,6 +298,10 @@ test_ring_skips_dead_agent() {
 # between rules, C-u deletes the last wrapped row, and Enter submits it
 # (logged as SUBMIT) unless FM_FAKE_DROP_ENTERS still holds a count of Enters
 # to swallow.
+# With FM_FAKE_GHOST_HINT set, an empty composer draws that hint the way a real
+# harness does: dim in the styled capture (`capture-pane -e`, what the composer
+# classifier reads) and bare text in the plain one, which is why only the
+# styled read can tell the hint from typed input.
 make_composer_stub() {  # <dir>
   mkdir -p "$1/fakebin"
   cat > "$1/fakebin/tmux" <<'SH'
@@ -334,12 +338,18 @@ case "${1:-}" in
     case "$*" in *cursor_y*) printf '2\n'; exit 0 ;; esac
     printf 'fakepane\n'; exit 0 ;;
   capture-pane)
+    styled=0
+    for arg in "$@"; do [ "$arg" = -e ] && styled=1; done
     rule=$(printf '─%.0s' $(seq 64))
     printf '● done\n%s\n' "$rule"
     if [ -s "$FM_FAKE_COMPOSER" ]; then
       fold -w 60 "$FM_FAKE_COMPOSER" | awk 'NR == 1 { print "❯ " $0; next } { print "  " $0 }'
-    else
+    elif [ -z "${FM_FAKE_GHOST_HINT:-}" ]; then
       printf '❯ \n'
+    elif [ "$styled" = 1 ]; then
+      printf '❯ \033[2m%s\033[0m\n' "$FM_FAKE_GHOST_HINT"
+    else
+      printf '❯ %s\n' "$FM_FAKE_GHOST_HINT"
     fi
     printf '%s\n  ? for shortcuts\n' "$rule"
     exit 0 ;;
@@ -531,6 +541,63 @@ test_ring_submits_a_doorbell_collapsed_into_a_paste_placeholder() {
   [ "$(cat "$pane/composer")" = "$draft" ] || fail "a collapsed draft was changed: $(cat "$pane/composer")"
   [ ! -e "$pane/keys" ] || fail "a key was sent into a composer holding a collapsed draft:"$'\n'"$(cat "$pane/keys")"
   pass "inbox: the ring submits its doorbell when Claude collapses it into a paste placeholder, and never acts on a collapsed draft"
+}
+
+# A person pasting into the same composer while the ring is mid-send: Claude
+# collapses their block into the same `[Pasted text #1]` shape, so the submit
+# core's pre-type proof refuses to type and the read-back finds a placeholder
+# this ring never typed. Pressing Enter there would submit their unreviewed
+# paste to their own agent.
+test_ring_never_submits_a_collapsed_paste_it_did_not_type() {
+  local dir state rec pane rc paste
+  dir="$TMP_ROOT/ring-foreign-paste"
+  state="$dir/state"
+  pane="$dir/pane"
+  mkdir -p "$state" "$dir/fakebin"
+  fm_fake_herdr_claude_pane "$dir/fakebin" "$pane"
+  rec=$(inbox_lib "$state" fm_task_inbox_write "$state" t1 "please continue")
+  paste='my own unreviewed notes, pasted a moment too late'
+  : > "$pane/composer"; echo idle > "$pane/status"; echo 0 > "$pane/drops"
+  printf '%s' "$paste" > "$pane/paste-text"
+  # The third composer read of the ring is the submit core's pre-type proof:
+  # the two before it see the empty composer this ring was allowed to type into.
+  echo 3 > "$pane/paste-on-read"
+  rc=0
+  PATH="$dir/fakebin:$PATH" FM_TASK_INBOX_SETTLE_SECS=0 FM_BACKEND_HERDR_SUBMIT_POLLS=1 \
+    FM_FAKE_PASTE_COLLAPSE=1 \
+    inbox_lib "$state" fm_task_inbox_ring herdr default:w1:p2 "$rec" fm-t1 || rc=$?
+  [ "$rc" = 2 ] || fail "a ring whose doorbell was never typed should report not reached, got rc $rc"
+  [ "$(cat "$pane/composer")" = "$paste" ] || fail "the person's paste was changed: $(cat "$pane/composer")"
+  [ ! -e "$pane/submits" ] || fail "the person's paste was submitted:"$'\n'"$(cat "$pane/submits")"
+  [ ! -e "$pane/keys" ] || fail "a key was sent into a composer holding the person's paste:"$'\n'"$(cat "$pane/keys")"
+  [ -f "$rec" ] || fail "the unrung record should still be unhandled and owed a re-ring"
+  pass "inbox: a ring that typed nothing never submits the collapsed paste it found, and reports not reached"
+}
+
+# The composer read must see the same screen the composer verdict does: a
+# harness whose idle composer draws a dim ghost hint reads as empty when
+# styling is kept and as someone's text when it is stripped, which used to make
+# a successful clear look like foreign text and cost the ring its attempt.
+test_ring_rings_after_clearing_into_a_ghost_hint() {
+  local dir state rec doorbell log composer drops rc
+  dir="$TMP_ROOT/ring-ghost-hint"
+  state="$dir/state"
+  mkdir -p "$state"
+  make_composer_stub "$dir"
+  rec=$(inbox_lib "$state" fm_task_inbox_write "$state" t1 "please continue")
+  doorbell=$(inbox_lib "$state" fm_task_inbox_doorbell_line "$rec")
+  log="$dir/send.log"; composer="$dir/composer"; drops="$dir/drops"
+  : > "$log"; printf '%s' "${doorbell:0:120}" > "$composer"; echo 0 > "$drops"
+  rc=0
+  PATH="$dir/fakebin:$PATH" FM_SEND_LOG="$log" FM_FAKE_COMPOSER="$composer" \
+    FM_FAKE_DROP_ENTERS="$drops" FM_TASK_INBOX_SETTLE_SECS=0 \
+    FM_FAKE_GHOST_HINT='Type a message...' \
+    inbox_lib "$state" fm_task_inbox_ring tmux sess:fm-t1 "$rec" fm-t1 || rc=$?
+  [ "$rc" = 0 ] || fail "clearing into an idle ghost hint should still ring, got rc $rc"
+  [ "$(cat "$log")" = "SUBMIT: $doorbell" ] \
+    || fail "the cleared composer should take the whole doorbell once:"$'\n'"$(cat "$log")"
+  [ ! -s "$composer" ] || fail "the doorbell was left in the composer: $(cat "$composer")"
+  pass "inbox: a composer cleared down to its harness ghost hint reads as empty, so the ring types and submits"
 }
 
 test_idempotent_write_dedups_exact_body() {
@@ -1102,6 +1169,8 @@ test_ring_submits_its_own_stuck_doorbell
 test_ring_recovers_a_stuck_doorbell_and_verifies_its_submit
 test_ring_recovers_a_stuck_doorbell_on_claude_herdr
 test_ring_submits_a_doorbell_collapsed_into_a_paste_placeholder
+test_ring_never_submits_a_collapsed_paste_it_did_not_type
+test_ring_rings_after_clearing_into_a_ghost_hint
 test_idempotent_write_dedups_exact_body
 test_idempotent_write_follows_concurrent_ack
 test_handled_mv_dedups_by_sequence

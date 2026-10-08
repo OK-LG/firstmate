@@ -916,16 +916,24 @@ fm_backend_composer_state() {  # <backend> <target> [expected-label] -> empty|pe
 }
 
 # fm_backend_composer_content: the text the composer of <target> holds, read
-# through the same capture its composer classifier uses where the adapter has
-# one (herdr's full visible viewport, zellij's styled screen dump), so a caller
-# comparing composer text never reads a different screen than the verdict did.
-# Other backends extract from a bounded plain capture. Empty output with
-# success is an empty composer; failure means no composer could be selected.
+# through the same capture AND the same capability descriptor its composer
+# classifier uses wherever the adapter has them (herdr's full visible viewport,
+# tmux's styled visible pane, zellij's styled screen dump), so a caller
+# comparing composer text never reads a different screen than the verdict did -
+# on a styled capture a harness's dim ghost hint is ghost text, while the same
+# rows read plain are indistinguishable from typed input. The remaining
+# backends (cmux, orca) declare styled=0 over a bounded plain capture, which is
+# exactly what the default arm reads. Empty output with success is an empty
+# composer; failure means no composer could be selected.
 fm_backend_composer_content() {  # <backend> <target> [expected-label]
   local backend=$1 target=$2 label=${3:-} cap
   fm_backend_source "$backend" || return 1
   case "$backend" in
     herdr) fm_backend_herdr_composer_content "$target" ;;
+    tmux)
+      cap=$(fm_tmux_composer_capture "$target") || return 1
+      fm_composer_extract_selected_content "$(fm_tmux_composer_caps)" "$cap"
+      ;;
     zellij) fm_backend_zellij_composer_content "$target" "$label" ;;
     *)
       cap=$(fm_backend_capture "$backend" "$target" "$FM_COMPOSER_CAPTURE_LINES" "$label" 2>/dev/null) || return 1

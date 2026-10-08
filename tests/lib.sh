@@ -432,6 +432,9 @@ SH
 # With FM_FAKE_PASTE_COLLAPSE=1 the read renders any held text as the
 # `[Pasted text #1]` placeholder instead, as live Claude draws one fast literal
 # burst; the composer still holds the real text and Enter still submits it.
+# `paste-on-read` holding <n>, with the text in `paste-text`, drops that text
+# into the composer just before the nth `pane read` of the run: a person
+# pasting into the pane while a caller is mid-send.
 fm_fake_herdr_claude_pane() {
   local fakebin=$1 pane=$2
   mkdir -p "$pane"
@@ -447,6 +450,11 @@ case "${1:-} ${2:-}" in
   "agent get")
     printf '{"result":{"agent":{"agent":"claude","agent_status":"%s"}}}\n' "$(cat "$D/status" 2>/dev/null || echo idle)" ;;
   "pane read")
+    if [ -s "$D/paste-on-read" ]; then
+      reads=$(( $(cat "$D/reads" 2>/dev/null || echo 0) + 1 ))
+      printf '%s' "$reads" > "$D/reads"
+      [ "$reads" != "$(cat "$D/paste-on-read")" ] || cat "$D/paste-text" > "$D/composer"
+    fi
     printf '● done\n  %s\n' "$rule"
     if [ ! -s "$D/composer" ]; then
       printf '  ❯ \n'

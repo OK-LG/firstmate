@@ -323,9 +323,10 @@ fm_task_inbox_doorbell_line() {  # <record-path>
 # queues it; a contiguous piece of it (a truncated or partly cleared line) is
 # cleared and the doorbell rung fresh. Text that is not ours is never touched:
 # a composer showing only a paste placeholder is our collapsed burst only in
-# the read-back below, where we typed it ourselves a moment earlier, so a cold
-# read of that shape leaves it to the ladder rather than submit a person's own
-# collapsed paste.
+# the read-back below, and only when THIS call proved the composer empty and
+# then typed the line into it. Every other reading of that shape - a cold
+# read, a weaker pre-send verdict, or a type the backend refused - may be a
+# person's own collapsed paste, and is left to the ladder.
 # The skip is deliberately narrow: only an exact `pending` verdict can defer,
 # because there our Enter could submit someone's real half-typed content.
 # `pending-unproven` and `unknown` still ring - the worst outcome is a garbled
@@ -365,11 +366,17 @@ fm_task_inbox_ring() {  # <backend> <target> <record-path> [expected-label]
   # unknown, send-failed after a refused proof, ...) is never proof either way.
   [ "$verdict" != empty ] || return 0
   sleep "${FM_TASK_INBOX_SETTLE_SECS:-0.5}"
-  # Here, and only here, a composer that collapsed our burst into a paste
-  # placeholder is provably holding our doorbell: we just typed it into a
-  # composer that was not pending.
   case "$(fm_task_inbox_composer_own "$backend" "$target" "$line" "$label")" in
-    exact|collapsed)
+    exact)
+      _fm_task_inbox_submit_own "$backend" "$target" "$line" "$label"
+      return
+      ;;
+    collapsed)
+      # Our own burst only when this call proved the composer empty and the
+      # backend did not refuse the type; anything else is someone's paste.
+      if [ "$cstate" != empty ] || [ "$verdict" = send-failed ]; then
+        return 2
+      fi
       _fm_task_inbox_submit_own "$backend" "$target" "$line" "$label"
       return
       ;;
@@ -396,9 +403,9 @@ fm_task_inbox_ring() {  # <backend> <target> <record-path> [expected-label]
 # `collapsed` is the shape Claude leaves when it collapses one fast literal
 # burst (fm_composer_strip_paste_placeholders_var owns it, and the herdr submit
 # proof accepts it as our payload shown). It carries no text of its own, so it
-# proves ownership only to a caller that already knows our doorbell was the
-# last thing typed into that composer: a cold read cannot tell it from a
-# person's own collapsed paste, and never acts on it.
+# proves ownership only to a caller that itself proved our doorbell was the
+# last thing typed into that composer: nothing else can tell it from a
+# person's own collapsed paste.
 fm_task_inbox_composer_own() {  # <backend> <target> <line> [expected-label] [min-chars]
   local held want literal min=${5:-$FM_TASK_INBOX_FRAGMENT_MIN}
   fm_backend_source "$1" || { printf 'unreadable'; return 0; }
@@ -415,7 +422,7 @@ fm_task_inbox_composer_own() {  # <backend> <target> <line> [expected-label] [mi
     printf 'empty'
   elif [ -n "$want" ] && [ -z "${held//"$want"/}" ]; then
     printf 'exact'
-  elif [ -z "$literal" ] && [ "$literal" != "$held" ]; then
+  elif [ -z "$literal" ]; then
     printf 'collapsed'
   elif [ "${#literal}" -ge "$min" ] && case "$want" in *"$literal"*) true ;; *) false ;; esac; then
     printf 'fragment'
