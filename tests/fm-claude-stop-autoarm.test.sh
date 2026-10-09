@@ -212,6 +212,20 @@ printf 'watcher: attached pid=%s (beacon 2s)\n' "$$"
 exit 0
 SH
       ;;
+    acked-then-actionable)
+      cat >> "$dir/bin/fm-watch-arm.sh" <<'SH'
+touch "$FM_HOME/state/.last-watcher-beat"
+printf 'watcher: started pid=%s (beacon fresh)\n' "$$"
+if [ "$(wc -l < "$FM_HOME/state/arm-ran" | tr -d ' ')" -eq 1 ]; then
+  printf 'acked:downtime:fixture-generation\n' > "$FM_HOME/state/.watcher-down"
+  printf 'check: rearm-resurface\n'
+else
+  printf 'pending:downtime:fixture-generation-2\n' > "$FM_HOME/state/.watcher-down"
+  printf 'signal: task.status done: fixture next\n'
+fi
+exit 0
+SH
+      ;;
     attached-delivered)
       cat >> "$dir/bin/fm-watch-arm.sh" <<'SH'
 printf 'watcher: attached pid=%s (beacon 2s)\n' "$$"
@@ -554,6 +568,26 @@ test_unconfirmed_handling_successor_still_rewakes() {
   assert_contains "$out" "watcher: FAILED - no live watcher with a fresh beacon" "the rewake must carry the successor's own failure line"
   [ "$(wc -l < "$dir/state/successor-ran" | tr -d ' ')" -eq 1 ] || fail "the failed successor must not be retried inside the rewake path"
   pass "auto-arm: an unconfirmed handling successor is reported in the rewake instead of blocking it"
+}
+
+# Without the host, an acknowledged close still started a handling successor;
+# exiting on the refused rewake would leave that successor with no owner.
+test_acknowledged_close_parks_again_without_the_host() {
+  local dir out status
+  dir=$(make_primary_dir "$TMP_ROOT/acked-repark")
+  : > "$dir/state/task.meta"
+  write_arm_fixture "$dir" acked-then-actionable
+  out=$(run_autoarm "$dir" 2>/dev/null); status=$?
+  expect_code 2 "$status" "the close after an acknowledged one must still rewake main"
+  [ "$(wc -l < "$dir/state/arm-ran" | tr -d ' ')" -eq 2 ] \
+    || fail "an acknowledged close must park the arm again, arm runs: $(wc -l < "$dir/state/arm-ran" | tr -d ' ')"
+  assert_contains "$out" "signal: task.status done: fixture next" "the next close must reach main"
+  assert_not_contains "$out" "check: rearm-resurface" "the acknowledged close must not reach main"
+  [ "$(printf '%s\n' "$out" | grep -c '^firstmate watcher wake')" -eq 1 ] \
+    || fail "the rewake must carry exactly one banner:"$'\n'"$out"
+  assert_absent "$dir/state/.claude-autoarm-failure-notified" "an acknowledged close opened a failure episode"
+  [ "$(epoch_outcome "$dir")" = rewake ] || fail "the next close must record outcome=rewake, got: $(epoch_outcome "$dir")"
+  pass "auto-arm: an arm close main already acknowledged parks again, and the next close rewakes main"
 }
 
 test_failed_close_rewakes_with_failure_banner() {
@@ -1388,13 +1422,16 @@ test_long_poll_grace_reaches_arm_wrapper() {
 }
 
 # Supervision-host fixture variants, installed per test as
-# <dir>/bin/fm-supervision-host.sh. Each run appends its pid to state/host-ran
-# and records the environment the hook handed it.
+# <dir>/bin/fm-supervision-host.sh. Each run appends its pid to state/host-ran,
+# its park length to state/host-park-seconds and its park limit to
+# state/host-park-limit, and records the environment the hook handed it.
 write_host_fixture() {
   local dir=$1 kind=$2
   {
     printf '#!/usr/bin/env bash\n'
     printf 'echo "$$" >> "$FM_HOME/state/host-ran"\n'
+    printf 'printf "%%s\\n" "${FM_SUPERVISION_HOST_PARK_SECONDS:-unset}" >> "$FM_HOME/state/host-park-seconds"\n'
+    printf 'printf "%%s\\n" "${FM_SUPERVISION_HOST_PARK_LIMIT:-unset}" >> "$FM_HOME/state/host-park-limit"\n'
     printf 'printf "gen=%%s owner=%%s primary=%%s mode=%%s\\n" "${FM_SUPERVISION_HOST_AUTOARM_GEN:-}" "${FM_SUPERVISION_HOST_OWNER_PID:-}" "${FM_SUPERVISION_HOST_PRIMARY:-}" "${1:-}" > "$FM_HOME/state/host-env"\n'
     case "$kind" in
       boundary)
@@ -1422,11 +1459,54 @@ printf 'supervision-host: watcher downtime could not be restored for the main ha
 exit 1
 SH
         ;;
-      benign-refusal)
+      acked-then-signal)
+        # First park: a pass-through close whose episode main already drained
+        # and acknowledged in a turn that ran meanwhile, after spending a
+        # measurable second of the hook's park budget. Next park: the cycle
+        # that pass-through left running closes on new work.
         cat <<'SH'
-printf 'acked:downtime:fixture-generation\n' > "$FM_HOME/state/.watcher-down"
+if [ "$(wc -l < "$FM_HOME/state/host-ran" | tr -d ' ')" -eq 1 ]; then
+  sleep 1.2
+  printf 'acked:downtime:fixture-generation\n' > "$FM_HOME/state/.watcher-down"
+  printf 'check: rearm-resurface\n'
+else
+  printf 'pending:downtime:fixture-generation-2\n' > "$FM_HOME/state/.watcher-down"
+  touch "$FM_HOME/state/.last-watcher-beat"
+  printf 'signal: fixture-next.status\n'
+fi
+SH
+        ;;
+      acked-slow)
+        # One pass-through close main already acknowledged, delivered only
+        # after the park budget this test hands the hook is spent. A second
+        # park would print the line below, which no close ever may carry.
+        cat <<'SH'
+if [ "$(wc -l < "$FM_HOME/state/host-ran" | tr -d ' ')" -eq 1 ]; then
+  sleep 3.2
+  printf 'acked:downtime:fixture-generation\n' > "$FM_HOME/state/.watcher-down"
+  printf 'check: rearm-resurface\n'
+else
+  printf 'watcher: a park the spent budget must never start\n'
+fi
+SH
+        ;;
+      lost-handback-takeover)
+        # The hand-back is undelivered, but another session took the home lock
+        # while this park ran, so this hook no longer owns the home's state.
+        cat <<'SH'
+cat "$FM_HOME/state/takeover-pid" > "$FM_HOME/state/.lock"
+printf 'pending:handling:fixture-generation\n' > "$FM_HOME/state/.watcher-down"
 printf 'signal: fixture.status\n'
-printf 'supervision-host: branch-outcome: fixture\n'
+printf 'supervision-host: watcher downtime could not be restored for the main hand-back\n'
+exit 1
+SH
+        ;;
+      slow-benign)
+        # A close with no wake that spends the whole park budget this test
+        # hands the hook, so no attempt is left for a retry.
+        cat <<'SH'
+sleep 3.2
+printf 'watcher: fixture close with no wake\n'
 SH
         ;;
       handed-back-many)
@@ -1588,27 +1668,149 @@ test_host_stand_down_is_silent() {
   pass "auto-arm: a host that stood down closes silently without a retry"
 }
 
-# Main already drained and acknowledged the wake, so the rewake is refused on a
-# marker that is no longer downtime: that refusal stays silent and opens no
-# failure episode.
-test_host_benign_rewake_refusal_opens_no_failure_episode() {
+# The overnight gap: a turn ran while the hook was parked and drained and
+# acknowledged the episode, so the host's pass-through close is refused a rewake.
+# The hook must park again rather than exit, or the cycle that pass-through left
+# running closes with no owner and an idle session is never woken.
+test_host_acknowledged_close_parks_again_and_delivers_the_next_wake() {
   local dir out status
-  dir=$(make_primary_dir "$TMP_ROOT/host-benign-refusal")
+  dir=$(make_primary_dir "$TMP_ROOT/host-acked-repark")
   mkdir -p "$dir/config"
   rm -f "$dir/config/supervision-host-off"
   : > "$dir/state/task.meta"
-  write_host_fixture "$dir" benign-refusal
+  write_host_fixture "$dir" acked-then-signal
   out=$(run_autoarm "$dir" 2>/dev/null); status=$?
-  expect_code 0 "$status" "a refused rewake on an acknowledged marker must stay silent"
-  assert_not_contains "$out" "auto-arm FAILED" "a benign refusal must not deliver a failure notice"
-  assert_absent "$dir/state/.claude-autoarm-failure-notified" "a benign refusal opened a failure episode"
-  [ "$(epoch_outcome "$dir")" != failed ] || fail "a benign refusal must not record outcome=failed"
-  pass "auto-arm: a host rewake refused on an acknowledged marker opens no failure episode"
+  expect_code 2 "$status" "the close after an acknowledged one must still rewake main"
+  [ "$(wc -l < "$dir/state/host-ran" | tr -d ' ')" -eq 2 ] \
+    || fail "an acknowledged close must park the host again, host runs: $(wc -l < "$dir/state/host-ran" | tr -d ' ')"
+  assert_contains "$out" "signal: fixture-next.status" "the next close must reach main"
+  assert_not_contains "$out" "check: rearm-resurface" "the acknowledged close must not reach main"
+  [ "$(printf '%s\n' "$out" | grep -c '^firstmate watcher wake')" -eq 1 ] \
+    || fail "the rewake must carry exactly one banner:"$'\n'"$out"
+  assert_not_contains "$out" "auto-arm FAILED" "an acknowledged close must not deliver a failure notice"
+  assert_absent "$dir/state/.claude-autoarm-failure-notified" "an acknowledged close opened a failure episode"
+  [ "$(epoch_outcome "$dir")" = rewake ] || fail "the next close must record outcome=rewake, got: $(epoch_outcome "$dir")"
+  pass "auto-arm: a host close main already acknowledged parks again, and the next close rewakes main"
+}
+
+# Chaining parks inside one Stop registration must not outlive it: each park
+# gets what the hook has left of its park budget, so the host's boundary line
+# still reaches main before Claude's timeout kill drops it.
+test_host_repark_gets_only_the_budget_the_hook_has_left() {
+  local dir out status first second
+  dir=$(make_primary_dir "$TMP_ROOT/host-repark-budget")
+  mkdir -p "$dir/config"
+  rm -f "$dir/config/supervision-host-off"
+  : > "$dir/state/task.meta"
+  write_host_fixture "$dir" acked-then-signal
+  out=$(FM_SUPERVISION_HOST_PARK_SECONDS=600 run_autoarm "$dir" 2>/dev/null); status=$?
+  expect_code 2 "$status" "the close after an acknowledged one must still rewake main"
+  [ "$(wc -l < "$dir/state/host-park-seconds" | tr -d ' ')" -eq 2 ] \
+    || fail "the acknowledged close must park the host again, parks: $(cat "$dir/state/host-park-seconds")"
+  first=$(sed -n '1p' "$dir/state/host-park-seconds")
+  second=$(sed -n '2p' "$dir/state/host-park-seconds")
+  case "$first:$second" in
+    *[!0-9:]*|*:|:*) fail "every park must get a park length, got: $first and $second" ;;
+  esac
+  [ "$first" -le 600 ] && [ "$first" -gt 60 ] \
+    || fail "the first park must get the park budget this hook started with, got: $first"
+  [ "$second" -lt "$first" ] \
+    || fail "the repark must get only the budget the hook has left, got: $second of $first"
+  [ "$second" -gt 0 ] || fail "the repark must get a park length the host accepts, got: $second"
+  pass "auto-arm: a repark gets only what is left of the hook's park budget"
+}
+
+# The same chain must end rather than park into the timeout kill: a park that
+# spent the budget leaves too little for another one, and a hook killed mid-park
+# delivers neither its close nor the watcher it would have handed over.
+test_host_spent_park_budget_delivers_the_close_it_holds() {
+  local dir out status
+  dir=$(make_primary_dir "$TMP_ROOT/host-repark-spent")
+  mkdir -p "$dir/config"
+  rm -f "$dir/config/supervision-host-off"
+  : > "$dir/state/task.meta"
+  write_host_fixture "$dir" acked-slow
+  out=$(FM_SUPERVISION_HOST_PARK_SECONDS=3 run_autoarm "$dir" 2>/dev/null); status=$?
+  expect_code 2 "$status" "a spent park budget must still deliver its actionable close to main"
+  [ "$(wc -l < "$dir/state/host-ran" | tr -d ' ')" -eq 1 ] \
+    || fail "a spent park budget must start no further park, host runs: $(wc -l < "$dir/state/host-ran" | tr -d ' ')"
+  assert_not_contains "$out" "must never start" "a spent park budget started another park"
+  assert_contains "$out" "check: rearm-resurface" "the close the spent budget holds must reach main"
+  [ "$(printf '%s\n' "$out" | grep -c '^firstmate watcher wake')" -eq 1 ] \
+    || fail "the delivered close must carry exactly one banner:"$'\n'"$out"
+  assert_contains "$out" "auto-arm FAILED - the park budget of this Stop hook is spent" "the spent budget must say why it delivers the close here"
+  assert_present "$dir/state/.claude-autoarm-failure-notified" "a spent park budget did not record its failure episode"
+  [ "$(epoch_outcome "$dir")" = failed ] || fail "a spent park budget must record outcome=failed, got: $(epoch_outcome "$dir")"
+  pass "auto-arm: a spent park budget delivers the close it holds instead of closing silently"
+}
+
+# An operator park bound is the hook's budget as configured, shortened only by
+# what this hook already spent: a short bound must never be magnified into the
+# default seven-and-a-half-hour park.
+test_configured_park_bound_reaches_the_host_unmagnified() {
+  local dir out status first limit
+  dir=$(make_primary_dir "$TMP_ROOT/host-small-park-bound")
+  mkdir -p "$dir/config"
+  rm -f "$dir/config/supervision-host-off"
+  : > "$dir/state/task.meta"
+  write_host_fixture "$dir" boundary
+  out=$(FM_SUPERVISION_HOST_PARK_SECONDS=30 run_autoarm "$dir" 2>/dev/null); status=$?
+  expect_code 2 "$status" "a cycle-boundary close must rewake main"
+  [ "$(wc -l < "$dir/state/host-park-seconds" | tr -d ' ')" -eq 1 ] \
+    || fail "the boundary close must park the host once, parks: $(cat "$dir/state/host-park-seconds")"
+  first=$(sed -n '1p' "$dir/state/host-park-seconds")
+  case "$first" in ''|*[!0-9]*) fail "the park must get a park length, got: $first" ;; esac
+  [ "$first" -le 30 ] && [ "$first" -gt 0 ] \
+    || fail "a configured park bound must reach the host unmagnified, got: $first of 30"
+  limit=$(sed -n '1p' "$dir/state/host-park-limit")
+  [ "$limit" = "$first" ] \
+    || fail "the park's turn limit must be bounded with its park length, got: $limit for $first"
+  pass "auto-arm: a configured park bound reaches the host as configured, not as the default"
+}
+
+# An undelivered hand-back belongs to the session that still owns the home. A
+# session whose home lock was taken over mid-park must not write a failure
+# episode into the state the new owner's turn-end guard now reads.
+test_host_lost_handback_stands_down_after_a_lock_takeover() {
+  local dir out status
+  dir=$(make_primary_dir "$TMP_ROOT/host-handback-takeover")
+  mkdir -p "$dir/config"
+  rm -f "$dir/config/supervision-host-off"
+  : > "$dir/state/task.meta"
+  printf '999999\n' > "$dir/state/takeover-pid"
+  write_host_fixture "$dir" lost-handback-takeover
+  out=$(run_autoarm "$dir" 2>/dev/null); status=$?
+  expect_code 0 "$status" "a hook whose home lock was taken over must stand down silently"
+  assert_not_contains "$out" "auto-arm FAILED" "a taken-over hook delivered a failure notice"
+  assert_absent "$dir/state/.claude-autoarm-failure-notified" "a taken-over hook opened a failure episode in the new owner's home"
+  [ "$(epoch_outcome "$dir")" != failed ] \
+    || fail "a taken-over hook must not record outcome=failed, got: $(epoch_outcome "$dir")"
+  pass "auto-arm: an undelivered hand-back stands down once another session owns the home lock"
+}
+
+# A budget spent during the park must not cost the operator the evidence from
+# the park that produced the failure notice.
+test_spent_budget_failure_notice_keeps_the_park_output() {
+  local dir out status
+  dir=$(make_primary_dir "$TMP_ROOT/host-spent-notice")
+  mkdir -p "$dir/config"
+  rm -f "$dir/config/supervision-host-off"
+  : > "$dir/state/task.meta"
+  write_host_fixture "$dir" slow-benign
+  out=$(FM_SUPERVISION_HOST_PARK_SECONDS=3 run_autoarm "$dir" 2>/dev/null); status=$?
+  expect_code 2 "$status" "an unverified close with no retry budget must still fail closed"
+  [ "$(wc -l < "$dir/state/host-ran" | tr -d ' ')" -eq 1 ] \
+    || fail "a spent park budget must start no retry, host runs: $(wc -l < "$dir/state/host-ran" | tr -d ' ')"
+  assert_contains "$out" "auto-arm FAILED" "an exhausted cycle must deliver the failure notice"
+  assert_contains "$out" "watcher: fixture close with no wake" "the failure notice must carry the park output it diagnoses"
+  pass "auto-arm: a failure notice after a spent park budget still carries the park's own output"
 }
 
 # The host handed a wake back but left the marker in handling (pending or
-# announced) with no live successor, so no rewake can commit: the hook delivers
-# the failure notice once per episode and keeps exiting 2 without repeating it.
+# announced), so no rewake can commit. A healthy successor watcher does not
+# make that close deliverable: nothing owns its next close either, so an idle
+# session would never hear about it. The hook delivers the failure notice once
+# per episode and keeps exiting 2 without repeating it.
 assert_host_lost_handback_notifies_once_per_episode() {
   local kind=$1 dir out status
   dir=$(make_primary_dir "$TMP_ROOT/host-$kind")
@@ -1636,6 +1838,30 @@ test_host_lost_handback_notifies_once_per_episode() {
 test_host_lost_announced_handback_notifies_once_per_episode() {
   assert_host_lost_handback_notifies_once_per_episode lost-announced-handback
   pass "auto-arm: a lost host hand-back on an announced marker notifies once per failure episode"
+}
+
+test_host_lost_handback_beside_a_healthy_watcher_still_reaches_main() {
+  local dir out status pid identity
+  dir=$(make_primary_dir "$TMP_ROOT/host-lost-handback-healthy")
+  mkdir -p "$dir/config"
+  rm -f "$dir/config/supervision-host-off"
+  : > "$dir/state/task.meta"
+  write_host_fixture "$dir" lost-handback
+  sleep 60 &
+  pid=$!
+  identity=$(watcher_identity "$dir" "$pid") || fail "could not identify the live successor watcher"
+  record_watcher_lock "$dir" "$pid" "$identity"
+  touch "$dir/state/.last-watcher-beat"
+  out=$(run_autoarm "$dir" 2>/dev/null); status=$?
+  kill "$pid" 2>/dev/null || true
+  wait "$pid" 2>/dev/null || true
+  expect_code 2 "$status" "a lost hand-back must reach main beside a healthy successor watcher"
+  assert_contains "$out" "signal: fixture.status" "the undelivered hand-back must carry its wake reason"
+  assert_contains "$out" "watcher downtime could not be restored" "the undelivered hand-back must carry the host's own line"
+  assert_contains "$out" "auto-arm FAILED - the supervision host returned an actionable wake" "a lost hand-back must deliver the failure notice"
+  assert_present "$dir/state/.claude-autoarm-failure-notified" "a lost hand-back did not record its failure episode"
+  [ "$(epoch_outcome "$dir")" = failed ] || fail "a lost hand-back must record outcome=failed, got: $(epoch_outcome "$dir")"
+  pass "auto-arm: a lost host hand-back reaches main even while its successor watcher is healthy"
 }
 
 test_host_crash_is_retried_then_reported() {
@@ -1760,9 +1986,16 @@ test_host_handback_beside_a_quiet_record_carries_no_away_note
 test_plain_arm_banner_keeps_its_wake_line_cap
 test_host_handback_carries_every_host_line
 test_host_stand_down_is_silent
-test_host_benign_rewake_refusal_opens_no_failure_episode
+test_host_acknowledged_close_parks_again_and_delivers_the_next_wake
+test_acknowledged_close_parks_again_without_the_host
+test_host_repark_gets_only_the_budget_the_hook_has_left
+test_host_spent_park_budget_delivers_the_close_it_holds
+test_configured_park_bound_reaches_the_host_unmagnified
 test_host_lost_handback_notifies_once_per_episode
 test_host_lost_announced_handback_notifies_once_per_episode
+test_host_lost_handback_beside_a_healthy_watcher_still_reaches_main
+test_host_lost_handback_stands_down_after_a_lock_takeover
+test_spent_budget_failure_notice_keeps_the_park_output
 test_host_crash_is_retried_then_reported
 test_arguments_never_arm
 test_fm_lock_status_still_works_with_shared_lib

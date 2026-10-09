@@ -2411,7 +2411,7 @@ FM_CRASH_NORMAL_SLEEP=5            # seconds to wait after an isolated watcher c
 FM_LOG_MAX_BYTES=1048576           # daemon log size that triggers trimming
 FM_LOG_KEEP_LINES=2000             # daemon log lines kept when trimming
 # supervision host (bin/fm-supervision-host.sh); read only in a home that runs it
-FM_SUPERVISION_HOST_PARK_SECONDS=27000   # the host ends its park with a cycle-boundary wake after this long, under the Stop hook's 28800 s timeout
+FM_SUPERVISION_HOST_PARK_SECONDS=27000   # the host ends its park with a cycle-boundary wake after this long, under the Stop hook's 28800 s timeout; on Claude it is also the Stop hook's whole park budget, which every chained park shares
 FM_SUPERVISION_HOST_TURN_TIMEOUT=1200    # bound on one engine turn; a turn that hits it hands its wake to main
 FM_SUPERVISION_HOST_ROTATE_TURNS=20      # the engine conversation starts fresh after this many turns (and at every main session start)
 FM_SUPERVISION_ENGINE_GRACE=30           # seconds between TERM and KILL when an engine turn is stopped
