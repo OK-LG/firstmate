@@ -94,9 +94,11 @@
 #     inside the ONE timeout this hook's Stop registration declares, so each
 #     park is handed what is left of the park budget measured from this hook's
 #     start: the host's boundary line still reaches main before Claude kills
-#     the hook, and a remainder too short to park on ends the chain instead of
-#     parking into that kill. A close that reports no actionable reason is
-#     benign when a live identity-matched watcher still has a fresh beacon.
+#     the hook. A spent budget ends the chain, and the close it holds is
+#     delivered to main there rather than dropped: the same refused-close
+#     delivery the undelivered hand-back below takes. A close that reports no
+#     actionable reason is benign when a live identity-matched watcher still
+#     has a fresh beacon.
 #   - Failure handling: a typed failure is rechecked against the same live,
 #     fresh watcher predicate and retried a bounded number of times in this
 #     hook. Only an exhausted failure with no verified watcher emits one
@@ -162,27 +164,25 @@ esac
 # it killed, so every park this one hook starts shares that one registration's
 # lifetime. The budget bounds the whole chain from this hook's start, measured
 # with Bash's process-relative SECONDS, and each host park takes the remainder
-# as its own boundary (FM_SUPERVISION_HOST_PARK_SECONDS, whose operator value
-# is the budget here): the boundary stays under the registration however many
-# parks ran before it. A remainder below the floor is not worth a park.
-PARK_BUDGET_FLOOR=60
+# as its own boundary: the boundary stays under the registration however many
+# parks ran before it. The budget is the operator's own park bound, accepted
+# on exactly the terms the host accepts it on (bin/fm-supervision-host.sh), so
+# a configured park is shortened by what this hook already spent and by
+# nothing else.
 PARK_BUDGET=${FM_SUPERVISION_HOST_PARK_SECONDS:-27000}
 case "$PARK_BUDGET" in
   ''|0*|*[!0-9]*) PARK_BUDGET=27000 ;;
 esac
-{ [ "$PARK_BUDGET" -ge "$PARK_BUDGET_FLOOR" ] && [ "$PARK_BUDGET" -lt 28800 ]; } 2>/dev/null \
-  || PARK_BUDGET=27000
+[ "$PARK_BUDGET" -lt 28800 ] 2>/dev/null || PARK_BUDGET=27000
 PARK_BUDGET_LEFT=$PARK_BUDGET
 
 # Sets PARK_BUDGET_LEFT to the seconds this hook may still park for, never
-# below the shortest park worth starting, and is true only while the real
-# remainder reaches that floor. The hook's own first park always runs on the
-# floor: one floor-length park past the budget stays far inside the
-# registration, while a chained park on a spent budget does not.
+# below the one second a park length has to be for the host to accept it, and
+# is true only while the budget has any of that time left.
 park_budget_left() {
   PARK_BUDGET_LEFT=$((PARK_BUDGET - SECONDS))
-  if [ "$PARK_BUDGET_LEFT" -lt "$PARK_BUDGET_FLOOR" ]; then
-    PARK_BUDGET_LEFT=$PARK_BUDGET_FLOOR
+  if [ "$PARK_BUDGET_LEFT" -lt 1 ]; then
+    PARK_BUDGET_LEFT=1
     return 1
   fi
 }
@@ -319,6 +319,24 @@ autoarm_commit() {  # <outcome> [marker-file]
   else
     fm_autoarm_write_owned "$STATE" "$MY_GEN" "$outcome"
   fi
+}
+
+# Deliver an actionable close whose rewake was refused but whose reason main
+# must still hear: commit this episode's terminal failure outcome (its notice
+# once per episode), print the composed banner, and exit 2. A refused commit
+# returns instead, so a losing generation stays silent.
+deliver_refused_close() {  # <notice-line>
+  local notice=$1 committed=0 noticed=0
+  if [ ! -e "$FAILURE_NOTICE" ]; then
+    autoarm_commit failed "$FAILURE_NOTICE" && committed=1 && noticed=1
+  else
+    autoarm_commit failed-suppressed && committed=1
+  fi
+  [ "$committed" -eq 1 ] || return 1
+  printf '%s\n' "$BANNER" >&2
+  [ "$noticed" -eq 0 ] || printf '%s\n' "$notice" >&2
+  [ -z "$OUT" ] || rm -f "$OUT" 2>/dev/null || true
+  exit 2
 }
 
 # Best-effort ownership-checked record for exit-0 paths, where supersession
@@ -587,20 +605,7 @@ while :; do
     if [ "$HOST_MODE" -eq 1 ] && fm_autoarm_still_owner "$STATE" "$MY_GEN" \
       && fm_recovery_marker_snapshot "$STATE/.watcher-down" \
       && [[ "$FM_RECOVERY_MARKER_TOKEN" == pending:handling:* || "$FM_RECOVERY_MARKER_TOKEN" == announced:handling:* ]]; then
-      LOST_HANDBACK_COMMITTED=0
-      LOST_HANDBACK_NOTICE=0
-      if [ ! -e "$FAILURE_NOTICE" ]; then
-        autoarm_commit failed "$FAILURE_NOTICE" && LOST_HANDBACK_COMMITTED=1 && LOST_HANDBACK_NOTICE=1
-      else
-        autoarm_commit failed-suppressed && LOST_HANDBACK_COMMITTED=1
-      fi
-      if [ "$LOST_HANDBACK_COMMITTED" -eq 1 ]; then
-        printf '%s\n' "$BANNER" >&2
-        [ "$LOST_HANDBACK_NOTICE" -eq 0 ] \
-          || printf 'firstmate watcher auto-arm FAILED - the supervision host returned an actionable wake, but its rewake could not be committed.\n' >&2
-        [ -z "$OUT" ] || rm -f "$OUT" 2>/dev/null || true
-        exit 2
-      fi
+      deliver_refused_close 'firstmate watcher auto-arm FAILED - the supervision host returned an actionable wake, but its rewake could not be committed.'
     fi
     [ -z "$OUT" ] || rm -f "$OUT" 2>/dev/null || true
     # Main already drained and acknowledged this episode during a turn that ran
@@ -608,18 +613,20 @@ while :; do
     # here would orphan the cycle the host's pass-through or the handling
     # successor left running: its next close would reach no one until some
     # later turn end, which an idle session never has. Park again instead,
-    # within what is left of this hook's one park budget: once too little of it
-    # remains, the chain ends here rather than parking into Claude's timeout
-    # kill, which would drop the next close with the watcher it would deliver.
+    # within what is left of this hook's one park budget. A spent budget ends
+    # the chain, because another park would run into Claude's timeout kill;
+    # that close is delivered to main instead of dropped there.
     if fm_autoarm_still_owner "$STATE" "$MY_GEN" \
       && fm_session_lock_owned_by_self "$STATE" \
       && fm_recovery_marker_snapshot "$STATE/.watcher-down" \
-      && [[ "$FM_RECOVERY_MARKER_TOKEN" == acked:* ]] \
-      && park_budget_left; then
-      OUT=
-      HEALTHY=0
-      SUCCESSOR_FAILURE=
-      continue
+      && [[ "$FM_RECOVERY_MARKER_TOKEN" == acked:* ]]; then
+      if park_budget_left; then
+        OUT=
+        HEALTHY=0
+        SUCCESSOR_FAILURE=
+        continue
+      fi
+      deliver_refused_close 'firstmate watcher auto-arm FAILED - the park budget of this Stop hook is spent, so the actionable close it holds is delivered here instead of parking past the hook timeout.'
     fi
     exit 0
   fi

@@ -1481,7 +1481,7 @@ SH
         # park would print the line below, which no close ever may carry.
         cat <<'SH'
 if [ "$(wc -l < "$FM_HOME/state/host-ran" | tr -d ' ')" -eq 1 ]; then
-  sleep 2.2
+  sleep 3.2
   printf 'acked:downtime:fixture-generation\n' > "$FM_HOME/state/.watcher-down"
   printf 'check: rearm-resurface\n'
 else
@@ -1696,28 +1696,53 @@ test_host_repark_gets_only_the_budget_the_hook_has_left() {
     || fail "the first park must get the park budget this hook started with, got: $first"
   [ "$second" -lt "$first" ] \
     || fail "the repark must get only the budget the hook has left, got: $second of $first"
-  [ "$second" -ge 60 ] || fail "the repark must not start below the park floor, got: $second"
+  [ "$second" -gt 0 ] || fail "the repark must get a park length the host accepts, got: $second"
   pass "auto-arm: a repark gets only what is left of the hook's park budget"
 }
 
 # The same chain must end rather than park into the timeout kill: a park that
 # spent the budget leaves too little for another one, and a hook killed mid-park
 # delivers neither its close nor the watcher it would have handed over.
-test_host_repark_stops_when_the_park_budget_is_spent() {
+test_host_spent_park_budget_delivers_the_close_it_holds() {
   local dir out status
   dir=$(make_primary_dir "$TMP_ROOT/host-repark-spent")
   mkdir -p "$dir/config"
   rm -f "$dir/config/supervision-host-off"
   : > "$dir/state/task.meta"
   write_host_fixture "$dir" acked-slow
-  out=$(FM_SUPERVISION_HOST_PARK_SECONDS=61 run_autoarm "$dir" 2>/dev/null); status=$?
-  expect_code 0 "$status" "a spent park budget must close the hook quietly"
+  out=$(FM_SUPERVISION_HOST_PARK_SECONDS=3 run_autoarm "$dir" 2>/dev/null); status=$?
+  expect_code 2 "$status" "a spent park budget must still deliver its actionable close to main"
   [ "$(wc -l < "$dir/state/host-ran" | tr -d ' ')" -eq 1 ] \
     || fail "a spent park budget must start no further park, host runs: $(wc -l < "$dir/state/host-ran" | tr -d ' ')"
   assert_not_contains "$out" "must never start" "a spent park budget started another park"
-  assert_not_contains "$out" "auto-arm FAILED" "a spent park budget must not deliver a failure notice"
-  assert_absent "$dir/state/.claude-autoarm-failure-notified" "a spent park budget opened a failure episode"
-  pass "auto-arm: the repark chain ends once the hook's park budget is spent"
+  assert_contains "$out" "check: rearm-resurface" "the close the spent budget holds must reach main"
+  [ "$(printf '%s\n' "$out" | grep -c '^firstmate watcher wake')" -eq 1 ] \
+    || fail "the delivered close must carry exactly one banner:"$'\n'"$out"
+  assert_contains "$out" "auto-arm FAILED - the park budget of this Stop hook is spent" "the spent budget must say why it delivers the close here"
+  assert_present "$dir/state/.claude-autoarm-failure-notified" "a spent park budget did not record its failure episode"
+  [ "$(epoch_outcome "$dir")" = failed ] || fail "a spent park budget must record outcome=failed, got: $(epoch_outcome "$dir")"
+  pass "auto-arm: a spent park budget delivers the close it holds instead of closing silently"
+}
+
+# An operator park bound is the hook's budget as configured, shortened only by
+# what this hook already spent: a short bound must never be magnified into the
+# default seven-and-a-half-hour park.
+test_configured_park_bound_reaches_the_host_unmagnified() {
+  local dir out status first
+  dir=$(make_primary_dir "$TMP_ROOT/host-small-park-bound")
+  mkdir -p "$dir/config"
+  rm -f "$dir/config/supervision-host-off"
+  : > "$dir/state/task.meta"
+  write_host_fixture "$dir" boundary
+  out=$(FM_SUPERVISION_HOST_PARK_SECONDS=30 run_autoarm "$dir" 2>/dev/null); status=$?
+  expect_code 2 "$status" "a cycle-boundary close must rewake main"
+  [ "$(wc -l < "$dir/state/host-park-seconds" | tr -d ' ')" -eq 1 ] \
+    || fail "the boundary close must park the host once, parks: $(cat "$dir/state/host-park-seconds")"
+  first=$(sed -n '1p' "$dir/state/host-park-seconds")
+  case "$first" in ''|*[!0-9]*) fail "the park must get a park length, got: $first" ;; esac
+  [ "$first" -le 30 ] && [ "$first" -gt 0 ] \
+    || fail "a configured park bound must reach the host unmagnified, got: $first of 30"
+  pass "auto-arm: a configured park bound reaches the host as configured, not as the default"
 }
 
 # The host handed a wake back but left the marker in handling (pending or
@@ -1903,7 +1928,8 @@ test_host_stand_down_is_silent
 test_host_acknowledged_close_parks_again_and_delivers_the_next_wake
 test_acknowledged_close_parks_again_without_the_host
 test_host_repark_gets_only_the_budget_the_hook_has_left
-test_host_repark_stops_when_the_park_budget_is_spent
+test_host_spent_park_budget_delivers_the_close_it_holds
+test_configured_park_bound_reaches_the_host_unmagnified
 test_host_lost_handback_notifies_once_per_episode
 test_host_lost_announced_handback_notifies_once_per_episode
 test_host_lost_handback_beside_a_healthy_watcher_still_reaches_main
