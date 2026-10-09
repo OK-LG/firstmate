@@ -295,6 +295,42 @@ test_failed_pool_lookup_refuses_spawn() {
   pass "spawn refuses unknown pool membership before launching a worker"
 }
 
+test_pool_resolution_handles_config_comment_eof() {
+  local dir="$TMP_ROOT/config-comment-eof" pool slot
+  pool="$dir/pool"
+  slot="$pool/17/project"
+  mkdir -p "$pool"
+  fm_git_worktree "$dir/project" "$dir/disk/project" config-comment-eof
+  fm_test_treehouse_pool "$dir/project" "$pool"
+  ln -s "$dir/disk" "$pool/17"
+  printf '{"worktrees":[{"name":"17","path":"%s"}]}\n' "$slot" > "$pool/treehouse-state.json"
+  node --input-type=module - "$ROOT" "$dir/project" "$slot" <<'JS' || fail 'config comment EOF regression'
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import { spawnSync } from 'node:child_process';
+const [root, project, slot] = process.argv.slice(2);
+const config = fs.readFileSync(`${project}/treehouse.toml`, 'utf8');
+const cases = [
+  ['hooks = { post_create = [] # interrupted edit', 2],
+  ['hooks = { post_create = [] # interrupted edit\n', 2],
+  ['hooks = { post_create = [] }', 0],
+  ['hooks = { post_create = [] } # final comment', 0],
+  ['[hooks]\npost_create = [\n# before hook\n"echo ready", # after hook\n]', 0],
+  ['ignored = [[1], # nested array\n[2]]', 0],
+];
+for (const [toml, status] of cases) {
+  fs.writeFileSync(`${project}/treehouse.toml`, status === 0 ? config + toml : toml);
+  const result = spawnSync(process.execPath,
+    [`${root}/bin/fm-treehouse-pool-path.mjs`, project, slot],
+    { encoding: 'utf8', timeout: 5000 });
+  assert.ifError(result.error);
+  assert.equal(result.status, status, toml);
+  assert.equal(result.stdout, status === 0 ? `${slot}\n` : '', toml);
+}
+JS
+  pass "pool lookup refuses unterminated comments promptly and accepts valid TOML"
+}
+
 test_pool_resolution_requires_unique_authoritative_entry() {
   local dir="$TMP_ROOT/pool-resolution" pool slot out status mode
   pool="$dir/pool with spaces"
@@ -364,6 +400,7 @@ test_primary_checkout_that_never_settles_fails_at_the_deadline
 test_symlinked_pool_slot_records_pool_path
 test_symlinked_slot_to_primary_fails_isolation
 test_failed_pool_lookup_refuses_spawn
+test_pool_resolution_handles_config_comment_eof
 test_pool_resolution_requires_unique_authoritative_entry
 
 echo "# all fm-spawn-worktree-settle tests passed"
