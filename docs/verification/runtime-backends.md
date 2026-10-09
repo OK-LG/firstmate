@@ -12,13 +12,15 @@ The alarm runs in the shared watcher used by the Claude, Codex, Cursor, Grok, Op
 Its inputs are status files, explicit handoff acknowledgements, and published merge receipts, so harness output and runtime endpoint probes are not applicable to this check; the regression deliberately supplies no live worker endpoint.
 The native backend event wait remains bounded by the watcher's poll interval and returns to the same alarm scan.
 [`bin/fm-pr-ready-lib.sh`](../../bin/fm-pr-ready-lib.sh) owns the alarm contract.
-Verified on 2026-10-09 with GNU Bash 5.2.21 on Linux:
+Initial alarm coverage was verified on 2026-10-09 with GNU Bash 5.2.21 on Linux:
 
 ```sh
 bash bin/fm-test-run.sh tests/fm-pr-ready.test.sh
 ```
 
-Observed output:
+The current [regression](../../tests/fm-pr-ready.test.sh) also covers delayed acknowledgements, report-token validation and capture, alarm-supplied acknowledgement commands, and task-specific wake cleanup; the recorded output below covers the initial cases only.
+
+Recorded output:
 
 ```text
 ok - age and repeat survive restart and wake acknowledgement
