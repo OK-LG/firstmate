@@ -1,0 +1,34 @@
+=== Scenario: an undelivered hand-back reaches main even beside a healthy watcher ===
+Live lab. Main acknowledged the first close (so the hook reparked), then committed
+the fm_recovery_marker_begin_handling transition bin/fm-wake-drain.sh commits when it
+starts handling a wake. The repark pass-through left its successor watcher running.
+
+-- hook exit status: 2
+
+-- what the hook delivered to main
+firstmate watcher wake - one supervision event needs a handling turn now.
+check: rearm-resurface
+Run bin/fm-wake-drain.sh first, handle the wake, then run its exact WAKE_ACK_REQUIRED --ack-through command. Until that post-handling acknowledgement, interruption leaves the wake durable for idempotent re-handling. This Stop hook owns watcher continuity: when the handling turn ends, the next needed cycle arms automatically - do NOT run bin/fm-watch-arm.sh after an ordinary wake.
+firstmate watcher auto-arm FAILED - the supervision host returned an actionable wake, but its rewake could not be committed.
+
+-- what main did while the hook was parked
+1791538921 main acknowledged pending:downtime:1525565.1791538921.INr1O8
+1791538921 main acknowledged pending:downtime:1525565.1791538921.xfDrTC
+1791538922 main acknowledged pending:downtime:1525565.1791538921.n8IAqq
+1791538928 main began handling announced:downtime:1535965.1791538928.nY47Jj
+
+-- recovery marker when the hook decided: announced:handling:1535965.1791538928.nY47Jj
+
+-- state/.supervision-host.log
+1791538919	start	gen=host-1523470-1791538918	primary=claude
+1791538923	boundary	after 5s
+1791538927	start	gen=host-1534669-1791538926	primary=claude
+1791538929	pass-through	attended	main-only	check: rearm-resurface
+
+-- failure episode marker: present
+-- state/.claude-autoarm-epoch
+epoch=1 owner_pid=1517018 outcome=failed updated_at=1791538931
+linux-starttime=967624619 cmdline-hex=62617368002f746d702f666d2d6c61622e435a655648622f62696e2f666d2d636c617564652d73746f702d6175746f61726d2e736800
+
+The successor watcher was still live when the hook returned (pid 1537723), and the
+close still reached main: a healthy watcher no longer suppresses the hand-back.

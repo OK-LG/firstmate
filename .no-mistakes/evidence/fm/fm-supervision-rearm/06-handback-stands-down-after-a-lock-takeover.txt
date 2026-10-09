@@ -1,0 +1,32 @@
+=== Scenario: an undelivered hand-back stands down once another session owns the home ===
+Identical to evidence 05, except that another live session took the home session lock
+while the hook was parked. The hook must write no failure episode into the home the
+new owner now reads, and must not wake the model.
+
+-- hook exit status: 0 (silent stand-down; stderr is discarded on exit 0)
+-- stderr the hook produced: (none)
+
+-- what main and the other session did while the hook was parked
+1791538965 main acknowledged pending:downtime:1561530.1791538965.hKXyIU
+1791538965 main acknowledged pending:downtime:1561530.1791538965.3Uh8UX
+1791538965 main acknowledged pending:downtime:1561530.1791538965.XI795m
+1791538970 another session took the home session lock (pid 1570164)
+1791538971 main began handling announced:downtime:1570212.1791538971.pbLB3f
+
+-- home session lock when the hook decided: 1570164 (the other session)
+-- recovery marker when the hook decided: announced:handling:1570212.1791538971.pbLB3f
+-- state/.supervision-host.log
+1791538963	start	gen=host-1560626-1791538962	primary=claude
+1791538967	boundary	after 5s
+1791538970	start	gen=host-1569008-1791538969	primary=claude
+1791538972	pass-through	attended	main-only	check: rearm-resurface
+
+-- failure episode marker state/.claude-autoarm-failure-notified: absent
+-- state/.claude-autoarm-epoch (no failed outcome written into the new owner home)
+epoch=1 owner_pid=1557139 outcome=arming updated_at=1791538962
+linux-starttime=967629109 cmdline-hex=62617368002f746d702f666d2d6c61622e4b4e674255342f62696e2f666d2d636c617564652d73746f702d6175746f61726d2e736800
+
+-- successor watcher still live for the new owner: pid 1571878
+
+Contrast with the same state while this session still held the lock (evidence 05):
+  exit 2, failure notice present, outcome=failed.

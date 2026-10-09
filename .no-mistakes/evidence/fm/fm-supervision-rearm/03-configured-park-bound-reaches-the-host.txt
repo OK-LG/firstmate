@@ -1,0 +1,26 @@
+=== Scenario: a home configured park bound reaches the real host unmagnified ===
+Live lab, FM_SUPERVISION_HOST_PARK_SECONDS=20. A turn ends with one task in flight.
+The hook must arm a live cycle, end the park at the home own bound, and wake main.
+
+---------- WITH THE CHANGE (target commit 51df3855) ----------
+hook exit status: 2, wall clock: 29 s
+
+firstmate watcher wake - one supervision event needs a handling turn now.
+supervision-host: cycle boundary - the host ended its park at its bound; drain, acknowledge, and end the turn, and the next park starts on its own
+Run bin/fm-wake-drain.sh first, handle the wake, then run its exact WAKE_ACK_REQUIRED --ack-through command. Until that post-handling acknowledgement, interruption leaves the wake durable for idempotent re-handling. This Stop hook owns watcher continuity: when the handling turn ends, the next needed cycle arms automatically - do NOT run bin/fm-watch-arm.sh after an ordinary wake.
+
+-- state/.supervision-host.log
+1791539855	start	gen=host-2533049-1791539854	primary=claude
+1791539875	boundary	after 21s
+
+---------- WITHOUT THE CHANGE (intermediate commit 38cd562d, floor of 60 s) ----------
+Same lab, same 20 s bound, only bin/fm-claude-stop-autoarm.sh taken from 38cd562d,
+whose park-budget floor replaced any bound under 60 s with 27000 s (7.5 hours).
+hook exit status: 124 (124 = the 60 s cap of this run killed it), wall clock: 60 s
+
+-- what the hook delivered before the cap killed it
+firstmate watcher auto-arm INTERRUPTED by TERM - the Stop-owned automatic supervision mechanism did not reach a terminal watcher outcome.
+Do not launch a manual background arm from this notice; investigate the automatic Stop hook and watcher startup before ending blind.
+
+-- state/.supervision-host.log (the park started and never reached its bound)
+1791540013	start	gen=host-2677983-1791540011	primary=claude

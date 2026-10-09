@@ -1,0 +1,63 @@
+=== Scenario: a turn that ran while the Stop hook was parked acknowledged the episode ===
+Live lab home, real bin/fm-claude-stop-autoarm.sh, real bin/fm-supervision-host.sh,
+real bin/fm-watch.sh. A real worker status append produced the wake. A main-side
+process committed the same fm_recovery_marker_ack transition bin/fm-wake-drain.sh
+commits at its acknowledgement step, while the hook was parked.
+
+---------- WITH THE CHANGE (target commit 51df3855) ----------
+hook exit status: 2
+
+-- what the hook delivered to main (stderr Claude shows on exit 2)
+firstmate watcher wake - one supervision event needs a handling turn now.
+check: rearm-resurface
+Run bin/fm-wake-drain.sh first, handle the wake, then run its exact WAKE_ACK_REQUIRED --ack-through command. Until that post-handling acknowledgement, interruption leaves the wake durable for idempotent re-handling. This Stop hook owns watcher continuity: when the handling turn ends, the next needed cycle arms automatically - do NOT run bin/fm-watch-arm.sh after an ordinary wake.
+
+-- what main did while the hook was parked
+1791538664 main acknowledged pending:downtime:1312992.1791538664.gecQhD -> acked
+1791538664 main acknowledged pending:downtime:1312992.1791538664.kQmvdD -> acked
+1791538664 main acknowledged pending:downtime:1312992.1791538664.lb8bfY -> acked
+1791538670 main stopped acknowledging
+
+-- state/.supervision-host.log (one "start" line per park of the chain)
+1791538662	start	gen=host-1311274-1791538661	primary=claude
+1791538666	boundary	after 5s
+1791538670	start	gen=host-1321135-1791538669	primary=claude
+1791538672	pass-through	attended	main-only	check: rearm-resurface
+
+-- state/.watch-cycle-exits.log (the watcher cycles that ran)
+arm_pid=1312941	watcher_pid=1312992	origin=started	started_at=1791538662	ended_at=1791538664	exit_code=0	signal=none	reason=actionable-signal	beacon_age=1	lock_before=pid:1312992|identity:linux-starttime=967599625 cmdline-hex=62617368002f746d702f666d2d6c61622e5775765a52302f62696e2f666d2d77617463682e736800	lock_after=pid:none|identity:none	successor=none
+arm_pid=1322704	watcher_pid=1322754	origin=started	started_at=1791538670	ended_at=1791538671	exit_code=0	signal=none	reason=actionable-check	beacon_age=0	lock_before=pid:1322754|identity:linux-starttime=967600440 cmdline-hex=62617368002f746d702f666d2d6c61622e5775765a52302f62696e2f666d2d77617463682e736800	lock_after=pid:none|identity:none	successor=started:1324558
+
+-- state/.claude-autoarm-epoch
+epoch=1 owner_pid=1303875 outcome=rewake updated_at=1791538673 session_pid=832086 recovery_generation=1322754.1791538671.ntWbsT
+linux-starttime=967598908 cmdline-hex=62617368002f746d702f666d2d6c61622e5775765a52302f62696e2f666d2d636c617564652d73746f702d6175746f61726d2e736800
+
+-- live watcher recorded when the hook returned: see run transcript (watcher 1324558 STILL LIVE)
+
+
+---------- WITHOUT THE CHANGE (base commit 99482e8a) ----------
+Same lab, same race, only bin/fm-claude-stop-autoarm.sh taken from the base commit.
+hook exit status: 0  (exit 0: Claude discards the collected stderr, so main hears nothing)
+
+-- stderr the hook composed but exit 0 threw away
+firstmate watcher wake - one supervision event needs a handling turn now.
+signal: /tmp/fm-lab.QhPdE5/state/demo.status
+supervision-host: cycle boundary - the host ended its park at its bound; drain, acknowledge, and end the turn, and the next park starts on its own
+Run bin/fm-wake-drain.sh first, handle the wake, then run its exact WAKE_ACK_REQUIRED --ack-through command. Until that post-handling acknowledgement, interruption leaves the wake durable for idempotent re-handling. This Stop hook owns watcher continuity: when the handling turn ends, the next needed cycle arms automatically - do NOT run bin/fm-watch-arm.sh after an ordinary wake.
+
+-- what main did while the hook was parked
+1791538722 main acknowledged pending:downtime:1362795.1791538722.nCRwGL -> acked
+1791538722 main acknowledged pending:downtime:1362795.1791538722.8HSQJj -> acked
+
+-- state/.supervision-host.log (one park only: no repark)
+1791538721	start	gen=host-1361924-1791538720	primary=claude
+1791538724	boundary	after 5s
+
+-- state/.watch-cycle-exits.log (the last cycle ended and nothing followed)
+arm_pid=1362750	watcher_pid=1362795	origin=started	started_at=1791538721	ended_at=1791538722	exit_code=0	signal=none	reason=actionable-signal	beacon_age=1	lock_before=pid:1362795|identity:linux-starttime=967605476 cmdline-hex=62617368002f746d702f666d2d6c61622e5168506445352f62696e2f666d2d77617463682e736800	lock_after=pid:none|identity:none	successor=none
+
+-- state/.claude-autoarm-epoch (still "arming": no terminal outcome)
+epoch=1 owner_pid=1358248 outcome=arming updated_at=1791538719
+linux-starttime=967604837 cmdline-hex=62617368002f746d702f666d2d6c61622e5168506445352f62696e2f666d2d636c617564652d73746f702d6175746f61726d2e736800
+
+-- live watcher when the hook returned: none (home left unsupervised, the reported gap)

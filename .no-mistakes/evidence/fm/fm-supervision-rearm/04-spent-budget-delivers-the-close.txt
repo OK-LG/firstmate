@@ -1,0 +1,26 @@
+=== Scenario: the end of the chain delivers the close instead of closing silently ===
+Live lab, hook park budget configured at 5 s, so the first park spends it all.
+Main acknowledged the episode while the hook was parked, so the rewake was refused.
+
+-- hook exit status: 2
+
+-- what the hook delivered to main
+firstmate watcher wake - one supervision event needs a handling turn now.
+signal: /tmp/fm-lab.ZWnC1c/state/demo.status
+supervision-host: cycle boundary - the host ended its park at its bound; drain, acknowledge, and end the turn, and the next park starts on its own
+Run bin/fm-wake-drain.sh first, handle the wake, then run its exact WAKE_ACK_REQUIRED --ack-through command. Until that post-handling acknowledgement, interruption leaves the wake durable for idempotent re-handling. This Stop hook owns watcher continuity: when the handling turn ends, the next needed cycle arms automatically - do NOT run bin/fm-watch-arm.sh after an ordinary wake.
+firstmate watcher auto-arm FAILED - the park budget of this Stop hook is spent, so the actionable close it holds is delivered here instead of parking past the hook timeout.
+
+-- what main did while the hook was parked
+1791538848 main acknowledged pending:downtime:1457024.1791538848.nG6VsI -> acked
+1791538848 main acknowledged pending:downtime:1457024.1791538848.C55X2G -> acked
+1791538849 main acknowledged pending:downtime:1457024.1791538849.1egeem -> acked
+
+-- state/.supervision-host.log (no second park was started)
+1791538846	start	gen=host-1454947-1791538845	primary=claude
+1791538851	boundary	after 6s
+
+-- failure episode marker state/.claude-autoarm-failure-notified: present (notice once per episode)
+-- state/.claude-autoarm-epoch
+epoch=1 owner_pid=1445201 outcome=failed updated_at=1791538854
+linux-starttime=967617276 cmdline-hex=62617368002f746d702f666d2d6c61622e5a576e4331632f62696e2f666d2d636c617564652d73746f702d6175746f61726d2e736800
