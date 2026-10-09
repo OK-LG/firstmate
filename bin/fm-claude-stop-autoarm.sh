@@ -168,7 +168,10 @@ esac
 # parks ran before it. The budget is the operator's own park bound, accepted
 # on exactly the terms the host accepts it on (bin/fm-supervision-host.sh), so
 # a configured park is shortened by what this hook already spent and by
-# nothing else.
+# nothing else. Each park's turn limit is pinned to the same remainder: that
+# limit is measured from the host's own start, so an inherited later
+# FM_SUPERVISION_HOST_PARK_LIMIT would let an engine turn of a chained park
+# run past the registration this budget exists to respect.
 PARK_BUDGET=${FM_SUPERVISION_HOST_PARK_SECONDS:-27000}
 case "$PARK_BUDGET" in
   ''|0*|*[!0-9]*) PARK_BUDGET=27000 ;;
