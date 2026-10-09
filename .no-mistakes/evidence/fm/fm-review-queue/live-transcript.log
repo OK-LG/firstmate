@@ -1,0 +1,184 @@
+$ bin/fm-lab-home.sh create /root/.no-mistakes/worktrees/7f0ec18181b6/01M4GC8SXVYPE0BSGSWEQKRWVQ/.fm-live-_3uvlikg
+/root/.no-mistakes/worktrees/7f0ec18181b6/01M4GC8SXVYPE0BSGSWEQKRWVQ/.fm-live-_3uvlikg
+EXIT=0
+REPORT done [at=1791551217]: PR https://github.com/o/r/pull/7 checks green
+$ bin/fm-watch.sh
+check: PR-ready overdue: task=ship PR=https://github.com/o/r/pull/7 age=1202s; start its authorized review or landing, then acknowledge with bin/fm-pr-ready-ack.sh ship https://github.com/o/r/pull/7 <review-started|merge-started|held> strong:64770:6276849:2026-10-09\ 13:26:58.413244316\ +0000\|68
+EXIT=0
+STATE ship.pr-ready
+strong:64770:6276849:2026-10-09 13:26:58.413244316 +0000
+68
+https://github.com/o/r/pull/7
+1791551217
+1791552419
+0
+68
+fm-pr-ready-v1
+
+STATE .wake-queue
+1791552419	1	check	pr-ready-ship	check: PR-ready overdue: task=ship PR=https://github.com/o/r/pull/7 age=1202s; start its authorized review or landing, then acknowledge with bin/fm-pr-ready-ack.sh ship https://github.com/o/r/pull/7 <review-started|merge-started|held> strong:64770:6276849:2026-10-09\ 13:26:58.413244316\ +0000\|68
+
+PASS A quiet supervisor receives a durable actionable alarm for a PR older than the default 20 minutes
+$ bin/fm-wake-drain.sh
+1791552419	1	check	pr-ready-ship	check: PR-ready overdue: task=ship PR=https://github.com/o/r/pull/7 age=1202s; start its authorized review or landing, then acknowledge with bin/fm-pr-ready-ack.sh ship https://github.com/o/r/pull/7 <review-started|merge-started|held> strong:64770:6276849:2026-10-09\ 13:26:58.413244316\ +0000\|68
+STATUS OUTCOME BACKSTOP (newest captain-facing task event has no covering branch outcome):
+ship done [at=1791551217]: PR https://github.com/o/r/pull/7 checks green
+WAKE_ACK_REQUIRED: after handling completes run bin/fm-wake-drain.sh --ack-through 1 --recovery-generation 3319443.1791552419.NgmIQW
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+●  WATCHER DOWN - SUPERVISION IS OFF
+●  1 task(s) in flight, but no live watcher process holds this home lock (last beat: 2s ago).
+●  Trust the emitted supervision protocol for this harness; do not use shell & for watcher repair.
+●  This is a supervision warning only; the guarded operation WILL still run.
+●  Quiet mode owns watcher supervision; load /quiet and ensure the daemon is running instead of starting normal supervision directly.
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+WARNING: queued wakes pending - drain them with bin/fm-wake-drain.sh before anything else.
+EXIT=0
+$ bin/fm-wake-drain.sh --ack-through 1 --recovery-generation 3319443.1791552419.NgmIQW
+EXIT=0
+$ bin/fm-watch.sh
+check: PR-ready overdue: task=ship PR=https://github.com/o/r/pull/7 age=1206s; start its authorized review or landing, then acknowledge with bin/fm-pr-ready-ack.sh ship https://github.com/o/r/pull/7 <review-started|merge-started|held> strong:64770:6276849:2026-10-09\ 13:26:58.413244316\ +0000\|68
+EXIT=0
+STATE .wake-queue
+1791552423	2	check	pr-ready-ship	check: PR-ready overdue: task=ship PR=https://github.com/o/r/pull/7 age=1206s; start its authorized review or landing, then acknowledge with bin/fm-pr-ready-ack.sh ship https://github.com/o/r/pull/7 <review-started|merge-started|held> strong:64770:6276849:2026-10-09\ 13:26:58.413244316\ +0000\|68
+
+PASS Restarting the watcher after draining the wake repeats the still-unhandled PR alarm
+$ bin/fm-pr-ready-ack.sh --capture ship https://github.com/o/r/pull/7
+strong:64770:6276849:2026-10-09 13:26:58.413244316 +0000|68
+done [at=1791551217]: PR https://github.com/o/r/pull/7 checks green
+EXIT=0
+REPORT ready [at=1791552424]: PR https://github.com/o/r/pull/7 fixes ready for second review
+$ bin/fm-pr-ready-ack.sh ship https://github.com/o/r/pull/7 review-started strong:64770:6276849:2026-10-09 13:26:58.413244316 +0000|68
+acknowledged: task=ship PR=https://github.com/o/r/pull/7 reason=review-started
+EXIT=0
+$ bin/fm-wake-drain.sh
+1791552423	2	check	pr-ready-ship	check: PR-ready overdue: task=ship PR=https://github.com/o/r/pull/7 age=1206s; start its authorized review or landing, then acknowledge with bin/fm-pr-ready-ack.sh ship https://github.com/o/r/pull/7 <review-started|merge-started|held> strong:64770:6276849:2026-10-09\ 13:26:58.413244316\ +0000\|68
+STATUS OUTCOME BACKSTOP (newest captain-facing task event has no covering branch outcome):
+ship ready [at=1791552424]: PR https://github.com/o/r/pull/7 fixes ready for second review
+WAKE_ACK_REQUIRED: after handling completes run bin/fm-wake-drain.sh --ack-through 2 --recovery-generation 3322732.1791552424.nFJjO5
+WARNING: watcher still down (same stale episode; last beat: 3s ago, grace 300s) - full banner already printed this episode.
+WARNING: queued wakes pending - drain them with bin/fm-wake-drain.sh before anything else.
+EXIT=0
+$ bin/fm-wake-drain.sh --ack-through 2 --recovery-generation 3322732.1791552424.nFJjO5
+EXIT=0
+$ bin/fm-watch.sh
+check: PR-ready overdue: task=ship PR=https://github.com/o/r/pull/7 age=3s; start its authorized review or landing, then acknowledge with bin/fm-pr-ready-ack.sh ship https://github.com/o/r/pull/7 <review-started|merge-started|held> strong:64770:6276849:2026-10-09\ 13:26:58.413244316\ +0000\|154
+EXIT=0
+STATE ship.pr-ready
+strong:64770:6276849:2026-10-09 13:26:58.413244316 +0000
+154
+https://github.com/o/r/pull/7
+1791552424
+1791552427
+0
+154
+fm-pr-ready-v1
+
+STATE ship.pr-ready-ack
+strong:64770:6276849:2026-10-09 13:26:58.413244316 +0000
+68
+https://github.com/o/r/pull/7
+review-started
+fm-pr-ready-ack-v1
+
+PASS A delayed acknowledgement of report A leaves a newer ready report B on the same PR pending
+$ bin/fm-pr-ready-ack.sh --capture ship https://github.com/o/r/pull/7
+strong:64770:6276849:2026-10-09 13:26:58.413244316 +0000|154
+ready [at=1791552424]: PR https://github.com/o/r/pull/7 fixes ready for second review
+EXIT=0
+$ bin/fm-pr-ready-ack.sh ship https://github.com/o/r/pull/7 review-started strong:64770:6276849:2026-10-09 13:26:58.413244316 +0000|1
+error: captured report is unavailable or names another PR
+EXIT=1
+$ bin/fm-pr-ready-ack.sh ship https://github.com/o/r/pull/7 review-started strong:64770:6276849:2026-10-09 13:26:58.413244316 +0000|999999999
+error: captured report no longer belongs to this status log
+EXIT=1
+$ bin/fm-pr-ready-ack.sh ship https://github.com/o/r/pull/7 review-started wrong-identity|1
+error: captured report no longer belongs to this status log
+EXIT=1
+$ bin/fm-pr-ready-ack.sh ship https://github.com/o/r/pull/8 held strong:64770:6276849:2026-10-09 13:26:58.413244316 +0000|154
+error: captured report is unavailable or names another PR
+EXIT=1
+PASS Acknowledgement refuses partial, future, stale-identity and wrong-PR report tokens
+$ bin/fm-pr-ready-ack.sh ship https://github.com/o/r/pull/7 review-started strong:64770:6276849:2026-10-09 13:26:58.413244316 +0000|154
+acknowledged: task=ship PR=https://github.com/o/r/pull/7 reason=review-started
+EXIT=0
+$ bin/fm-wake-drain.sh
+1791552428	3	check	pr-ready-ship	check: PR-ready overdue: task=ship PR=https://github.com/o/r/pull/7 age=3s; start its authorized review or landing, then acknowledge with bin/fm-pr-ready-ack.sh ship https://github.com/o/r/pull/7 <review-started|merge-started|held> strong:64770:6276849:2026-10-09\ 13:26:58.413244316\ +0000\|154
+WAKE_ACK_REQUIRED: after handling completes run bin/fm-wake-drain.sh --ack-through 3 --recovery-generation 3325802.1791552428.2ZQB1c
+WARNING: watcher still down (same stale episode; last beat: 3s ago, grace 300s) - full banner already printed this episode.
+WARNING: queued wakes pending - drain them with bin/fm-wake-drain.sh before anything else.
+EXIT=0
+$ bin/fm-wake-drain.sh --ack-through 3 --recovery-generation 3325802.1791552428.2ZQB1c
+EXIT=0
+$ bin/fm-watch.sh
+EXIT=-15
+$ bin/fm-watch.sh
+check: rearm-resurface
+EXIT=0
+$ bin/fm-wake-drain.sh
+1791552434	5	signal	ship.status	signal: /root/.no-mistakes/worktrees/7f0ec18181b6/01M4GC8SXVYPE0BSGSWEQKRWVQ/.fm-live-_3uvlikg/state/ship.status
+wake annotation: unread wake-EVENT since last drain, not current state: ship.status: done [at=1791551217]: PR https://github.com/o/r/pull/7 checks green
+wake annotation: latest wake-EVENT observed at drain, not current state: ship.status: ready [at=1791552424]: PR https://github.com/o/r/pull/7 fixes ready for second review
+WAKE_ACK_REQUIRED: after handling completes run bin/fm-wake-drain.sh --ack-through 5 --recovery-generation 3328273.1791552434.IMIy6O
+WARNING: watcher still down (same stale episode; last beat: 2s ago, grace 300s) - full banner already printed this episode.
+WARNING: queued wakes pending - drain them with bin/fm-wake-drain.sh before anything else.
+EXIT=0
+$ bin/fm-wake-drain.sh --ack-through 5 --recovery-generation 3328273.1791552434.IMIy6O
+EXIT=0
+$ bin/fm-watch.sh
+EXIT=-15
+STATE ship.pr-ready
+strong:64770:6276849:2026-10-09 13:26:58.413244316 +0000
+154
+https://github.com/o/r/pull/7
+1791552424
+1791552427
+1
+154
+fm-pr-ready-v1
+
+PASS Acknowledging the exact newer report suppresses subsequent overdue alarms across watcher restarts
+REPORT done [at=1791552438]: PR https://github.com/o/r/pull/7 third review ready
+$ bin/fm-watch.sh
+check: rearm-resurface
+EXIT=0
+$ bin/fm-wake-drain.sh
+STATUS OUTCOME BACKSTOP (newest captain-facing task event has no covering branch outcome):
+ship done [at=1791552438]: PR https://github.com/o/r/pull/7 third review ready
+WAKE_ACK_REQUIRED: after handling completes run bin/fm-wake-drain.sh --ack-through 0 --recovery-generation 3334008.1791552438.ExhnFv
+WARNING: watcher still down (same stale episode; last beat: 2s ago, grace 300s) - full banner already printed this episode.
+EXIT=0
+$ bin/fm-wake-drain.sh --ack-through 0 --recovery-generation 3334008.1791552438.ExhnFv
+EXIT=0
+$ bin/fm-watch.sh
+signal: /root/.no-mistakes/worktrees/7f0ec18181b6/01M4GC8SXVYPE0BSGSWEQKRWVQ/.fm-live-_3uvlikg/state/ship.status
+EXIT=0
+$ bin/fm-watch.sh
+check: rearm-resurface
+EXIT=0
+$ bin/fm-wake-drain.sh
+1791552444	7	signal	ship.status	signal: /root/.no-mistakes/worktrees/7f0ec18181b6/01M4GC8SXVYPE0BSGSWEQKRWVQ/.fm-live-_3uvlikg/state/ship.status
+wake annotation: latest wake-EVENT observed at drain, not current state: ship.status: done [at=1791552438]: PR https://github.com/o/r/pull/7 third review ready
+WAKE_ACK_REQUIRED: after handling completes run bin/fm-wake-drain.sh --ack-through 7 --recovery-generation 3337211.1791552444.dHvU86
+WARNING: watcher still down (same stale episode; last beat: 2s ago, grace 300s) - full banner already printed this episode.
+WARNING: queued wakes pending - drain them with bin/fm-wake-drain.sh before anything else.
+EXIT=0
+$ bin/fm-wake-drain.sh --ack-through 7 --recovery-generation 3337211.1791552444.dHvU86
+EXIT=0
+$ bin/fm-watch.sh
+check: PR-ready overdue: task=ship PR=https://github.com/o/r/pull/7 age=11s; start its authorized review or landing, then acknowledge with bin/fm-pr-ready-ack.sh ship https://github.com/o/r/pull/7 <review-started|merge-started|held> strong:64770:6276849:2026-10-09\ 13:26:58.413244316\ +0000\|228
+EXIT=0
+PASS A later done report reopens the same PR and waits for the configured age before alarming
+$ bash -c . bin/fm-wake-lib.sh; fm_wake_append check pr-ready-ship-extra "check: preserve neighboring task"
+EXIT=0
+$ bin/fm-teardown.sh ship
+teardown ship complete (window fm-lab:fm-ship, worktree /root/.no-mistakes/worktrees/7f0ec18181b6/01M4GC8SXVYPE0BSGSWEQKRWVQ/.fm-live-_3uvlikg/missing-worktree)
+Backlog: ship just finished (config/backlog-backend selects manual editing). Update /root/.no-mistakes/worktrees/7f0ec18181b6/01M4GC8SXVYPE0BSGSWEQKRWVQ/.fm-live-_3uvlikg/data/backlog.md - move ship to Done, keep Done to the 10 most recent, then re-scan Queued and dispatch only work whose blockers are gone and date is due.
+fm-gate-refuse: gate agent lifecycle permitted only against lab home /root/.no-mistakes/worktrees/7f0ec18181b6/01M4GC8SXVYPE0BSGSWEQKRWVQ/.fm-live-_3uvlikg
+WARNING: watcher still down (same stale episode; last beat: 1s ago, grace 300s) - full banner already printed this episode.
+WARNING: queued wakes pending - drain them with bin/fm-wake-drain.sh before anything else.
+EXIT=0
+STATE .wake-queue
+1791552449	9	check	pr-ready-ship-extra	check: preserve neighboring task
+
+PASS Task teardown removes its pending-review records and overdue wake while preserving neighboring tasks
+Disposable lab removed

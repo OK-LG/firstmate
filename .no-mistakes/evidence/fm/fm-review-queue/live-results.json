@@ -1,0 +1,51 @@
+[
+  {
+    "name": "A quiet supervisor receives a durable actionable alarm for a PR older than the default 20 minutes",
+    "result": "pass",
+    "live": true,
+    "evidence": "live-transcript.log",
+    "reason": ""
+  },
+  {
+    "name": "Restarting the watcher after draining the wake repeats the still-unhandled PR alarm",
+    "result": "pass",
+    "live": true,
+    "evidence": "live-transcript.log",
+    "reason": ""
+  },
+  {
+    "name": "A delayed acknowledgement of report A leaves a newer ready report B on the same PR pending",
+    "result": "pass",
+    "live": true,
+    "evidence": "live-transcript.log",
+    "reason": ""
+  },
+  {
+    "name": "Acknowledgement refuses partial, future, stale-identity and wrong-PR report tokens",
+    "result": "pass",
+    "live": true,
+    "evidence": "live-transcript.log",
+    "reason": ""
+  },
+  {
+    "name": "Acknowledging the exact newer report suppresses subsequent overdue alarms across watcher restarts",
+    "result": "pass",
+    "live": true,
+    "evidence": "live-transcript.log",
+    "reason": ""
+  },
+  {
+    "name": "A later done report reopens the same PR and waits for the configured age before alarming",
+    "result": "pass",
+    "live": true,
+    "evidence": "live-transcript.log",
+    "reason": ""
+  },
+  {
+    "name": "Task teardown removes its pending-review records and overdue wake while preserving neighboring tasks",
+    "result": "pass",
+    "live": true,
+    "evidence": "live-transcript.log",
+    "reason": ""
+  }
+]
