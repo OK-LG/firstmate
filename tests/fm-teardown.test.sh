@@ -2286,7 +2286,7 @@ test_herdr_flat_teardown_refuses_orphaning_records_then_retry_completes() {
   : > "$case_dir/state/task-x1.status"
   : > "$case_dir/state/task-x1.turn-ended"
   # Record every Treehouse invocation: the contended-lock refusal must fire
-  # before a return, while a read-only status query is harmless.
+  # before the isolated copy is returned.
   thlog="$case_dir/treehouse.log"; : > "$thlog"
   cat > "$case_dir/fakebin/treehouse" <<SH
 #!/usr/bin/env bash
