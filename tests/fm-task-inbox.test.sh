@@ -295,8 +295,13 @@ test_ring_skips_dead_agent() {
 
 # A fake tmux whose pane is a Claude-style composer that keeps its content in
 # FM_FAKE_COMPOSER: literal input appends to it, capture renders it wrapped
-# between rules, and Enter submits it (logged as SUBMIT) unless
-# FM_FAKE_DROP_ENTERS still holds a count of Enters to swallow.
+# between rules, C-u deletes the last wrapped row, and Enter submits it
+# (logged as SUBMIT) unless FM_FAKE_DROP_ENTERS still holds a count of Enters
+# to swallow.
+# With FM_FAKE_GHOST_HINT set, an empty composer draws that hint the way a real
+# harness does: dim in the styled capture (`capture-pane -e`, what the composer
+# classifier reads) and bare text in the plain one, which is why only the
+# styled read can tell the hint from typed input.
 make_composer_stub() {  # <dir>
   mkdir -p "$1/fakebin"
   cat > "$1/fakebin/tmux" <<'SH'
@@ -315,6 +320,10 @@ case "${1:-}" in
     done
     if [ "$literal" = 1 ]; then
       printf '%s' "$1" >> "$FM_FAKE_COMPOSER"
+    elif [ "${1:-}" = C-u ]; then
+      text=$(cat "$FM_FAKE_COMPOSER")
+      rows=$(( (${#text} + 59) / 60 ))
+      printf '%s' "${text:0:$(( (rows - 1) * 60 ))}" > "$FM_FAKE_COMPOSER"
     elif [ "${1:-}" = Enter ]; then
       drops=$(cat "$FM_FAKE_DROP_ENTERS" 2>/dev/null || echo 0)
       if [ "$drops" -gt 0 ]; then
@@ -329,12 +338,18 @@ case "${1:-}" in
     case "$*" in *cursor_y*) printf '2\n'; exit 0 ;; esac
     printf 'fakepane\n'; exit 0 ;;
   capture-pane)
+    styled=0
+    for arg in "$@"; do [ "$arg" = -e ] && styled=1; done
     rule=$(printf '─%.0s' $(seq 64))
     printf '● done\n%s\n' "$rule"
     if [ -s "$FM_FAKE_COMPOSER" ]; then
       fold -w 60 "$FM_FAKE_COMPOSER" | awk 'NR == 1 { print "❯ " $0; next } { print "  " $0 }'
-    else
+    elif [ -z "${FM_FAKE_GHOST_HINT:-}" ]; then
       printf '❯ \n'
+    elif [ "$styled" = 1 ]; then
+      printf '❯ \033[2m%s\033[0m\n' "$FM_FAKE_GHOST_HINT"
+    else
+      printf '❯ %s\n' "$FM_FAKE_GHOST_HINT"
     fi
     printf '%s\n  ? for shortcuts\n' "$rule"
     exit 0 ;;
@@ -392,6 +407,497 @@ test_ring_submits_its_own_stuck_doorbell() {
     || fail "the retry Enter should submit the doorbell once:"$'\n'"$(cat "$log")"
   [ ! -s "$composer" ] || fail "a lost Enter left the doorbell unsubmitted"
   pass "inbox: the ring submits its own stuck doorbell, skips other pending text, and retries a lost Enter once on both paths"
+}
+
+# The stuck-steer incident shapes: the composer keeps a truncated piece of our
+# doorbell, which every ring used to skip as someone's draft, or our whole
+# doorbell whose Enter never lands, which the ring used to report as rung.
+test_ring_recovers_a_stuck_doorbell_and_verifies_its_submit() {
+  local dir state rec doorbell log composer drops rc piece
+  dir="$TMP_ROOT/ring-recover"
+  state="$dir/state"
+  mkdir -p "$state"
+  make_composer_stub "$dir"
+  rec=$(inbox_lib "$state" fm_task_inbox_write "$state" t1 "please continue")
+  doorbell=$(inbox_lib "$state" fm_task_inbox_doorbell_line "$rec")
+  log="$dir/send.log"; composer="$dir/composer"; drops="$dir/drops"
+  ring() {
+    PATH="$dir/fakebin:$PATH" FM_SEND_LOG="$log" FM_FAKE_COMPOSER="$composer" \
+      FM_FAKE_DROP_ENTERS="$drops" FM_TASK_INBOX_SETTLE_SECS=0 \
+      inbox_lib "$state" fm_task_inbox_ring tmux sess:fm-t1 "$rec" fm-t1
+  }
+
+  # A head piece two wrapped rows long is cleared row by row, then the whole
+  # doorbell is rung fresh and submitted once.
+  : > "$log"; printf '%s' "${doorbell:0:120}" > "$composer"; echo 0 > "$drops"
+  rc=0; ring || rc=$?
+  [ "$rc" = 0 ] || fail "a composer holding a piece of our doorbell should be recovered, got rc $rc"
+  [ "$(cat "$log")" = "SUBMIT: $doorbell" ] \
+    || fail "the piece should be cleared and the whole doorbell submitted once:"$'\n'"$(cat "$log")"
+  [ ! -s "$composer" ] || fail "the recovered doorbell was left in the composer: $(cat "$composer")"
+
+  # A tail piece is ours too.
+  : > "$log"; printf '%s' "${doorbell:60}" > "$composer"
+  rc=0; ring || rc=$?
+  [ "$rc" = 0 ] || fail "a composer holding the tail of our doorbell should be recovered, got rc $rc"
+  [ "$(cat "$log")" = "SUBMIT: $doorbell" ] \
+    || fail "the tail piece should be cleared and the whole doorbell submitted once:"$'\n'"$(cat "$log")"
+
+  # Words that occur INSIDE the doorbell are ordinary English a person types
+  # themselves, however long the phrase is: skipped, never cleared. Only the
+  # head or the tail of the line proves our own truncated type.
+  for piece in 'numeric order' 'read and act on each in numeric order'; do
+    : > "$log"; printf '%s' "$piece" > "$composer"
+    rc=0; ring || rc=$?
+    [ "$rc" = 1 ] || fail "a draft from inside the doorbell should skip, got rc $rc for: $piece"
+    [ "$(cat "$composer")" = "$piece" ] || fail "a draft was changed: $(cat "$composer")"
+    [ ! -s "$log" ] || fail "a draft was submitted:"$'\n'"$(cat "$log")"
+  done
+
+  # Our whole doorbell whose Enter never lands is reported as not reached, so
+  # the ladder retries and escalates, and it is never retyped.
+  : > "$log"; printf '%s' "$doorbell" > "$composer"; echo 99 > "$drops"
+  rc=0; ring || rc=$?
+  [ "$rc" = 2 ] || fail "a doorbell whose Enter never lands should report not reached, got rc $rc"
+  [ "$(cat "$composer")" = "$doorbell" ] || fail "the unsubmitted doorbell was retyped or changed: $(cat "$composer")"
+  [ ! -s "$log" ] || fail "nothing should have been submitted:"$'\n'"$(cat "$log")"
+  pass "inbox: the ring recovers a truncated doorbell, protects drafts from inside its own prose, and reports an unsubmitted doorbell as not reached"
+}
+
+# The same incident on Claude over Herdr, whose submit core refuses to type into
+# a composer that is not empty: our own doorbell left there while the agent is
+# busy is submitted (a busy Claude queues it), a truncated piece is cleared and
+# rung fresh, and a draft is never touched.
+test_ring_recovers_a_stuck_doorbell_on_claude_herdr() {
+  local dir state rec doorbell pane rc
+  dir="$TMP_ROOT/ring-recover-herdr"
+  state="$dir/state"
+  pane="$dir/pane"
+  mkdir -p "$state" "$dir/fakebin"
+  fm_fake_herdr_claude_pane "$dir/fakebin" "$pane"
+  rec=$(inbox_lib "$state" fm_task_inbox_write "$state" t1 "please continue")
+  doorbell=$(inbox_lib "$state" fm_task_inbox_doorbell_line "$rec")
+  ring() {
+    PATH="$dir/fakebin:$PATH" FM_TASK_INBOX_SETTLE_SECS=0 FM_BACKEND_HERDR_SUBMIT_POLLS=1 \
+      inbox_lib "$state" fm_task_inbox_ring herdr default:w1:p2 "$rec" fm-t1
+  }
+
+  rm -f "$pane/submits" "$pane/keys"; printf '%s' "$doorbell" > "$pane/composer"; echo working > "$pane/status"
+  rc=0; ring || rc=$?
+  [ "$rc" = 0 ] || fail "our own doorbell held while the agent is busy should be submitted, got rc $rc"
+  [ "$(cat "$pane/submits" 2>/dev/null)" = "SUBMIT: $doorbell" ] \
+    || fail "the held doorbell should be submitted once, not retyped:"$'\n'"$(cat "$pane/submits" 2>/dev/null)"
+
+  rm -f "$pane/submits" "$pane/keys"; printf '%s' "${doorbell:0:120}" > "$pane/composer"; echo idle > "$pane/status"
+  rc=0; ring || rc=$?
+  [ "$rc" = 0 ] || fail "a truncated doorbell on an idle Claude should be recovered, got rc $rc"
+  [ "$(cat "$pane/submits" 2>/dev/null)" = "SUBMIT: $doorbell" ] \
+    || fail "the truncated doorbell should be cleared and the whole line submitted once:"$'\n'"$(cat "$pane/submits" 2>/dev/null)"
+  [ "$(grep -c '^ctrl+u$' "$pane/keys")" = 2 ] \
+    || fail "clearing two wrapped rows should take two Ctrl-U presses:"$'\n'"$(cat "$pane/keys")"
+
+  rm -f "$pane/submits" "$pane/keys"; printf '%s' 'a half-typed draft of my own' > "$pane/composer"
+  rc=0; ring || rc=$?
+  [ "$rc" = 1 ] || fail "a draft in the composer should skip the ring, got rc $rc"
+  [ "$(cat "$pane/composer")" = 'a half-typed draft of my own' ] || fail "the draft was changed: $(cat "$pane/composer")"
+  [ ! -e "$pane/keys" ] || fail "a key was sent into a composer holding a draft:"$'\n'"$(cat "$pane/keys")"
+  pass "inbox: on Claude over Herdr the ring submits our own held doorbell even while busy, recovers a truncated one, and never touches a draft"
+}
+
+# The paste-placeholder shape of the same incident: Claude collapses one fast
+# literal burst into `[Pasted text #1]` and expands it again on submit, so a
+# ring whose Enter is swallowed reads that placeholder back instead of its own
+# line. Every ring used to call it someone else's draft, report the doorbell as
+# rung, and then skip for good, so the worker never read the message.
+test_ring_submits_a_doorbell_collapsed_into_a_paste_placeholder() {
+  local dir state rec doorbell pane rc draft
+  dir="$TMP_ROOT/ring-collapsed"
+  state="$dir/state"
+  pane="$dir/pane"
+  mkdir -p "$state" "$dir/fakebin"
+  fm_fake_herdr_claude_pane "$dir/fakebin" "$pane"
+  rec=$(inbox_lib "$state" fm_task_inbox_write "$state" t1 "please continue")
+  doorbell=$(inbox_lib "$state" fm_task_inbox_doorbell_line "$rec")
+  ring() {
+    PATH="$dir/fakebin:$PATH" FM_TASK_INBOX_SETTLE_SECS=0 FM_BACKEND_HERDR_SUBMIT_POLLS=1 \
+      FM_FAKE_PASTE_COLLAPSE=1 \
+      inbox_lib "$state" fm_task_inbox_ring herdr default:w1:p2 "$rec" fm-t1
+  }
+
+  # Every Enter the submit core sends is swallowed, so the ring's own read-back
+  # owns the recovery: it presses Enter again and the collapsed doorbell lands.
+  : > "$pane/composer"; echo idle > "$pane/status"; echo 2 > "$pane/drops"
+  rc=0; ring || rc=$?
+  [ "$rc" = 0 ] || fail "a doorbell collapsed into a paste placeholder should be submitted, got rc $rc"
+  [ "$(cat "$pane/submits" 2>/dev/null)" = "SUBMIT: $doorbell" ] \
+    || fail "the collapsed doorbell should be submitted once, not retyped:"$'\n'"$(cat "$pane/submits" 2>/dev/null)"
+  [ ! -s "$pane/composer" ] || fail "the collapsed doorbell was left in the composer: $(cat "$pane/composer")"
+
+  # A person's own paste collapses to the same placeholder and carries no
+  # identity of its own, so a ring that did not type it submits nothing and
+  # clears nothing: the ladder re-rings instead.
+  draft='a half-typed draft of my own'
+  rm -f "$pane/submits" "$pane/keys"; printf '%s' "$draft" > "$pane/composer"; echo 0 > "$pane/drops"
+  rc=0; ring || rc=$?
+  [ "$rc" = 1 ] || fail "a collapsed draft this ring did not type should skip, got rc $rc"
+  [ "$(cat "$pane/composer")" = "$draft" ] || fail "a collapsed draft was changed: $(cat "$pane/composer")"
+  [ ! -e "$pane/keys" ] || fail "a key was sent into a composer holding a collapsed draft:"$'\n'"$(cat "$pane/keys")"
+  pass "inbox: the ring submits its doorbell when Claude collapses it into a paste placeholder, and never acts on a collapsed draft"
+}
+
+# A person pasting into the same composer while the ring is mid-send: Claude
+# collapses their block into the same `[Pasted text #1]` shape, so the submit
+# core's pre-type proof refuses to type and the read-back finds a placeholder
+# this ring never typed. Pressing Enter there would submit their unreviewed
+# paste to their own agent.
+test_ring_never_submits_a_collapsed_paste_it_did_not_type() {
+  local dir state rec pane rc paste
+  dir="$TMP_ROOT/ring-foreign-paste"
+  state="$dir/state"
+  pane="$dir/pane"
+  mkdir -p "$state" "$dir/fakebin"
+  fm_fake_herdr_claude_pane "$dir/fakebin" "$pane"
+  rec=$(inbox_lib "$state" fm_task_inbox_write "$state" t1 "please continue")
+  paste='my own unreviewed notes, pasted a moment too late'
+  : > "$pane/composer"; echo idle > "$pane/status"; echo 0 > "$pane/drops"
+  printf '%s' "$paste" > "$pane/paste-text"
+  # The third composer read of the ring is the submit core's pre-type proof:
+  # the two before it see the empty composer this ring was allowed to type into.
+  echo 3 > "$pane/paste-on-read"
+  rc=0
+  PATH="$dir/fakebin:$PATH" FM_TASK_INBOX_SETTLE_SECS=0 FM_BACKEND_HERDR_SUBMIT_POLLS=1 \
+    FM_FAKE_PASTE_COLLAPSE=1 \
+    inbox_lib "$state" fm_task_inbox_ring herdr default:w1:p2 "$rec" fm-t1 || rc=$?
+  [ "$rc" = 2 ] || fail "a ring whose doorbell was never typed should report not reached, got rc $rc"
+  [ "$(cat "$pane/composer")" = "$paste" ] || fail "the person's paste was changed: $(cat "$pane/composer")"
+  [ ! -e "$pane/submits" ] || fail "the person's paste was submitted:"$'\n'"$(cat "$pane/submits")"
+  [ ! -e "$pane/keys" ] || fail "a key was sent into a composer holding the person's paste:"$'\n'"$(cat "$pane/keys")"
+  [ -f "$rec" ] || fail "the unrung record should still be unhandled and owed a re-ring"
+  pass "inbox: a ring that typed nothing never submits the collapsed paste it found, and reports not reached"
+}
+
+# A person's paste sitting above a doorbell an earlier ring typed on top of it:
+# the placeholder hides what it swallowed, so nothing in that composer is
+# provably ours. Clearing the rows we can recognise would walk Ctrl-U straight
+# into their unsent block, so the whole composer is left alone and the record
+# goes back to the ladder.
+test_ring_never_clears_a_doorbell_sharing_the_composer_with_a_paste() {
+  local dir state rec doorbell pane rc held
+  dir="$TMP_ROOT/ring-paste-above"
+  state="$dir/state"
+  pane="$dir/pane"
+  mkdir -p "$state" "$dir/fakebin"
+  fm_fake_herdr_claude_pane "$dir/fakebin" "$pane"
+  rec=$(inbox_lib "$state" fm_task_inbox_write "$state" t1 "please continue")
+  doorbell=$(inbox_lib "$state" fm_task_inbox_doorbell_line "$rec")
+  held="[Pasted text #1 +40 lines]$doorbell"
+  printf '%s' "$held" > "$pane/composer"; echo idle > "$pane/status"; echo 0 > "$pane/drops"
+  rc=0
+  PATH="$dir/fakebin:$PATH" FM_TASK_INBOX_SETTLE_SECS=0 FM_BACKEND_HERDR_SUBMIT_POLLS=1 \
+    inbox_lib "$state" fm_task_inbox_ring herdr default:w1:p2 "$rec" fm-t1 || rc=$?
+  [ "$rc" = 1 ] || fail "a composer mixing a paste with our doorbell should skip the ring, got rc $rc"
+  [ "$(cat "$pane/composer")" = "$held" ] || fail "the person's paste was changed: $(cat "$pane/composer")"
+  [ ! -e "$pane/keys" ] || fail "a key was sent into a composer holding the person's paste:"$'\n'"$(cat "$pane/keys")"
+  [ ! -e "$pane/submits" ] || fail "something was submitted:"$'\n'"$(cat "$pane/submits")"
+  [ -f "$rec" ] || fail "the skipped record should still be unhandled and owed a re-ring"
+  pass "inbox: a composer mixing a paste placeholder with our doorbell is never cleared or submitted"
+}
+
+# The head-truncation shape with a swallowed Enter: Claude collapses the head
+# of our burst into `[Pasted text #1]` and leaves the literal tail, the submit
+# core cannot clear it, and nothing was submitted. The ring used to report that
+# as rung, which left a fire-and-forget record with no retry and the worker
+# never read it.
+test_ring_reports_an_unsubmitted_collapsed_head_as_not_reached() {
+  local dir state rec doorbell pane rc
+  dir="$TMP_ROOT/ring-collapsed-head"
+  state="$dir/state"
+  pane="$dir/pane"
+  mkdir -p "$state" "$dir/fakebin"
+  fm_fake_herdr_claude_pane "$dir/fakebin" "$pane"
+  rec=$(inbox_lib "$state" fm_task_inbox_write "$state" t1 "please continue")
+  doorbell=$(inbox_lib "$state" fm_task_inbox_doorbell_line "$rec")
+  : > "$pane/composer"; echo idle > "$pane/status"; echo 99 > "$pane/drops"
+  echo 99 > "$pane/u-drops"
+  rc=0
+  PATH="$dir/fakebin:$PATH" FM_TASK_INBOX_SETTLE_SECS=0 FM_BACKEND_HERDR_SUBMIT_POLLS=1 \
+    FM_FAKE_PASTE_COLLAPSE=head \
+    inbox_lib "$state" fm_task_inbox_ring herdr default:w1:p2 "$rec" fm-t1 || rc=$?
+  [ "$rc" = 2 ] || fail "a doorbell left unsubmitted in the composer should report not reached, got rc $rc"
+  [ "$(cat "$pane/composer")" = "$doorbell" ] || fail "the typed doorbell was changed: $(cat "$pane/composer")"
+  [ ! -e "$pane/submits" ] || fail "nothing should have been submitted:"$'\n'"$(cat "$pane/submits")"
+  [ -f "$rec" ] || fail "the unreached record should still be unhandled and owed a re-ring"
+  pass "inbox: a doorbell left in the composer as a collapsed head plus a literal tail reports not reached"
+}
+
+# Mid-clear ownership: once the ring starts clearing a truncated doorbell, each
+# Ctrl-U press is allowed only while what remains is still part of the piece it
+# proved ours. A person who starts typing into that composer between presses -
+# here a phrase that occurs inside the doorbell's own prose - keeps their text.
+test_ring_stops_clearing_when_the_composer_stops_being_ours() {
+  local dir state rec doorbell pane rc draft
+  dir="$TMP_ROOT/ring-clear-interrupted"
+  state="$dir/state"
+  pane="$dir/pane"
+  mkdir -p "$state" "$dir/fakebin"
+  fm_fake_herdr_claude_pane "$dir/fakebin" "$pane"
+  rec=$(inbox_lib "$state" fm_task_inbox_write "$state" t1 "please continue")
+  doorbell=$(inbox_lib "$state" fm_task_inbox_doorbell_line "$rec")
+  draft='read and act on each in numeric order'
+  printf '%s' "${doorbell:0:120}" > "$pane/composer"
+  echo idle > "$pane/status"; echo 0 > "$pane/drops"
+  printf '%s' "$draft" > "$pane/paste-text"
+  # The third composer read of the ring is the one after the first Ctrl-U: the
+  # two before it are the cold read and the read the clear proves itself on.
+  echo 3 > "$pane/paste-on-read"
+  rc=0
+  PATH="$dir/fakebin:$PATH" FM_TASK_INBOX_SETTLE_SECS=0 FM_BACKEND_HERDR_SUBMIT_POLLS=1 \
+    inbox_lib "$state" fm_task_inbox_ring herdr default:w1:p2 "$rec" fm-t1 || rc=$?
+  [ "$rc" = 2 ] || fail "a clear interrupted by someone else's text should report not reached, got rc $rc"
+  [ "$(cat "$pane/composer")" = "$draft" ] || fail "the draft typed mid-clear was changed: $(cat "$pane/composer")"
+  [ "$(grep -c '^ctrl+u$' "$pane/keys")" = 1 ] \
+    || fail "the clear should stop at the first press that reveals foreign text:"$'\n'"$(cat "$pane/keys")"
+  [ ! -e "$pane/submits" ] || fail "nothing should have been submitted:"$'\n'"$(cat "$pane/submits")"
+  [ -f "$rec" ] || fail "the record should still be unhandled and owed a re-ring"
+  pass "inbox: a clear stops as soon as the composer holds anything outside the piece it proved ours"
+}
+
+# A read-back that cannot see the composer at all is no proof the Enter landed.
+# The ring used to count it as a submitted doorbell, which both stopped the
+# remaining Enters and reported the record delivered, so nothing ever rang it
+# again while the line sat in the composer.
+test_ring_reports_an_unreadable_readback_as_not_reached() {
+  local dir state rec doorbell pane rc
+  dir="$TMP_ROOT/ring-unreadable"
+  state="$dir/state"
+  pane="$dir/pane"
+  mkdir -p "$state" "$dir/fakebin"
+  fm_fake_herdr_claude_pane "$dir/fakebin" "$pane"
+  rec=$(inbox_lib "$state" fm_task_inbox_write "$state" t1 "please continue")
+  doorbell=$(inbox_lib "$state" fm_task_inbox_doorbell_line "$rec")
+  printf '%s' "$doorbell" > "$pane/composer"
+  echo idle > "$pane/status"; echo 99 > "$pane/drops"
+  # Read one is the cold read that proves the stuck doorbell ours. Reads two
+  # and three are the styled and plain attempts of the read-back after its
+  # Enter, and neither can see the composer.
+  echo '2 3' > "$pane/read-fails-on"
+  rc=0
+  PATH="$dir/fakebin:$PATH" FM_TASK_INBOX_SETTLE_SECS=0 FM_BACKEND_HERDR_SUBMIT_POLLS=1 \
+    inbox_lib "$state" fm_task_inbox_ring herdr default:w1:p2 "$rec" fm-t1 || rc=$?
+  [ "$rc" = 2 ] || fail "an unreadable read-back should report not reached, got rc $rc"
+  [ "$(cat "$pane/composer")" = "$doorbell" ] || fail "the stuck doorbell was changed: $(cat "$pane/composer")"
+  [ ! -e "$pane/submits" ] || fail "nothing should have been submitted:"$'\n'"$(cat "$pane/submits")"
+  [ "$(grep -c '^enter$' "$pane/keys")" = 1 ] \
+    || fail "no further Enter should go into a composer that cannot be read:"$'\n'"$(cat "$pane/keys")"
+  [ -f "$rec" ] || fail "the record should still be unhandled and owed a re-ring"
+  pass "inbox: an unreadable read-back reports not reached instead of a submitted doorbell"
+}
+
+# Mid-clear, a phrase typed from inside the piece being cleared is not that
+# piece shrinking. Ctrl-U deletes one wrapped row, so a genuine remnant is the
+# head or the tail of what was proved ours; an interior run of it is someone
+# else typing, and the clear must stop with their text where they left it.
+test_ring_stops_clearing_on_an_interior_phrase_of_the_cleared_piece() {
+  local dir state rec doorbell pane rc typed
+  dir="$TMP_ROOT/ring-clear-interior"
+  state="$dir/state"
+  pane="$dir/pane"
+  mkdir -p "$state" "$dir/fakebin"
+  fm_fake_herdr_claude_pane "$dir/fakebin" "$pane"
+  rec=$(inbox_lib "$state" fm_task_inbox_write "$state" t1 "please continue")
+  doorbell=$(inbox_lib "$state" fm_task_inbox_doorbell_line "$rec")
+  # Occurs inside the head piece below, anchored to neither of its ends.
+  typed='instruction waiting: list'
+  printf '%s' "${doorbell:0:120}" > "$pane/composer"
+  echo idle > "$pane/status"; echo 0 > "$pane/drops"
+  printf '%s' "$typed" > "$pane/paste-text"
+  # Read three is the one after the first Ctrl-U: the two before it are the
+  # cold read and the read the clear proves itself on.
+  echo 3 > "$pane/paste-on-read"
+  rc=0
+  PATH="$dir/fakebin:$PATH" FM_TASK_INBOX_SETTLE_SECS=0 FM_BACKEND_HERDR_SUBMIT_POLLS=1 \
+    inbox_lib "$state" fm_task_inbox_ring herdr default:w1:p2 "$rec" fm-t1 || rc=$?
+  [ "$rc" = 2 ] || fail "a clear interrupted from inside its own piece should report not reached, got rc $rc"
+  [ "$(cat "$pane/composer")" = "$typed" ] || fail "the text typed mid-clear was changed: $(cat "$pane/composer")"
+  [ "$(grep -c '^ctrl+u$' "$pane/keys")" = 1 ] \
+    || fail "the clear should stop at the first press that reveals foreign text:"$'\n'"$(cat "$pane/keys")"
+  [ ! -e "$pane/submits" ] || fail "nothing should have been submitted:"$'\n'"$(cat "$pane/submits")"
+  pass "inbox: a clear stops on an interior phrase of the very piece it was clearing"
+}
+
+# A paste that lands in the composer our Enter just emptied: the read-back sees
+# only its placeholder, which is no proof our line is still held. Pressing
+# Enter again there would submit the person's unreviewed paste to their agent.
+test_ring_never_submits_a_paste_that_lands_after_its_enter() {
+  local dir state rec doorbell pane rc paste
+  dir="$TMP_ROOT/ring-paste-after-enter"
+  state="$dir/state"
+  pane="$dir/pane"
+  mkdir -p "$state" "$dir/fakebin"
+  fm_fake_herdr_claude_pane "$dir/fakebin" "$pane"
+  rec=$(inbox_lib "$state" fm_task_inbox_write "$state" t1 "please continue")
+  doorbell=$(inbox_lib "$state" fm_task_inbox_doorbell_line "$rec")
+  paste='[Pasted text #1 +40 lines]'
+  printf '%s' "$doorbell" > "$pane/composer"
+  echo idle > "$pane/status"; echo 0 > "$pane/drops"
+  printf '%s' "$paste" > "$pane/paste-text"
+  # Read one proves the stuck doorbell ours; its Enter submits and empties the
+  # composer, and the person's paste lands before read two reads it back.
+  echo 2 > "$pane/paste-on-read"
+  rc=0
+  PATH="$dir/fakebin:$PATH" FM_TASK_INBOX_SETTLE_SECS=0 FM_BACKEND_HERDR_SUBMIT_POLLS=1 \
+    inbox_lib "$state" fm_task_inbox_ring herdr default:w1:p2 "$rec" fm-t1 || rc=$?
+  [ "$rc" = 2 ] || fail "a composer that changed under the submit should report not reached, got rc $rc"
+  [ "$(cat "$pane/submits")" = "SUBMIT: $doorbell" ] \
+    || fail "only our own doorbell should have been submitted:"$'\n'"$(cat "$pane/submits")"
+  [ "$(cat "$pane/composer")" = "$paste" ] || fail "the person's paste was changed: $(cat "$pane/composer")"
+  [ "$(grep -c '^enter$' "$pane/keys")" = 1 ] \
+    || fail "no further Enter should go into a composer holding their paste:"$'\n'"$(cat "$pane/keys")"
+  pass "inbox: a paste landing after our Enter is never submitted by the retry"
+}
+
+# A harness that accepts Enter mid-turn, queues it, and keeps the typed text
+# visible (opencode 1.18.4 is the verified one). The queued Enter has already
+# delivered the line, so pressing again would deliver it twice: the shared
+# queued-Enter policy stops the retries and the ring reports it rung.
+test_ring_trusts_a_queued_enter_on_a_busy_agent() {
+  local dir state rec doorbell pane rc
+  dir="$TMP_ROOT/ring-queued-enter"
+  state="$dir/state"
+  pane="$dir/pane"
+  mkdir -p "$state" "$dir/fakebin"
+  fm_fake_herdr_claude_pane "$dir/fakebin" "$pane"
+  rec=$(inbox_lib "$state" fm_task_inbox_write "$state" t1 "please continue")
+  doorbell=$(inbox_lib "$state" fm_task_inbox_doorbell_line "$rec")
+  printf '%s' "$doorbell" > "$pane/composer"
+  echo working > "$pane/status"; echo 99 > "$pane/drops"
+  rc=0
+  PATH="$dir/fakebin:$PATH" FM_TASK_INBOX_SETTLE_SECS=0 FM_BACKEND_HERDR_SUBMIT_POLLS=1 \
+    inbox_lib "$state" fm_task_inbox_ring herdr default:w1:p2 "$rec" fm-t1 || rc=$?
+  [ "$rc" = 0 ] || fail "a doorbell whose Enter a busy agent queued should report rung, got rc $rc"
+  [ "$(grep -c '^enter$' "$pane/keys")" = 1 ] \
+    || fail "a queued Enter should not be pressed again:"$'\n'"$(cat "$pane/keys")"
+  [ "$(cat "$pane/composer")" = "$doorbell" ] || fail "the queued line was changed: $(cat "$pane/composer")"
+  pass "inbox: an Enter a busy agent queued is trusted once instead of pressed again"
+}
+
+# A line that is no longer whole must not be submitted: a truncated doorbell
+# names no inbox and instructs nothing. The submit loop stops and hands the
+# shape back to the ring, whose fragment path clears it and types it fresh.
+test_ring_never_submits_a_truncated_doorbell_from_the_submit_loop() {
+  local dir state rec doorbell pane rc
+  dir="$TMP_ROOT/ring-truncated-mid-submit"
+  state="$dir/state"
+  pane="$dir/pane"
+  mkdir -p "$state" "$dir/fakebin"
+  fm_fake_herdr_claude_pane "$dir/fakebin" "$pane"
+  rec=$(inbox_lib "$state" fm_task_inbox_write "$state" t1 "please continue")
+  doorbell=$(inbox_lib "$state" fm_task_inbox_doorbell_line "$rec")
+  printf '%s' "$doorbell" > "$pane/composer"
+  echo idle > "$pane/status"; echo 99 > "$pane/drops"
+  printf '%s' "${doorbell:0:120}" > "$pane/paste-text"
+  # Read one proves the stuck doorbell ours; its Enter is swallowed, and by
+  # read two the worker's human has deleted part of the line.
+  echo 2 > "$pane/paste-on-read"
+  rc=0
+  PATH="$dir/fakebin:$PATH" FM_TASK_INBOX_SETTLE_SECS=0 FM_BACKEND_HERDR_SUBMIT_POLLS=1 \
+    inbox_lib "$state" fm_task_inbox_ring herdr default:w1:p2 "$rec" fm-t1 || rc=$?
+  [ "$rc" = 2 ] || fail "a doorbell truncated under the submit should report not reached, got rc $rc"
+  [ "$(grep -c '^enter$' "$pane/keys")" = 1 ] \
+    || fail "no Enter should go onto a truncated line:"$'\n'"$(cat "$pane/keys")"
+  [ ! -e "$pane/submits" ] || fail "a truncated doorbell was submitted:"$'\n'"$(cat "$pane/submits")"
+  [ "$(cat "$pane/composer")" = "${doorbell:0:120}" ] \
+    || fail "the truncated line was changed: $(cat "$pane/composer")"
+  pass "inbox: the submit loop never presses Enter onto a truncated doorbell"
+}
+
+# Our whole doorbell with someone else's text after it is still unsubmitted,
+# whatever else is on the line. Reporting that as rung left a fire-and-forget
+# record with no retry while the message sat in the composer.
+test_ring_reports_a_doorbell_followed_by_a_draft_as_not_reached() {
+  local dir state rec doorbell pane rc held
+  dir="$TMP_ROOT/ring-doorbell-plus-draft"
+  state="$dir/state"
+  pane="$dir/pane"
+  mkdir -p "$state" "$dir/fakebin"
+  fm_fake_herdr_claude_pane "$dir/fakebin" "$pane"
+  rec=$(inbox_lib "$state" fm_task_inbox_write "$state" t1 "please continue")
+  doorbell=$(inbox_lib "$state" fm_task_inbox_doorbell_line "$rec")
+  held="$doorbell ok do that"
+  printf '%s' "$doorbell" > "$pane/composer"
+  echo idle > "$pane/status"; echo 99 > "$pane/drops"
+  printf '%s' "$held" > "$pane/paste-text"
+  # Read one proves the stuck doorbell ours; its Enter is swallowed, and by
+  # read two the worker's human has typed after the line.
+  echo 2 > "$pane/paste-on-read"
+  rc=0
+  PATH="$dir/fakebin:$PATH" FM_TASK_INBOX_SETTLE_SECS=0 FM_BACKEND_HERDR_SUBMIT_POLLS=1 \
+    inbox_lib "$state" fm_task_inbox_ring herdr default:w1:p2 "$rec" fm-t1 || rc=$?
+  [ "$rc" = 2 ] || fail "a doorbell still held behind someone's text should report not reached, got rc $rc"
+  [ "$(cat "$pane/composer")" = "$held" ] || fail "the composer was changed: $(cat "$pane/composer")"
+  [ ! -e "$pane/submits" ] || fail "nothing should have been submitted:"$'\n'"$(cat "$pane/submits")"
+  [ "$(grep -c '^enter$' "$pane/keys")" = 1 ] \
+    || fail "no Enter should go onto a line carrying someone else's text:"$'\n'"$(cat "$pane/keys")"
+  [ -f "$rec" ] || fail "the record should still be unhandled and owed a re-ring"
+  pass "inbox: a doorbell still held behind someone else's text reports not reached"
+}
+
+# The collapsed twin of the paste-after-Enter guard: from a collapsed entry the
+# first Enter may land, so a placeholder still showing on the next read-back is
+# no longer attributable to our own burst and must not be pressed again.
+test_ring_never_submits_a_paste_that_replaces_a_collapsed_burst() {
+  local dir state rec doorbell pane rc paste
+  dir="$TMP_ROOT/ring-collapsed-replaced"
+  state="$dir/state"
+  pane="$dir/pane"
+  mkdir -p "$state" "$dir/fakebin"
+  fm_fake_herdr_claude_pane "$dir/fakebin" "$pane"
+  rec=$(inbox_lib "$state" fm_task_inbox_write "$state" t1 "please continue")
+  doorbell=$(inbox_lib "$state" fm_task_inbox_doorbell_line "$rec")
+  paste='[Pasted text #2 +40 lines]'
+  : > "$pane/composer"; echo idle > "$pane/status"; echo 2 > "$pane/drops"
+  printf '%s' "$paste" > "$pane/paste-text"
+  # The ring's own read-back sees our burst collapsed and presses one Enter;
+  # read nine is the read-back after it, by when the person's paste has
+  # replaced what that Enter submitted.
+  echo 9 > "$pane/paste-on-read"
+  rc=0
+  PATH="$dir/fakebin:$PATH" FM_TASK_INBOX_SETTLE_SECS=0 FM_BACKEND_HERDR_SUBMIT_POLLS=1 \
+    FM_FAKE_PASTE_COLLAPSE=1 \
+    inbox_lib "$state" fm_task_inbox_ring herdr default:w1:p2 "$rec" fm-t1 || rc=$?
+  [ "$rc" = 2 ] || fail "a placeholder that outlived our Enter should report not reached, got rc $rc"
+  [ "$(cat "$pane/composer")" = "$paste" ] || fail "the person's paste was changed: $(cat "$pane/composer")"
+  [ "$(grep -c '^enter$' "$pane/keys")" = 3 ] \
+    || fail "the submit core's two swallowed Enters and one verified Enter should go out, no more:"$'\n'"$(cat "$pane/keys")"
+  [ "$(cat "$pane/submits")" = "SUBMIT: $doorbell" ] \
+    || fail "only the collapsed burst our Enter submitted should appear:"$'\n'"$(cat "$pane/submits")"
+  pass "inbox: a paste replacing our collapsed burst after the first Enter is never submitted"
+}
+
+# The composer read must see the same screen the composer verdict does: a
+# harness whose idle composer draws a dim ghost hint reads as empty when
+# styling is kept and as someone's text when it is stripped, which used to make
+# a successful clear look like foreign text and cost the ring its attempt.
+test_ring_rings_after_clearing_into_a_ghost_hint() {
+  local dir state rec doorbell log composer drops rc
+  dir="$TMP_ROOT/ring-ghost-hint"
+  state="$dir/state"
+  mkdir -p "$state"
+  make_composer_stub "$dir"
+  rec=$(inbox_lib "$state" fm_task_inbox_write "$state" t1 "please continue")
+  doorbell=$(inbox_lib "$state" fm_task_inbox_doorbell_line "$rec")
+  log="$dir/send.log"; composer="$dir/composer"; drops="$dir/drops"
+  : > "$log"; printf '%s' "${doorbell:0:120}" > "$composer"; echo 0 > "$drops"
+  rc=0
+  PATH="$dir/fakebin:$PATH" FM_SEND_LOG="$log" FM_FAKE_COMPOSER="$composer" \
+    FM_FAKE_DROP_ENTERS="$drops" FM_TASK_INBOX_SETTLE_SECS=0 \
+    FM_FAKE_GHOST_HINT='Type a message...' \
+    inbox_lib "$state" fm_task_inbox_ring tmux sess:fm-t1 "$rec" fm-t1 || rc=$?
+  [ "$rc" = 0 ] || fail "clearing into an idle ghost hint should still ring, got rc $rc"
+  [ "$(cat "$log")" = "SUBMIT: $doorbell" ] \
+    || fail "the cleared composer should take the whole doorbell once:"$'\n'"$(cat "$log")"
+  [ ! -s "$composer" ] || fail "the doorbell was left in the composer: $(cat "$composer")"
+  pass "inbox: a composer cleared down to its harness ghost hint reads as empty, so the ring types and submits"
 }
 
 test_idempotent_write_dedups_exact_body() {
@@ -960,6 +1466,21 @@ test_doorbell_is_a_shell_noop
 test_doorbell_rejects_terminal_controls
 test_ring_skips_dead_agent
 test_ring_submits_its_own_stuck_doorbell
+test_ring_recovers_a_stuck_doorbell_and_verifies_its_submit
+test_ring_recovers_a_stuck_doorbell_on_claude_herdr
+test_ring_submits_a_doorbell_collapsed_into_a_paste_placeholder
+test_ring_never_submits_a_collapsed_paste_it_did_not_type
+test_ring_never_clears_a_doorbell_sharing_the_composer_with_a_paste
+test_ring_reports_an_unsubmitted_collapsed_head_as_not_reached
+test_ring_stops_clearing_when_the_composer_stops_being_ours
+test_ring_reports_an_unreadable_readback_as_not_reached
+test_ring_stops_clearing_on_an_interior_phrase_of_the_cleared_piece
+test_ring_never_submits_a_paste_that_lands_after_its_enter
+test_ring_trusts_a_queued_enter_on_a_busy_agent
+test_ring_never_submits_a_truncated_doorbell_from_the_submit_loop
+test_ring_reports_a_doorbell_followed_by_a_draft_as_not_reached
+test_ring_never_submits_a_paste_that_replaces_a_collapsed_burst
+test_ring_rings_after_clearing_into_a_ghost_hint
 test_idempotent_write_dedups_exact_body
 test_idempotent_write_follows_concurrent_ack
 test_handled_mv_dedups_by_sequence

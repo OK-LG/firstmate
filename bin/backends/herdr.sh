@@ -3118,9 +3118,9 @@ fm_backend_herdr_send_key() {  # <target> <key>
 # rows for a default-sized pane), instead of clamping to the last N lines - it
 # does not merely ignore the bound, it drops the read entirely. This silently
 # broke exactly the small bounded reads this adapter relies on most (the peek
-# and watch tails, the rendered busy-footer read, and the shared inbox
-# pending-line read; the adapter's own composer reads now take the viewport
-# instead, so they need no line count at all). Workaround:
+# and watch tails, and the rendered busy-footer read; every composer read - the
+# adapter's own and the shared inbox read that now goes through it - takes the
+# viewport instead, so none of them needs a line count at all). Workaround:
 # always request a generous fetch far above any realistic viewport height, then
 # trim to the caller's requested bound ourselves with `tail`.
 fm_backend_herdr_capture() {  # <target> <lines>
@@ -3381,12 +3381,12 @@ fm_backend_herdr_composer_content() {  # <target>
 # wrapped payload still matches. It also ignores U+2063, the invisible mark
 # that starts operational inputs and separates the from-firstmate label:
 # Claude's composer read-back on Herdr never shows it (verified live), and it
-# carries no instruction text of its own. A composer that holds only
-# `[Pasted text #N]` or `[Pasted text #N +M lines]` placeholders (the
-# multi-line form, verified live on Claude 2.1.278), with no literal remainder,
-# is the same proof for one fast burst: Claude collapses that burst into the
-# placeholder and expands it on submit. A shorter literal suffix, or a placeholder followed by a literal
-# remainder, is the head-truncation shape and is not proof.
+# carries no instruction text of its own. A composer that holds only paste
+# placeholders (fm_composer_strip_paste_placeholders_var owns that shape), with
+# no literal remainder, is the same proof for one fast burst: Claude collapses
+# that burst into the placeholder and expands it on submit. A shorter literal
+# suffix, or a placeholder followed by a literal remainder, is the
+# head-truncation shape and is not proof.
 fm_backend_herdr_composer_payload_shown() {  # <text> <after>
   local text=$1 after=$2 literal
   fm_composer_normalize_spaces_var text
@@ -3398,9 +3398,7 @@ fm_backend_herdr_composer_payload_shown() {  # <text> <after>
   [ -n "$text" ] && [ -n "$after" ] || return 1
   [ "$after" = "$text" ] && return 0
   literal=$after
-  while [[ $literal =~ \[Pastedtext#[0-9]+(\+[0-9]+lines?)?\] ]]; do
-    literal=${literal/"${BASH_REMATCH[0]}"/}
-  done
+  fm_composer_strip_paste_placeholders_var literal
   [ -z "$literal" ]
 }
 

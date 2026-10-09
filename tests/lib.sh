@@ -419,6 +419,92 @@ SH
   done
 }
 
+# fm_fake_herdr_claude_pane <fakebin> <pane-dir>
+# Drops a stateful `herdr` stub whose one pane is a Claude-on-Herdr composer.
+# <pane-dir> holds the state: `composer` (held text; `pane send-text` appends),
+# `status` (the native agent_status, default idle), and `drops` (a count of
+# Enters to swallow). `pane read` renders the composer wrapped at 60 columns
+# between solid rules, as live Claude draws it; Enter appends `SUBMIT: <text>`
+# to `submits` and empties the composer, or, with FM_FAKE_PANE_ACK set to a
+# record path, also moves that record into its handled/ (the worker reading
+# the doorbell); ctrl+u deletes the last wrapped row; every send-keys call is
+# appended to `keys`.
+# With FM_FAKE_PASTE_COLLAPSE=1 the read renders any held text as the
+# `[Pasted text #1]` placeholder instead, as live Claude draws one fast literal
+# burst; the composer still holds the real text and Enter still submits it.
+# With FM_FAKE_PASTE_COLLAPSE=head the read renders the placeholder plus the
+# last wrapped row of the held text, the head-truncation shape Claude draws
+# when it collapses only the head of a burst. `u-drops` holds a count of
+# ctrl+u presses to swallow, a composer the harness will not clear.
+# `paste-on-read` holding <n>, with the text in `paste-text`, drops that text
+# into the composer just before the nth `pane read` of the run: a person typing
+# or pasting into the pane while a caller is mid-ring. `read-fails-on` holding a
+# space-separated list of read numbers makes each of those reads fail outright,
+# the shape a `pane read` hiccup or a frame with no selectable composer leaves;
+# one composer read falls back to a second `pane read`, so a read that must
+# come back unreadable needs both of its numbers listed.
+fm_fake_herdr_claude_pane() {
+  local fakebin=$1 pane=$2
+  mkdir -p "$pane"
+  cat > "$fakebin/herdr" <<SH
+#!/usr/bin/env bash
+set -u
+D='$pane'
+SH
+  cat >> "$fakebin/herdr" <<'SH'
+rule=$(printf '─%.0s' $(seq 60))
+case "${1:-} ${2:-}" in
+  "status --json") printf '{"client":{"version":"0.7.1","protocol":14},"server":{"running":true}}\n' ;;
+  "agent get")
+    printf '{"result":{"agent":{"agent":"claude","agent_status":"%s"}}}\n' "$(cat "$D/status" 2>/dev/null || echo idle)" ;;
+  "pane read")
+    reads=$(( $(cat "$D/reads" 2>/dev/null || echo 0) + 1 ))
+    printf '%s' "$reads" > "$D/reads"
+    [ "$reads" != "$(cat "$D/paste-on-read" 2>/dev/null || echo 0)" ] || cat "$D/paste-text" > "$D/composer"
+    case " $(cat "$D/read-fails-on" 2>/dev/null || true) " in *" $reads "*) exit 1 ;; esac
+    printf '● done\n  %s\n' "$rule"
+    if [ ! -s "$D/composer" ]; then
+      printf '  ❯ \n'
+    elif [ "${FM_FAKE_PASTE_COLLAPSE:-0}" = 1 ]; then
+      printf '  ❯ [Pasted text #1]\n'
+    elif [ "${FM_FAKE_PASTE_COLLAPSE:-0}" = head ]; then
+      text=$(cat "$D/composer")
+      printf '  ❯ [Pasted text #1]\n    %s\n' "${text: -60}"
+    else
+      fold -w 60 "$D/composer" | awk 'NR == 1 { print "  ❯ " $0; next } { print "    " $0 }'
+    fi
+    printf '  %s\n  ⏵⏵ bypass permissions on\n' "$rule" ;;
+  "pane send-text") printf '%s' "$4" >> "$D/composer" ;;
+  "pane send-keys")
+    printf '%s\n' "$4" >> "$D/keys"
+    case "$4" in
+      enter)
+        drops=$(cat "$D/drops" 2>/dev/null || echo 0)
+        if [ "$drops" -gt 0 ]; then
+          echo $((drops - 1)) > "$D/drops"
+        elif [ -s "$D/composer" ]; then
+          printf 'SUBMIT: %s\n' "$(cat "$D/composer")" >> "$D/submits"
+          : > "$D/composer"
+          if [ -n "${FM_FAKE_PANE_ACK:-}" ] && [ -f "$FM_FAKE_PANE_ACK" ]; then
+            mv "$FM_FAKE_PANE_ACK" "${FM_FAKE_PANE_ACK%/*}/handled/"
+          fi
+        fi ;;
+      ctrl+u)
+        drops=$(cat "$D/u-drops" 2>/dev/null || echo 0)
+        if [ "$drops" -gt 0 ]; then
+          echo $((drops - 1)) > "$D/u-drops"
+        else
+          text=$(cat "$D/composer")
+          rows=$(( (${#text} + 59) / 60 ))
+          printf '%s' "${text:0:$(( (rows - 1) * 60 ))}" > "$D/composer"
+        fi ;;
+    esac ;;
+esac
+exit 0
+SH
+  chmod +x "$fakebin/herdr"
+}
+
 # fm_fake_crash_injector <fakebin>
 # Drops an `fm-crash-inject <pid>` shim that a PATH fake calls to simulate a
 # hard crash of the process under test. It SIGKILLs <pid> and then returns only

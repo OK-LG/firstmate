@@ -1659,11 +1659,18 @@ for (const { name, actual } of rows) {
     throw new Error(`${name} was not hidden before export rendering`);
   }
 }
+// Pi 1.0.0 renamed createToolHtmlRenderer's lookup from getToolDefinition to
+// getToolRenderers. Both take a tool name and return the same
+// { renderCall, renderResult } shape, and each version ignores the other's key,
+// so every renderer below passes this one lookup under both names and the
+// fixture exports against whatever Pi is installed.
+const htmlRendererLookup = (name) => tools.find((tool) => tool.name === name);
 async function assertStockHtmlRendering(command, submitData) {
   editorText = command;
   terminalInputHandler(submitData);
   const htmlRenderer = createToolHtmlRenderer({
-    getToolDefinition: (name) => tools.find((tool) => tool.name === name),
+    getToolDefinition: htmlRendererLookup,
+    getToolRenderers: htmlRendererLookup,
     theme,
     cwd: process.cwd(),
   });
@@ -1694,7 +1701,8 @@ getKeybindings().setUserBindings({ "tui.input.submit": "alt+s" });
 editorText = "/export remapped.html";
 terminalInputHandler("\r");
 const unmatchedRenderer = createToolHtmlRenderer({
-  getToolDefinition: (name) => tools.find((tool) => tool.name === name),
+  getToolDefinition: htmlRendererLookup,
+  getToolRenderers: htmlRendererLookup,
   theme,
   cwd: process.cwd(),
 });

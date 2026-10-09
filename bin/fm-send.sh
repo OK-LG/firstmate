@@ -56,8 +56,9 @@
 # exactly once more.
 # bin/fm-task-inbox-lib.sh owns the record format, the doorbell line, and the
 # re-ring ladder. The composer pre-check before the ring is ADVISORY only: when
-# the composer visibly holds pending text the ring is skipped with a notice and
-# the watcher re-rings an ordinary record later; no composer verdict is
+# the composer visibly holds pending text other than our own doorbell the ring
+# is skipped with a notice and the watcher re-rings an ordinary record later
+# (our own stuck doorbell is submitted instead); no composer verdict is
 # delivery proof on this plane, and a failed ring never fails the send.
 #
 # TYPED - the LOCAL text that must reach the terminal itself: a harness-native
