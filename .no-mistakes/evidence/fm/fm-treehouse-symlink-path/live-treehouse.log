@@ -1,0 +1,99 @@
+/root/.no-mistakes/worktrees/7f0ec18181b6/01M4GV03R6385M9SNN706PDDFS/.treehouse-live.t9Gccd/home
+🌳 Setting up worktree...
+🌳 Leased worktree at ~/.no-mistakes/worktrees/7f0ec18181b6/01M4GV03R6385M9SNN706PDDFS/.treehouse-live.t9Gccd/storage/.treehouse/project-ee1f10/1/project. Run 'treehouse return ~/.no-mistakes/worktrees/7f0ec18181b6/01M4GV03R6385M9SNN706PDDFS/.treehouse-live.t9Gccd/storage/.treehouse/project-ee1f10/1/project' to release it.
+Treehouse version: v2.0.1
+Acquired authoritative pool path: /root/.no-mistakes/worktrees/7f0ec18181b6/01M4GV03R6385M9SNN706PDDFS/.treehouse-live.t9Gccd/storage/.treehouse/project-ee1f10/1/project
+🌳 Worktree returned to pool.
+repair: gitdir incorrect: /root/.no-mistakes/worktrees/7f0ec18181b6/01M4GV03R6385M9SNN706PDDFS/.treehouse-live.t9Gccd/a/project/.git/worktrees/project/gitdir
+
+Physical-path rejection from real Treehouse:
+worktree /root/.no-mistakes/worktrees/7f0ec18181b6/01M4GV03R6385M9SNN706PDDFS/.treehouse-live.t9Gccd/disk/1/project is not managed by treehouse
+
+Shared-pool resolution from a separate clone:
+/root/.no-mistakes/worktrees/7f0ec18181b6/01M4GV03R6385M9SNN706PDDFS/.treehouse-live.t9Gccd/storage/.treehouse/project-ee1f10/1/project
+
+Legacy physical-path teardown through fm-teardown:
+fm-gate-refuse: gate agent lifecycle permitted only against lab home /root/.no-mistakes/worktrees/7f0ec18181b6/01M4GV03R6385M9SNN706PDDFS/.treehouse-live.t9Gccd/home
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+●  WATCHER DOWN - SUPERVISION IS OFF
+●  1 task(s) in flight, but no watcher has a fresh beacon (last beat: never, grace 300s).
+●  Trust the emitted supervision protocol for this harness; do not use shell & for watcher repair.
+●  This is a supervision warning only; the guarded operation WILL still run.
+●  repair missing watcher supervision according to the session-start block for this harness; do not use shell &.
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+🌳 Worktree returned to pool.
+teardown legacy complete (window fm-lab-path:fm-legacy, worktree /root/.no-mistakes/worktrees/7f0ec18181b6/01M4GV03R6385M9SNN706PDDFS/.treehouse-live.t9Gccd/disk/1/project)
+Backlog: legacy just finished (this home keeps no markdown backlog at /root/.no-mistakes/worktrees/7f0ec18181b6/01M4GV03R6385M9SNN706PDDFS/.treehouse-live.t9Gccd/home/data/backlog.md). Update /root/.no-mistakes/worktrees/7f0ec18181b6/01M4GV03R6385M9SNN706PDDFS/.treehouse-live.t9Gccd/home/data/backlog.md - move legacy to Done, keep Done to the 10 most recent, then re-scan Queued and dispatch only work whose blockers are gone and date is due.
+1     available    ~/.no-mistakes/worktrees/7f0ec18181b6/01M4GV03R6385M9SNN706PDDFS/.treehouse-live.t9Gccd/storage/.treehouse/project-ee1f10/1/project
+
+Spawn into the same symlinked pool through a separate clone:
+fm-gate-refuse: gate agent lifecycle permitted only against lab home /root/.no-mistakes/worktrees/7f0ec18181b6/01M4GV03R6385M9SNN706PDDFS/.treehouse-live.t9Gccd/home
+spawned live-path harness=sleep kind=scout window=fm-lab-path:fm-live-path worktree=/root/.no-mistakes/worktrees/7f0ec18181b6/01M4GV03R6385M9SNN706PDDFS/.treehouse-live.t9Gccd/storage/.treehouse/project-ee1f10/1/project
+window=fm-lab-path:fm-live-path
+endpoint_task_id=live-path
+worktree=/root/.no-mistakes/worktrees/7f0ec18181b6/01M4GV03R6385M9SNN706PDDFS/.treehouse-live.t9Gccd/storage/.treehouse/project-ee1f10/1/project
+project=/root/.no-mistakes/worktrees/7f0ec18181b6/01M4GV03R6385M9SNN706PDDFS/.treehouse-live.t9Gccd/b/project
+harness=sleep
+kind=scout
+tasktmp=/tmp/fm-live-path
+model=default
+effort=default
+spawn_gen=s1791567097.3643518.15891
+task=live-path
+home=/root/.no-mistakes/worktrees/7f0ec18181b6/01M4GV03R6385M9SNN706PDDFS/.treehouse-live.t9Gccd/home
+fm-gate-refuse: gate agent lifecycle permitted only against lab home /root/.no-mistakes/worktrees/7f0ec18181b6/01M4GV03R6385M9SNN706PDDFS/.treehouse-live.t9Gccd/home
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+●  WATCHER DOWN - SUPERVISION IS OFF
+●  1 task(s) in flight, but no watcher has a fresh beacon (last beat: never, grace 300s).
+●  Trust the emitted supervision protocol for this harness; do not use shell & for watcher repair.
+●  This is a supervision warning only; the guarded operation WILL still run.
+●  repair missing watcher supervision according to the session-start block for this harness; do not use shell &.
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+teardown: reaping leaked worktree process(es) for live-path: 3645381 3647865
+teardown: force-killing leaked worktree process(es) for live-path: 3645381
+🌳 Worktree returned to pool.
+teardown live-path complete (window fm-lab-path:fm-live-path, worktree /root/.no-mistakes/worktrees/7f0ec18181b6/01M4GV03R6385M9SNN706PDDFS/.treehouse-live.t9Gccd/storage/.treehouse/project-ee1f10/1/project)
+Backlog: live-path just finished (this home keeps no markdown backlog at /root/.no-mistakes/worktrees/7f0ec18181b6/01M4GV03R6385M9SNN706PDDFS/.treehouse-live.t9Gccd/home/data/backlog.md). Update /root/.no-mistakes/worktrees/7f0ec18181b6/01M4GV03R6385M9SNN706PDDFS/.treehouse-live.t9Gccd/home/data/backlog.md - move live-path to Done, keep Done to the 10 most recent, then re-scan Queued and dispatch only work whose blockers are gone and date is due.
+
+Reacquire freed symlinked slot with real Treehouse:
+🌳 Setting up worktree...
+🌳 Leased worktree at ~/.no-mistakes/worktrees/7f0ec18181b6/01M4GV03R6385M9SNN706PDDFS/.treehouse-live.t9Gccd/storage/.treehouse/project-ee1f10/1/project. Run 'treehouse return ~/.no-mistakes/worktrees/7f0ec18181b6/01M4GV03R6385M9SNN706PDDFS/.treehouse-live.t9Gccd/storage/.treehouse/project-ee1f10/1/project' to release it.
+/root/.no-mistakes/worktrees/7f0ec18181b6/01M4GV03R6385M9SNN706PDDFS/.treehouse-live.t9Gccd/storage/.treehouse/project-ee1f10/1/project
+
+Adversarial teardown: malformed-config
+REFUSED: Treehouse lookup failed for /root/.no-mistakes/worktrees/7f0ec18181b6/01M4GV03R6385M9SNN706PDDFS/.treehouse-live.t9Gccd/disk/1/project; slot ownership is uncertain; refusing cleanup
+365004a75f3339a9752a757267424033f1aa2e59 refs/heads/foreign-work
+Preserved: pool evidence, metadata, foreign claim, process, checkout and branch.
+
+Adversarial teardown: comment-eof
+REFUSED: Treehouse lookup failed for /root/.no-mistakes/worktrees/7f0ec18181b6/01M4GV03R6385M9SNN706PDDFS/.treehouse-live.t9Gccd/disk/1/project; slot ownership is uncertain; refusing cleanup
+365004a75f3339a9752a757267424033f1aa2e59 refs/heads/foreign-work
+Preserved: pool evidence, metadata, foreign claim, process, checkout and branch.
+
+Adversarial teardown: corrupt-state
+REFUSED: Treehouse lookup failed for /root/.no-mistakes/worktrees/7f0ec18181b6/01M4GV03R6385M9SNN706PDDFS/.treehouse-live.t9Gccd/disk/1/project; slot ownership is uncertain; refusing cleanup
+365004a75f3339a9752a757267424033f1aa2e59 refs/heads/foreign-work
+Preserved: pool evidence, metadata, foreign claim, process, checkout and branch.
+treehouse: WARNING: state file /root/.no-mistakes/worktrees/7f0ec18181b6/01M4GV03R6385M9SNN706PDDFS/.treehouse-live.t9Gccd/storage/.treehouse/project-ee1f10/treehouse-state.json is corrupt or truncated (unexpected end of JSON input); recovering from worktrees found on disk. They are marked leased until verified - see `treehouse status`, then `treehouse return` or `treehouse destroy --include-leased`.
+🌳 No worktrees in pool.
+{
+  "worktrees": null
+}
+Adversarial teardown: recovered-omission
+REFUSED: Treehouse lookup failed for /root/.no-mistakes/worktrees/7f0ec18181b6/01M4GV03R6385M9SNN706PDDFS/.treehouse-live.t9Gccd/disk/1/project; slot ownership is uncertain; refusing cleanup
+365004a75f3339a9752a757267424033f1aa2e59 refs/heads/foreign-work
+Preserved: pool evidence, metadata, foreign claim, process, checkout and branch.
+
+Adversarial teardown: missing-state
+REFUSED: Treehouse lookup failed for /root/.no-mistakes/worktrees/7f0ec18181b6/01M4GV03R6385M9SNN706PDDFS/.treehouse-live.t9Gccd/disk/1/project; slot ownership is uncertain; refusing cleanup
+365004a75f3339a9752a757267424033f1aa2e59 refs/heads/foreign-work
+Preserved: pool evidence, metadata, foreign claim, process, checkout and branch.
+
+Ordinary non-pool worktree retains Treehouse refusal:
+fm-gate-refuse: gate agent lifecycle permitted only against lab home /root/.no-mistakes/worktrees/7f0ec18181b6/01M4GV03R6385M9SNN706PDDFS/.treehouse-live.t9Gccd/home
+WARNING: watcher still down (same stale episode; last beat: never, grace 300s) - full banner already printed this episode.
+worktree /root/.no-mistakes/worktrees/7f0ec18181b6/01M4GV03R6385M9SNN706PDDFS/.treehouse-live.t9Gccd/ordinary is not managed by treehouse
+error: treehouse return failed for worktree /root/.no-mistakes/worktrees/7f0ec18181b6/01M4GV03R6385M9SNN706PDDFS/.treehouse-live.t9Gccd/ordinary; teardown aborted
+Preserved: ordinary worktree and task metadata.
+
+All live path and refusal scenarios passed.

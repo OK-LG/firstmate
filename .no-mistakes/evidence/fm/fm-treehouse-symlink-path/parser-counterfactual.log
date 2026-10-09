@@ -1,0 +1,3 @@
+Before R5 fix: exact unterminated inline-table comment exited 124 (124 = timeout).
+After R5 fix: same comment rejected in 3.37 ms.
+Valid inline-table configuration with final comment parsed successfully.

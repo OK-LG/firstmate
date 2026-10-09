@@ -1,0 +1,48 @@
+/root/.no-mistakes/worktrees/7f0ec18181b6/01M4GV03R6385M9SNN706PDDFS/.treehouse-live.o30z3i/home
+🌳 Setting up worktree...
+🌳 Leased worktree at ~/.no-mistakes/worktrees/7f0ec18181b6/01M4GV03R6385M9SNN706PDDFS/.treehouse-live.o30z3i/storage/.treehouse/project-ef4bd4/1/project. Run 'treehouse return ~/.no-mistakes/worktrees/7f0ec18181b6/01M4GV03R6385M9SNN706PDDFS/.treehouse-live.o30z3i/storage/.treehouse/project-ef4bd4/1/project' to release it.
+Treehouse version: v2.0.1
+Acquired authoritative pool path: /root/.no-mistakes/worktrees/7f0ec18181b6/01M4GV03R6385M9SNN706PDDFS/.treehouse-live.o30z3i/storage/.treehouse/project-ef4bd4/1/project
+🌳 Worktree returned to pool.
+repair: gitdir incorrect: /root/.no-mistakes/worktrees/7f0ec18181b6/01M4GV03R6385M9SNN706PDDFS/.treehouse-live.o30z3i/a/project/.git/worktrees/project/gitdir
+
+Physical-path rejection from real Treehouse:
+worktree /root/.no-mistakes/worktrees/7f0ec18181b6/01M4GV03R6385M9SNN706PDDFS/.treehouse-live.o30z3i/disk/1/project is not managed by treehouse
+
+Shared-pool resolution from a separate clone:
+/root/.no-mistakes/worktrees/7f0ec18181b6/01M4GV03R6385M9SNN706PDDFS/.treehouse-live.o30z3i/storage/.treehouse/project-ef4bd4/1/project
+
+Fresh spawn before relaunch checks:
+fm-gate-refuse: gate agent lifecycle permitted only against lab home /root/.no-mistakes/worktrees/7f0ec18181b6/01M4GV03R6385M9SNN706PDDFS/.treehouse-live.o30z3i/home
+spawned relaunch-path harness=sleep kind=scout window=fm-lab-path:fm-relaunch-path worktree=/root/.no-mistakes/worktrees/7f0ec18181b6/01M4GV03R6385M9SNN706PDDFS/.treehouse-live.o30z3i/storage/.treehouse/project-ef4bd4/1/project
+
+Relaunch an agent-free legacy physical-path task:
+fm-gate-refuse: gate agent lifecycle permitted only against lab home /root/.no-mistakes/worktrees/7f0ec18181b6/01M4GV03R6385M9SNN706PDDFS/.treehouse-live.o30z3i/home
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+●  WATCHER DOWN - SUPERVISION IS OFF
+●  1 task(s) in flight, but no watcher has a fresh beacon (last beat: never, grace 300s).
+●  Trust the emitted supervision protocol for this harness; do not use shell & for watcher repair.
+●  This is a supervision warning only; the guarded operation WILL still run.
+●  repair missing watcher supervision according to the session-start block for this harness; do not use shell &.
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+spawned relaunch-path harness=sleep kind=scout window=fm-lab-path:fm-relaunch-path worktree=/root/.no-mistakes/worktrees/7f0ec18181b6/01M4GV03R6385M9SNN706PDDFS/.treehouse-live.o30z3i/storage/.treehouse/project-ef4bd4/1/project
+window=fm-lab-path:fm-relaunch-path
+endpoint_task_id=relaunch-path
+worktree=/root/.no-mistakes/worktrees/7f0ec18181b6/01M4GV03R6385M9SNN706PDDFS/.treehouse-live.o30z3i/storage/.treehouse/project-ef4bd4/1/project
+project=/root/.no-mistakes/worktrees/7f0ec18181b6/01M4GV03R6385M9SNN706PDDFS/.treehouse-live.o30z3i/b/project
+harness=sleep
+kind=scout
+tasktmp=/tmp/fm-relaunch-path
+model=default
+effort=default
+spawn_gen=s1791567171.3681717.11004
+
+Relaunch refuses malformed config before replacing task metadata:
+fm-gate-refuse: gate agent lifecycle permitted only against lab home /root/.no-mistakes/worktrees/7f0ec18181b6/01M4GV03R6385M9SNN706PDDFS/.treehouse-live.o30z3i/home
+WARNING: watcher still down (same stale episode; last beat: never, grace 300s) - full banner already printed this episode.
+error: Treehouse lookup failed for /root/.no-mistakes/worktrees/7f0ec18181b6/01M4GV03R6385M9SNN706PDDFS/.treehouse-live.o30z3i/storage/.treehouse/project-ef4bd4/1/project; refusing to relaunch with uncertain slot ownership
+
+Relaunch rejects a pool symlink targeting the primary checkout:
+fm-gate-refuse: gate agent lifecycle permitted only against lab home /root/.no-mistakes/worktrees/7f0ec18181b6/01M4GV03R6385M9SNN706PDDFS/.treehouse-live.o30z3i/home
+WARNING: watcher still down (same stale episode; last beat: never, grace 300s) - full banner already printed this episode.
+error: task relaunch-path's endpoint is in '/root/.no-mistakes/worktrees/7f0ec18181b6/01M4GV03R6385M9SNN706PDDFS/.treehouse-live.o30z3i/disk/1/project', not its recorded worktree '/root/.no-mistakes/worktrees/7f0ec18181b6/01M4GV03R6385M9SNN706PDDFS/.treehouse-live.o30z3i/storage/.treehouse/project-ef4bd4/1/project'; refusing to relaunch an agent outside the copy holding its work

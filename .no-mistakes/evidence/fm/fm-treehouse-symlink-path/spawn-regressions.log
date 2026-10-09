@@ -1,0 +1,10 @@
+ok - a single transient stale pane_current_path read is not accepted as the worktree
+ok - an already-settled pane confirms on the next read, not a whole extra cycle
+ok - a transient primary-checkout pane read is not accepted as the worktree
+ok - a pane stuck on the primary checkout fails loudly at the deadline
+ok - same and separate clones record and claim symlinked slots without jq
+ok - a symlinked slot path to the primary checkout fails isolation
+ok - spawn refuses unknown pool membership before launching a worker
+ok - pool lookup refuses unterminated comments promptly and accepts valid TOML
+ok - pool resolution requires one authoritative entry and preserves claim uncertainty
+# all fm-spawn-worktree-settle tests passed

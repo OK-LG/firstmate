@@ -1,0 +1,19 @@
+Validation scope: Treehouse slot path resolution, spawn/relaunch publication, teardown and refusal boundaries.
+Real tools: Treehouse v2.0.1 (repository installer verified its pinned SHA-256), Git, Node, tmux.
+Live spawn/relaunch used the supported raw-command interface with a real sleep workload. No AI harness, model response, or authentication was simulated or claimed as tested.
+
+Setup corrections:
+- First teardown regression invocation explicitly selected the installed v2.3.0 and correctly refused the version mismatch. Re-ran successfully with the pinned v2.0.1 downloaded inside the worktree.
+- First relaunch isolation probe redirected the pool symlink while leaving the pane in its old physical checkout. The product safely refused the endpoint/worktree mismatch. Re-drove with the pane moved into the candidate checkout.
+- That second probe targeted clone A while the recorded spawning project was clone B. Existing isolation checks protect the spawning project's primary/common Git directory, not every unrelated clone. The final intended guard scenario targets clone B and correctly refuses before publication. Cross-clone primary protection was not added or claimed by this change.
+- A preliminary no-jq lookup ran concurrently with the intentional malformed-config scenario and returned uncertainty. Re-ran in a separate, immutable fixture with real v2.0.1 pool state; jq returned ENOENT and path lookup succeeded.
+
+Final results:
+- fm-spawn-worktree-settle.test.sh exited 0.
+- fm-teardown-endpoint-safety.test.sh with pinned real Treehouse exited 0.
+- live-treehouse.sh exited 0.
+- live-relaunch.sh final run exited 0.
+- without-jq.sh exited 0.
+- parser-counterfactual.sh exited 0: pre-fix parser timed out; fixed parser promptly rejected malformed TOML and accepted valid TOML.
+
+All disposable labs and private tmux servers were removed. Removed the downloaded binary and restored only Treehouse-generated .gitignore additions. No tracked source or test changes remain. No lint, full-suite, push, PR, CI, or pipeline-control commands were run.

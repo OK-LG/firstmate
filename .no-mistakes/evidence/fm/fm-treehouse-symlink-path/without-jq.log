@@ -1,0 +1,6 @@
+🌳 Setting up worktree...
+🌳 Leased worktree at ~/.no-mistakes/worktrees/7f0ec18181b6/01M4GV03R6385M9SNN706PDDFS/.no-jq-check.yHm2ze/.treehouse/project-b70ec9/1/project. Run 'treehouse return ~/.no-mistakes/worktrees/7f0ec18181b6/01M4GV03R6385M9SNN706PDDFS/.no-jq-check.yHm2ze/.treehouse/project-b70ec9/1/project' to release it.
+repair: gitdir incorrect: /root/.no-mistakes/worktrees/7f0ec18181b6/01M4GV03R6385M9SNN706PDDFS/.no-jq-check.yHm2ze/a/project/.git/worktrees/project/gitdir
+jq is absent from PATH (exec returned ENOENT).
+Resolved real Treehouse v2.0.1 symlinked slot from a separate clone without jq:
+/root/.no-mistakes/worktrees/7f0ec18181b6/01M4GV03R6385M9SNN706PDDFS/.no-jq-check.yHm2ze/.treehouse/project-b70ec9/1/project
