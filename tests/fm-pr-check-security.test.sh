@@ -27,6 +27,7 @@ REAL_CHMOD=$(command -v chmod)
 # deliberately restricted, so a case that needs jq exposes this one rather than
 # depending on the host keeping jq in one of those four directories.
 REAL_JQ=$(command -v jq) || fail "these tests read glab's JSON with the real jq, which was not found"
+REAL_NODE=$(command -v node) || fail "these tests need node for Treehouse pool lookup"
 
 ack_watcher_cycle() {  # <state>
   local state=$1 err sequence generation
@@ -128,6 +129,7 @@ make_case() {
   fakebin="$dir/fakebin"
   fake_root="$dir/root"
   mkdir -p "$dir/home/state" "$dir/home/data" "$dir/home/config" "$dir/wt" "$fakebin" "$fake_root/bin"
+  ln -s "$REAL_NODE" "$fakebin/node"
   git -C "$dir/wt" init -q
   git -C "$dir/wt" commit -q --allow-empty -m init
   git -C "$dir/wt" update-ref refs/remotes/origin/main "$(git -C "$dir/wt" rev-parse HEAD)"

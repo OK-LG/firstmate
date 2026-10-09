@@ -3913,7 +3913,8 @@ SH
     fail "the local merge did not reach the post-validation synchronization point"
   fi
   set +e
-  PATH="$local_home/fakebin:$PATH" FM_ROOT_OVERRIDE="$ROOT" FM_HOME="$local_home" \
+  PATH="$local_home/fakebin:$PATH" FM_TEST_REAL_GIT="$real_git" \
+    FM_ROOT_OVERRIDE="$ROOT" FM_HOME="$local_home" \
     FM_STATE_OVERRIDE="$local_home/state" FM_DATA_OVERRIDE="$local_home/data" \
     FM_CONFIG_OVERRIDE="$local_home/config" "$TEARDOWN" "$local_id" --force \
     > "$local_home/race-local-teardown.out" 2> "$local_home/race-local-teardown.err"

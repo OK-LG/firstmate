@@ -18,6 +18,7 @@ unset CLAUDECODE PI_CODING_AGENT FM_PI_HARNESS GROK_AGENT CURSOR_AGENT CURSOR_IN
 
 SPAWN="$ROOT/bin/fm-spawn.sh"
 TMP_ROOT=$(fm_test_tmproot fm-rovo-harness)
+NODE_BIN=$(command -v node) || fail "test needs node for Treehouse pool lookup"
 
 # A stateful fake tmux for rovo's launch-then-send shape (the same shape kimi
 # uses): a positional brief is dead-on-arrival, so rovo launches BARE and only
@@ -29,6 +30,7 @@ TMP_ROOT=$(fm_test_tmproot fm-rovo-harness)
 make_rovo_fakebin() {
   local dir=$1 fakebin
   fakebin=$(fm_fakebin "$dir")
+  ln -s "$NODE_BIN" "$fakebin/node"
   cat > "$fakebin/tmux" <<'SH'
 #!/usr/bin/env bash
 set -u
