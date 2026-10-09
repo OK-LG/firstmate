@@ -230,8 +230,9 @@ Every path that cannot finish a wake the engine took hands that wake to main, wi
 Before handing it back, the host stops its successor cycle, and whenever a successor generation was recorded (confirmed or not), it explicitly republishes downtime for that generation.
 That publication is required even when the successor already exited, because no watcher cleanup remains to make the close deliverable to the arm owner.
 If that publication fails, the hand-back adds a `supervision-host: watcher downtime could not be restored` line and the host exits nonzero.
-On Claude, a Stop hook whose rewake is refused while the recovery marker is still `pending:handling` and no watcher is live commits the auto-arm failure notice once per failure episode (`failed-suppressed` after that) and still exits 2, so the hand-back reaches main.
+On Claude, a Stop hook whose rewake is refused while the recovery marker is still `pending:handling` commits the auto-arm failure notice once per failure episode (`failed-suppressed` after that) and still exits 2, so the hand-back reaches main even when the successor cycle it left running is healthy.
 A rewake refused because main already drained and acknowledged the episode during a turn that ran while the hook was parked parks the host again, so the successor cycle a pass-through left running keeps an owner ([`bin/fm-claude-stop-autoarm.sh`](../bin/fm-claude-stop-autoarm.sh) header owns the condition); every other refused rewake stays silent as before.
+Every park of that chain gets what is left of the hook's park budget as its own `FM_SUPERVISION_HOST_PARK_SECONDS`, measured from the hook's start, so the last park still ends with a boundary wake inside the hook's one Stop registration; once too little of the budget remains for another park, the hook closes instead.
 So the owner's next arm starts from the same state as without the host, and the wake stays durable in the queue.
 
 ### Paths that hand the wake back

@@ -89,9 +89,14 @@
 #     from a turn that ran while this generation was parked) parks again while
 #     this generation and session still own supervision: exiting would orphan
 #     the cycle the host's pass-through or the handling successor left
-#     running, and an idle session has no later turn end to re-arm it. A close
-#     that reports no actionable reason is benign when a live identity-matched
-#     watcher still has a fresh beacon.
+#     running, and an idle session has no later turn end to re-arm it. Every
+#     park of that chain, the first one and its bounded retries included, runs
+#     inside the ONE timeout this hook's Stop registration declares, so each
+#     park is handed what is left of the park budget measured from this hook's
+#     start: the host's boundary line still reaches main before Claude kills
+#     the hook, and a remainder too short to park on ends the chain instead of
+#     parking into that kill. A close that reports no actionable reason is
+#     benign when a live identity-matched watcher still has a fresh beacon.
 #   - Failure handling: a typed failure is rechecked against the same live,
 #     fresh watcher predicate and retried a bounded number of times in this
 #     hook. Only an exhausted failure with no verified watcher emits one
@@ -152,6 +157,35 @@ case "$AUTOARM_ATTEMPTS" in
   1|2|3) : ;;
   *) AUTOARM_ATTEMPTS=2 ;;
 esac
+# Claude kills this hook's whole process tree at the single timeout its Stop
+# registration declares (.claude/settings.json) and drops the exit 2 of a hook
+# it killed, so every park this one hook starts shares that one registration's
+# lifetime. The budget bounds the whole chain from this hook's start, measured
+# with Bash's process-relative SECONDS, and each host park takes the remainder
+# as its own boundary (FM_SUPERVISION_HOST_PARK_SECONDS, whose operator value
+# is the budget here): the boundary stays under the registration however many
+# parks ran before it. A remainder below the floor is not worth a park.
+PARK_BUDGET_FLOOR=60
+PARK_BUDGET=${FM_SUPERVISION_HOST_PARK_SECONDS:-27000}
+case "$PARK_BUDGET" in
+  ''|0*|*[!0-9]*) PARK_BUDGET=27000 ;;
+esac
+{ [ "$PARK_BUDGET" -ge "$PARK_BUDGET_FLOOR" ] && [ "$PARK_BUDGET" -lt 28800 ]; } 2>/dev/null \
+  || PARK_BUDGET=27000
+PARK_BUDGET_LEFT=$PARK_BUDGET
+
+# Sets PARK_BUDGET_LEFT to the seconds this hook may still park for, never
+# below the shortest park worth starting, and is true only while the real
+# remainder reaches that floor. The hook's own first park always runs on the
+# floor: one floor-length park past the budget stays far inside the
+# registration, while a chained park on a spent budget does not.
+park_budget_left() {
+  PARK_BUDGET_LEFT=$((PARK_BUDGET - SECONDS))
+  if [ "$PARK_BUDGET_LEFT" -lt "$PARK_BUDGET_FLOOR" ]; then
+    PARK_BUDGET_LEFT=$PARK_BUDGET_FLOOR
+    return 1
+  fi
+}
 
 # shellcheck source=bin/fm-primary-scope-lib.sh
 . "$SCRIPT_DIR/fm-primary-scope-lib.sh"
@@ -421,12 +455,14 @@ while :; do
       [ -z "$OUT" ] || rm -f "$OUT" 2>/dev/null || true
       exit 0
     fi
+    park_budget_left || [ "$attempt" -eq 0 ] || break
     attempt=$((attempt + 1))
     OUT=$(mktemp "$STATE/.claude-autoarm-output.XXXXXX") || OUT=
     if [ "$HOST_MODE" -eq 1 ]; then
       HOST_RC=0
       FM_SUPERVISION_HOST_AUTOARM_GEN=$MY_GEN FM_SUPERVISION_HOST_OWNER_PID=$$ \
         FM_SUPERVISION_HOST_PRIMARY=claude FM_GUARD_GRACE="$GRACE" \
+        FM_SUPERVISION_HOST_PARK_SECONDS=$PARK_BUDGET_LEFT \
         "$SCRIPT_DIR/fm-supervision-host.sh" park >"${OUT:-/dev/null}" 2>&1 || HOST_RC=$?
     else
       run_arm "$OUT"
@@ -550,8 +586,7 @@ while :; do
     fi
     if [ "$HOST_MODE" -eq 1 ] && fm_autoarm_still_owner "$STATE" "$MY_GEN" \
       && fm_recovery_marker_snapshot "$STATE/.watcher-down" \
-      && [[ "$FM_RECOVERY_MARKER_TOKEN" == pending:handling:* || "$FM_RECOVERY_MARKER_TOKEN" == announced:handling:* ]] \
-      && ! fm_watcher_healthy "$STATE" "$SCRIPT_DIR/fm-watch.sh" "$GRACE" "$FM_HOME"; then
+      && [[ "$FM_RECOVERY_MARKER_TOKEN" == pending:handling:* || "$FM_RECOVERY_MARKER_TOKEN" == announced:handling:* ]]; then
       LOST_HANDBACK_COMMITTED=0
       LOST_HANDBACK_NOTICE=0
       if [ ! -e "$FAILURE_NOTICE" ]; then
@@ -572,11 +607,15 @@ while :; do
     # while this generation was parked, so the close needs no rewake. Exiting
     # here would orphan the cycle the host's pass-through or the handling
     # successor left running: its next close would reach no one until some
-    # later turn end, which an idle session never has. Park again instead.
+    # later turn end, which an idle session never has. Park again instead,
+    # within what is left of this hook's one park budget: once too little of it
+    # remains, the chain ends here rather than parking into Claude's timeout
+    # kill, which would drop the next close with the watcher it would deliver.
     if fm_autoarm_still_owner "$STATE" "$MY_GEN" \
       && fm_session_lock_owned_by_self "$STATE" \
       && fm_recovery_marker_snapshot "$STATE/.watcher-down" \
-      && [[ "$FM_RECOVERY_MARKER_TOKEN" == acked:* ]]; then
+      && [[ "$FM_RECOVERY_MARKER_TOKEN" == acked:* ]] \
+      && park_budget_left; then
       OUT=
       HEALTHY=0
       SUCCESSOR_FAILURE=
