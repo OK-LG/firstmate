@@ -96,8 +96,8 @@
 # before retrying; never remove an owner claim to bypass this refusal.
 # Existing worktree= records containing a symlink target need no manual rewrite:
 # return uses the resolved pool entry's path while safety checks inspect the same
-# physical checkout. A confirmed non-pool worktree registered with the project
-# is removed through Git instead of Treehouse, after the same safety checks.
+# physical checkout. An ordinary non-pool worktree still reaches Treehouse and
+# retains its task record if Treehouse refuses to return it.
 # Worktree-slot ownership (teardown-slot-collision): a treehouse pool slot is
 # reused across tasks, so a stale, duplicated, or drifted worktree= record can
 # name a slot a DIFFERENT live task now holds. Cleanup kills every process under
@@ -1809,8 +1809,8 @@ cleanup_stale_lock_for_safety_check() {
   return "$TEARDOWN_TREEHOUSE_LOCK_REFUSED"
 }
 
-# Remove a confirmed ordinary Git worktree, or return a pool worktree/home via
-# Treehouse, tolerating a transient or stale git index.lock. See the script header.
+# Return a worktree/home via `treehouse return --force`, tolerating a transient or
+# stale git index.lock left by a killed crew process. See the script header.
 teardown_treehouse_return() {
   local dir=$1 cd_dir=$2 label=$3 post_cleanup_check=${4:-}
   local out lock attempt=0 max_retries lock_desc
@@ -1819,10 +1819,6 @@ teardown_treehouse_return() {
   # Return the path recorded in pool state while leaving all safety checks on
   # the same underlying checkout.
   teardown_resolve_treehouse_slot "$cd_dir" "$dir" || return "$TEARDOWN_TREEHOUSE_LOCK_REFUSED"
-  if [ -z "$TEARDOWN_TREEHOUSE_POOL_PATH" ] && worktree_registered_for_project "$cd_dir" "$dir"; then
-    git -C "$cd_dir" worktree remove --force -- "$dir"
-    return $?
-  fi
   [ -z "$TEARDOWN_TREEHOUSE_POOL_PATH" ] || dir=$TEARDOWN_TREEHOUSE_POOL_PATH
 
   # Capture stdout+stderr so non-lock failures stay visible and lock failures can
@@ -3652,7 +3648,7 @@ elif [ -d "$WT" ] && [ "$KIND" != secondmate ]; then
     post_lock_cleanup_check=validate_worktree_teardown_safety
   fi
   teardown_treehouse_return "$WT" "$PROJ" "worktree" "$post_lock_cleanup_check" || {
-    echo "error: worktree cleanup failed for $WT; teardown aborted" >&2
+    echo "error: treehouse return failed for worktree $WT; teardown aborted" >&2
     exit 1
   }
   # The slot is back in the pool, so this task's claim on it is spent. Dropping

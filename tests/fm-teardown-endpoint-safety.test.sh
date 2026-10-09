@@ -185,8 +185,8 @@ test_treehouse_lookup_failure_preserves_foreign_slot() {
   pass "Treehouse config and state failures preserve foreign slots and records"
 }
 
-test_confirmed_non_pool_git_worktree_still_cleans_up() {
-  local dir id=non-pool-git
+test_confirmed_non_pool_git_worktree_still_refuses() {
+  local dir id=non-pool-git rc=0
   dir=$(make_case non-pool-git)
   rm -rf "$dir/worktree"
   git -C "$dir/project" -c user.name=test -c user.email=test@example.invalid commit --allow-empty -qm fixture
@@ -202,12 +202,13 @@ SH
   fm_write_meta "$dir/home/state/$id.meta" \
     "window=firstmate:fm-$id" "endpoint_task_id=$id" \
     "worktree=$dir/worktree" "project=$dir/project" "kind=scout"
-  run_case "$dir" "$id" > "$dir/stdout" 2> "$dir/stderr" \
-    || fail "confirmed non-pool cleanup refused: $(cat "$dir/stderr")"
-  assert_absent "$dir/home/state/$id.meta" "confirmed non-pool cleanup retained metadata"
-  assert_absent "$dir/worktree" "confirmed non-pool cleanup retained the worktree"
-  assert_no_grep 'treehouse <return>' "$dir/runtime.log" "confirmed non-pool cleanup called Treehouse"
-  pass "confirmed non-pool Git worktrees retain normal cleanup"
+  run_case "$dir" "$id" > "$dir/stdout" 2> "$dir/stderr" || rc=$?
+  [ "$rc" -ne 0 ] || fail "confirmed non-pool cleanup unexpectedly succeeded"
+  assert_present "$dir/home/state/$id.meta" "confirmed non-pool refusal removed metadata"
+  assert_present "$dir/worktree" "confirmed non-pool refusal removed the worktree"
+  assert_grep 'treehouse <return>' "$dir/runtime.log" "confirmed non-pool cleanup skipped Treehouse"
+  assert_grep 'not managed by treehouse' "$dir/stderr" "confirmed non-pool refusal lost Treehouse error"
+  pass "confirmed non-pool Git worktrees retain Treehouse refusal"
 }
 
 test_invalid_endpoint_records_refuse_before_mutation() {
@@ -1605,7 +1606,7 @@ test_already_gone_endpoint_still_completes_without_a_refusal() {
 
 test_treehouse_201_recovery_preserves_symlink_evidence
 test_treehouse_lookup_failure_preserves_foreign_slot
-test_confirmed_non_pool_git_worktree_still_cleans_up
+test_confirmed_non_pool_git_worktree_still_refuses
 test_invalid_endpoint_records_refuse_before_mutation
 test_control_lock_contention_refuses_before_mutation
 test_non_pool_teardown_ignores_task_set_lock
