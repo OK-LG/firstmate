@@ -687,6 +687,11 @@ lay_out_as_pool_slot() {
     > "$slot_root/treehouse-state.json"
   POOL_DIR="$slot_root/1/project"
   SLOT_CLAIM="$slot_root/1/.fm-slot-owner"
+  cat > "$FAKEBIN_DIR/treehouse" <<SH
+#!/usr/bin/env bash
+[ "\$*" = status ] || exit 1
+printf '%-4s  %-11s  %s\\n' 1 available "$POOL_DIR"
+SH
 }
 
 # The spawn side of the slot-owner claim that bin/fm-teardown.sh later reads:

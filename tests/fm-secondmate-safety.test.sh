@@ -2040,6 +2040,11 @@ yolo=off
 EOF
   done
   fakebin=$(make_fake_tmux "$TMP_ROOT/force-duplicate-slot-fake")
+  cat > "$fakebin/treehouse" <<SH
+#!/usr/bin/env bash
+[ "\$*" = status ] || exit 1
+printf '%-4s  %-11s  %s\\n' 1 available "$childwt"
+SH
   log="$TMP_ROOT/force-duplicate-slot-fake/tmux.log"
 
   set +e
@@ -2093,9 +2098,14 @@ yolo=off
 EOF
   fakebin=$(make_fake_tmux "$TMP_ROOT/force-lock-child-fake")
   log="$TMP_ROOT/force-lock-child-fake/tmux.log"
+  printf '%-4s  %-11s  %s\n' 1 available "$childwt" > "$fakebin/pool-status"
   cat > "$fakebin/treehouse" <<'SH'
 #!/usr/bin/env bash
 set -u
+if [ "$*" = status ]; then
+  cat "$(dirname "$0")/pool-status"
+  exit 0
+fi
 printf 'treehouse %s\n' "$*" >> "${FM_FAKE_TMUX_LOG:-/dev/null}"
 case "${1:-}" in
   return)

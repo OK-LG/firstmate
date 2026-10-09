@@ -46,6 +46,17 @@ mark_case_as_treehouse_pool() {  # <case>
   printf '{"worktrees":[{"name":"1","path":"%s"}]}\n' \
     "$dir/pool/1/project" > "$dir/pool/treehouse-state.json"
   : > "$dir/worktree/sentinel"
+  cat > "$dir/fakebin/treehouse" <<SH
+#!/usr/bin/env bash
+if [ "\$*" = status ]; then
+  printf '%-4s  %-11s  %s\\n' 1 available "$dir/pool/1/project"
+  exit 0
+fi
+[ "\${1:-}" != status ] || exit 1
+printf 'treehouse' >> "\${FM_RUNTIME_LOG:?}"
+printf ' <%s>' "\$@" >> "\${FM_RUNTIME_LOG:?}"
+printf '\\n' >> "\${FM_RUNTIME_LOG:?}"
+SH
 }
 
 claim_pool_slot() {  # <case> <task-id> [home]
@@ -614,7 +625,7 @@ test_sole_slot_record_still_tears_down() {
 }
 
 test_legacy_disk_path_returns_symlinked_pool_slot() {
-  local dir id=legacy-disk-slot pool_path disk_slot
+  local dir id=legacy-disk-slot pool_path disk_slot jq_free project
   dir=$(make_case symlinked-pool-slot)
   mark_case_as_treehouse_pool "$dir"
   pool_path="$dir/pool/1/project"
@@ -625,10 +636,11 @@ test_legacy_disk_path_returns_symlinked_pool_slot() {
   ln -s "$disk_slot" "$dir/pool/1"
   cat > "$dir/fakebin/treehouse" <<'SH'
 #!/usr/bin/env bash
-if [ "${1:-}" = status ] && [ "${2:-}" = --json ]; then
-  printf '[{"path":"%s"}]\n' "$FM_FAKE_TREEHOUSE_POOL_PATH"
+if [ "$*" = status ]; then
+  printf '%-4s  %-11s  %s\n' 1 available "$FM_FAKE_TREEHOUSE_POOL_PATH"
   exit 0
 fi
+[ "${1:-}" != status ] || exit 1
 printf 'treehouse' >> "${FM_RUNTIME_LOG:?}"
 printf ' <%s>' "$@" >> "${FM_RUNTIME_LOG:?}"
 printf '\n' >> "${FM_RUNTIME_LOG:?}"
@@ -639,12 +651,17 @@ fi
 exit 0
 SH
   chmod +x "$dir/fakebin/treehouse"
+  project="$dir/secondmate/project"
+  git -C "$dir/project" remote add origin "$dir/project"
+  git clone -q "$dir/project" "$project"
   fm_write_meta "$dir/home/state/$id.meta" \
     "window=firstmate:fm-$id" "endpoint_task_id=$id" \
-    "worktree=$disk_slot/project" "project=$dir/project" "kind=scout"
+    "worktree=$disk_slot/project" "project=$project" "kind=scout"
   printf 'task=%s\nhome=%s\n' "$id" "$dir/home" > "$disk_slot/.fm-slot-owner"
 
-  FM_FAKE_TREEHOUSE_POOL_PATH="$pool_path" run_case "$dir" "$id" \
+  jq_free=$(fm_test_base_path_sans "$PATH" jq)
+  ! PATH="$jq_free" command -v jq >/dev/null 2>&1 || fail "jq is still available"
+  FM_FAKE_TREEHOUSE_POOL_PATH="$pool_path" PATH="$jq_free" run_case "$dir" "$id" \
     > "$dir/stdout" 2> "$dir/stderr" \
     || fail "legacy disk-path teardown failed: $(cat "$dir/stderr")"
   assert_absent "$dir/home/state/$id.meta" "legacy disk-path teardown left task metadata"

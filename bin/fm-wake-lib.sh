@@ -1483,58 +1483,40 @@ fm_treehouse_project_lock_path() {  # <project-dir>
   printf '%s/.treehouse-project-%s.lock\n' "$root/state" "$hash"
 }
 
-# A Treehouse slot has the managed pool's fixed <pool>/<slot>/<repo> layout.
-# Keep that logical path: a slot directory may be a symlink to another disk,
-# while Treehouse return accepts the pool path it reports, not its real path.
-_fm_treehouse_valid_pool_path() {  # <project-dir> <pool-worktree>
-  local project=$1 slot=$2 pool state project_common slot_common
-  [ -d "$project" ] && [ -d "$slot" ] || return 1
-  pool=$(dirname "$(dirname "$slot")")
-  state="$pool/treehouse-state.json"
-  [ -f "$state" ] && [ ! -L "$state" ] || return 1
-  project_common=$(git -C "$project" rev-parse --path-format=absolute --git-common-dir 2>/dev/null) || return 1
-  slot_common=$(git -C "$slot" rev-parse --path-format=absolute --git-common-dir 2>/dev/null) || return 1
-  project_common=$(CDPATH='' cd -- "$project_common" 2>/dev/null && pwd -P) || return 1
-  slot_common=$(CDPATH='' cd -- "$slot_common" 2>/dev/null && pwd -P) || return 1
-  [ "$project_common" = "$slot_common" ]
-}
-
-# Resolve a legacy physical worktree path through Treehouse's reported pool
-# paths. Require a unique matching slot; two aliases to the same checkout are
-# ambiguous and cannot authorize a return or a slot-owner claim.
-fm_treehouse_pool_path() {  # <project-dir> <worktree>
-  local project=$1 worktree=$2 real listing paths candidate candidate_real match=
-  local project_common worktree_common
+fm_treehouse_pool_path() {
+  local project=$1 worktree=$2 listing
   [ -d "$project" ] && [ -d "$worktree" ] || return 1
-  if _fm_treehouse_valid_pool_path "$project" "$worktree"; then
-    printf '%s\n' "$worktree"
-    return 0
-  fi
-  real=$(CDPATH='' cd -- "$worktree" 2>/dev/null && pwd -P) || return 1
-  # A task may record an alias symlink to an ordinary pool worktree.
-  if _fm_treehouse_valid_pool_path "$project" "$real"; then
-    printf '%s\n' "$real"
-    return 0
-  fi
-  # Ordinary directories and unrelated repositories need no Treehouse query.
-  project_common=$(git -C "$project" rev-parse --path-format=absolute --git-common-dir 2>/dev/null) || return 1
-  worktree_common=$(git -C "$worktree" rev-parse --path-format=absolute --git-common-dir 2>/dev/null) || return 1
-  project_common=$(CDPATH='' cd -- "$project_common" 2>/dev/null && pwd -P) || return 1
-  worktree_common=$(CDPATH='' cd -- "$worktree_common" 2>/dev/null && pwd -P) || return 1
-  [ "$project_common" = "$worktree_common" ] || return 1
-  command -v treehouse >/dev/null 2>&1 && command -v jq >/dev/null 2>&1 || return 1
-  listing=$(CDPATH='' cd -- "$project" && treehouse status --json 2>/dev/null) || return 1
-  paths=$(printf '%s\n' "$listing" | jq -r '.[]? | .path // empty' 2>/dev/null) || return 1
-  while IFS= read -r candidate; do
-    [ -n "$candidate" ] || continue
-    _fm_treehouse_valid_pool_path "$project" "$candidate" || continue
-    candidate_real=$(CDPATH='' cd -- "$candidate" 2>/dev/null && pwd -P) || continue
-    [ "$candidate_real" = "$real" ] || continue
-    [ -z "$match" ] || return 1
-    match=$candidate
-  done <<< "$paths"
-  [ -n "$match" ] || return 1
-  printf '%s\n' "$match"
+  git -C "$project" rev-parse --git-dir >/dev/null 2>&1 || return 1
+  git -C "$worktree" rev-parse --git-dir >/dev/null 2>&1 || return 1
+  listing=$(CDPATH='' cd -- "$project" && NO_COLOR=1 TREEHOUSE_NO_UPDATE_CHECK=1 treehouse status 2>/dev/null) || return 1
+  printf '%s\n' "$listing" | node -e '
+const fs = require("node:fs");
+const path = require("node:path");
+try {
+  const real = fs.realpathSync(process.argv[1]);
+  const matches = [];
+  for (const line of fs.readFileSync(0, "utf8").split("\n")) {
+    const row = /^(\S+) +(?:available|dirty|in-use|leased|you\x27re here) +(.+)$/.exec(line);
+    if (!row) continue;
+    let candidate = row[2];
+    if (/^\S+ +leased +/.test(line)) candidate = candidate.replace(/  \(held by .*\)$/, "");
+    if (candidate.startsWith("~/") && process.env.HOME) candidate = process.env.HOME + candidate.slice(1);
+    if (!path.isAbsolute(candidate)) continue;
+    const statePath = path.join(path.dirname(path.dirname(candidate)), "treehouse-state.json");
+    try {
+      if (!fs.lstatSync(statePath).isFile()) continue;
+      const state = JSON.parse(fs.readFileSync(statePath, "utf8"));
+      if (!Array.isArray(state.worktrees)) continue;
+      for (const entry of state.worktrees) {
+        if (entry.name === row[1] && entry.path === candidate && !entry.destroying &&
+            fs.realpathSync(candidate) === real) matches.push(candidate);
+      }
+    } catch { continue; }
+  }
+  if (matches.length !== 1) process.exit(1);
+  process.stdout.write(matches[0] + "\n");
+} catch { process.exit(1); }
+' "$worktree"
 }
 
 fm_treehouse_pool_slot() {  # <project-dir> <worktree>
