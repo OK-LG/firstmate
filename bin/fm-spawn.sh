@@ -159,6 +159,10 @@
 #   while it still holds the allocation lock drops its own claim; an abort after
 #   metadata publication has released that lock leaves the claim in place, and
 #   the next spawn's claim replaces it.
+#   Fresh spawns and relaunches record the pool path returned by
+#   bin/fm-wake-lib.sh's fm_treehouse_pool_path in worktree=, retaining symlinks
+#   while isolation checks compare physical paths. Uncertain membership refuses
+#   launch before publishing task metadata.
 #   The local root is whatever bin/fm-wake-lib.sh's
 #   fm_firstmate_root_home resolves, so a home seeded from another machine anchors
 #   that lock itself rather than failing to resolve one;

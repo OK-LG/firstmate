@@ -1483,7 +1483,17 @@ fm_treehouse_project_lock_path() {  # <project-dir>
   printf '%s/.treehouse-project-%s.lock\n' "$root/state" "$hash"
 }
 
-fm_treehouse_pool_path() {
+# Resolve pool membership without changing its evidence: Treehouse v2.0.1's
+# status recovery can rewrite corrupt state while omitting symlinked slots.
+# fm-treehouse-pool-path.mjs reads the configured project's authoritative pool
+# state directly, matching physical checkout identity rather than Git common
+# directories so separate clones sharing a pool can use the same slot.
+# Exit 0 prints its unique recorded pool path, preserving symlink components;
+# exit 1 means no live pool match; exit 2 means uncertainty and must refuse
+# mutation. Invalid config/state, ambiguous matches, or an omitted entry with a
+# slot-owner claim are uncertainty, never permission to skip ownership checks.
+# Lookup uses Node and the vendored TOML parser, not jq or Treehouse status.
+fm_treehouse_pool_path() {  # <project-dir> <worktree>
   local rc=0
   node "$(dirname "${BASH_SOURCE[0]}")/fm-treehouse-pool-path.mjs" "$1" "$2" || rc=$?
   case "$rc" in
@@ -1514,7 +1524,9 @@ fm_treehouse_pool_slot() {  # <project-dir> <worktree>
 # released by bin/fm-teardown.sh when the slot goes back to the pool. Moving
 # crewmate spawns onto the durable lease is separate follow-up work.
 #
-# The claim lives at <pool>/<slot>/.fm-slot-owner - a sibling of the repo
+# The claim lives beside the physically resolved repo checkout as .fm-slot-owner
+# (normally <pool>/<slot>/.fm-slot-owner), so logical and physical aliases share
+# one claim - a sibling of the repo
 # checkout rather than a file inside it - so claiming a slot can never dirty the
 # copy teardown's landed-work checks inspect, and a returned slot carries no
 # untracked leftover from it.

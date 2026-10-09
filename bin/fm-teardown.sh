@@ -90,6 +90,14 @@
 # name a live quarantined space and is retained for that sweep.
 # data/<id>/ is deliberately left in place: a successor spawn reads brief.md
 # from it.
+# Pool membership is resolved through bin/fm-wake-lib.sh's fm_treehouse_pool_path
+# before slot mutation; uncertainty refuses cleanup even with --force and even
+# when a claim names another task. Repair the configuration or pool-state evidence
+# before retrying; never remove an owner claim to bypass this refusal.
+# Existing worktree= records containing a symlink target need no manual rewrite:
+# return uses the resolved pool entry's path while safety checks inspect the same
+# physical checkout. A confirmed non-pool worktree registered with the project
+# is removed through Git instead of Treehouse, after the same safety checks.
 # Worktree-slot ownership (teardown-slot-collision): a treehouse pool slot is
 # reused across tasks, so a stale, duplicated, or drifted worktree= record can
 # name a slot a DIFFERENT live task now holds. Cleanup kills every process under
@@ -1808,7 +1816,7 @@ teardown_treehouse_return() {
   local out lock attempt=0 max_retries lock_desc
 
   # Older task records may hold the physical target of a symlinked pool slot.
-  # Return the pool path Treehouse reports while leaving all safety checks on
+  # Return the path recorded in pool state while leaving all safety checks on
   # the same underlying checkout.
   teardown_resolve_treehouse_slot "$cd_dir" "$dir" || return "$TEARDOWN_TREEHOUSE_LOCK_REFUSED"
   if [ -z "$TEARDOWN_TREEHOUSE_POOL_PATH" ] && worktree_registered_for_project "$cd_dir" "$dir"; then
