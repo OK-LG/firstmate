@@ -221,9 +221,64 @@ test_primary_checkout_that_never_settles_fails_at_the_deadline() {
   pass "a pane stuck on the primary checkout fails loudly at the deadline"
 }
 
+test_symlinked_pool_slot_records_pool_path() {
+  local rec id out status pool_path disk_slot case_dir
+  id=settle-symlink-pool-z5
+  rec=$(make_settle_case settle-symlink-pool "$id" 0)
+  read_settle_record "$rec"
+  case_dir=${HOME_DIR%/home}
+  disk_slot="$case_dir/disk/17"
+  pool_path="$case_dir/pool/17/project"
+  mkdir -p "$disk_slot" "$case_dir/pool"
+  git -C "$PROJ_DIR" worktree move "$WT_DIR" "$disk_slot/project"
+  ln -s "$disk_slot" "$case_dir/pool/17"
+  printf '{"worktrees":[{"name":"17","path":"%s"}]}\n' "$pool_path" \
+    > "$case_dir/pool/treehouse-state.json"
+  cat > "$FAKEBIN_DIR/treehouse" <<'SH'
+#!/usr/bin/env bash
+if [ "${1:-}" = status ] && [ "${2:-}" = --json ]; then
+  printf '[{"path":"%s"}]\n' "$FM_FAKE_TREEHOUSE_POOL_PATH"
+fi
+exit 0
+SH
+  chmod +x "$FAKEBIN_DIR/treehouse"
+  WT_DIR="$disk_slot/project"
+  export FM_FAKE_TREEHOUSE_POOL_PATH=$pool_path
+  out=$(run_settle_spawn "$id")
+  status=$?
+  unset FM_FAKE_TREEHOUSE_POOL_PATH
+  expect_code 0 "$status" "spawn should accept a symlinked Treehouse slot"$'\n'"$out"
+  assert_grep "worktree=$pool_path" "$HOME_DIR/state/$id.meta" \
+    "spawn recorded the disk path instead of Treehouse's pool path"
+  assert_present "$disk_slot/.fm-slot-owner" "spawn did not claim the symlinked slot"
+  pass "a physical pane cwd records and claims its Treehouse pool path"
+}
+
+test_symlinked_slot_to_primary_fails_isolation() {
+  local rec id out status pool_path case_dir
+  id=settle-symlink-primary-z6
+  rec=$(make_settle_case settle-symlink-primary "$id" 0)
+  read_settle_record "$rec"
+  case_dir=${HOME_DIR%/home}
+  mkdir -p "$case_dir/pool"
+  ln -s "$case_dir" "$case_dir/pool/17"
+  pool_path="$case_dir/pool/17/project"
+  WT_DIR=$pool_path
+  fm_test_fake_sleep_noop "$FAKEBIN_DIR"
+  out=$(run_settle_spawn "$id")
+  status=$?
+  [ "$status" -ne 0 ] || fail "spawn accepted a symlinked path to the primary checkout"
+  assert_contains "$out" "spawning project itself" \
+    "isolation refusal did not identify the primary checkout"
+  [ ! -e "$HOME_DIR/state/$id.meta" ] || fail "isolation refusal published task metadata"
+  pass "a symlinked slot path to the primary checkout fails isolation"
+}
+
 test_single_stale_first_read_is_not_accepted
 test_already_settled_pane_costs_one_confirm_read
 test_transient_primary_checkout_is_not_accepted
 test_primary_checkout_that_never_settles_fails_at_the_deadline
+test_symlinked_pool_slot_records_pool_path
+test_symlinked_slot_to_primary_fails_isolation
 
 echo "# all fm-spawn-worktree-settle tests passed"

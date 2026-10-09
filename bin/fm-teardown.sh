@@ -1790,7 +1790,14 @@ cleanup_stale_lock_for_safety_check() {
 # stale git index.lock left by a killed crew process. See the script header.
 teardown_treehouse_return() {
   local dir=$1 cd_dir=$2 label=$3 post_cleanup_check=${4:-}
-  local out lock attempt=0 max_retries lock_desc
+  local out lock attempt=0 max_retries lock_desc pool_dir
+
+  # Older task records may hold the physical target of a symlinked pool slot.
+  # Return the pool path Treehouse reports while leaving all safety checks on
+  # the same underlying checkout.
+  if pool_dir=$(fm_treehouse_pool_path "$cd_dir" "$dir"); then
+    dir=$pool_dir
+  fi
 
   # Capture stdout+stderr so non-lock failures stay visible and lock failures can
   # be matched by signature even when the lock file is already gone mid-check.

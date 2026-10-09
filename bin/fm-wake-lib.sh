@@ -1484,12 +1484,11 @@ fm_treehouse_project_lock_path() {  # <project-dir>
 }
 
 # A Treehouse slot has the managed pool's fixed <pool>/<slot>/<repo> layout.
-# Require both its pool state and the same Git common directory as the recorded
-# project; an ordinary linked worktree is not evidence that Treehouse owns it.
-fm_treehouse_pool_slot() {  # <project-dir> <worktree>
-  local project=$1 worktree=$2 slot pool state project_common slot_common
-  [ -d "$project" ] && [ -d "$worktree" ] || return 1
-  slot=$(CDPATH='' cd -- "$worktree" 2>/dev/null && pwd -P) || return 1
+# Keep that logical path: a slot directory may be a symlink to another disk,
+# while Treehouse return accepts the pool path it reports, not its real path.
+_fm_treehouse_valid_pool_path() {  # <project-dir> <pool-worktree>
+  local project=$1 slot=$2 pool state project_common slot_common
+  [ -d "$project" ] && [ -d "$slot" ] || return 1
   pool=$(dirname "$(dirname "$slot")")
   state="$pool/treehouse-state.json"
   [ -f "$state" ] && [ ! -L "$state" ] || return 1
@@ -1498,6 +1497,48 @@ fm_treehouse_pool_slot() {  # <project-dir> <worktree>
   project_common=$(CDPATH='' cd -- "$project_common" 2>/dev/null && pwd -P) || return 1
   slot_common=$(CDPATH='' cd -- "$slot_common" 2>/dev/null && pwd -P) || return 1
   [ "$project_common" = "$slot_common" ]
+}
+
+# Resolve a legacy physical worktree path through Treehouse's reported pool
+# paths. Require a unique matching slot; two aliases to the same checkout are
+# ambiguous and cannot authorize a return or a slot-owner claim.
+fm_treehouse_pool_path() {  # <project-dir> <worktree>
+  local project=$1 worktree=$2 real listing paths candidate candidate_real match=
+  local project_common worktree_common
+  [ -d "$project" ] && [ -d "$worktree" ] || return 1
+  if _fm_treehouse_valid_pool_path "$project" "$worktree"; then
+    printf '%s\n' "$worktree"
+    return 0
+  fi
+  real=$(CDPATH='' cd -- "$worktree" 2>/dev/null && pwd -P) || return 1
+  # A task may record an alias symlink to an ordinary pool worktree.
+  if _fm_treehouse_valid_pool_path "$project" "$real"; then
+    printf '%s\n' "$real"
+    return 0
+  fi
+  # Ordinary directories and unrelated repositories need no Treehouse query.
+  project_common=$(git -C "$project" rev-parse --path-format=absolute --git-common-dir 2>/dev/null) || return 1
+  worktree_common=$(git -C "$worktree" rev-parse --path-format=absolute --git-common-dir 2>/dev/null) || return 1
+  project_common=$(CDPATH='' cd -- "$project_common" 2>/dev/null && pwd -P) || return 1
+  worktree_common=$(CDPATH='' cd -- "$worktree_common" 2>/dev/null && pwd -P) || return 1
+  [ "$project_common" = "$worktree_common" ] || return 1
+  command -v treehouse >/dev/null 2>&1 && command -v jq >/dev/null 2>&1 || return 1
+  listing=$(CDPATH='' cd -- "$project" && treehouse status --json 2>/dev/null) || return 1
+  paths=$(printf '%s\n' "$listing" | jq -r '.[]? | .path // empty' 2>/dev/null) || return 1
+  while IFS= read -r candidate; do
+    [ -n "$candidate" ] || continue
+    _fm_treehouse_valid_pool_path "$project" "$candidate" || continue
+    candidate_real=$(CDPATH='' cd -- "$candidate" 2>/dev/null && pwd -P) || continue
+    [ "$candidate_real" = "$real" ] || continue
+    [ -z "$match" ] || return 1
+    match=$candidate
+  done <<< "$paths"
+  [ -n "$match" ] || return 1
+  printf '%s\n' "$match"
+}
+
+fm_treehouse_pool_slot() {  # <project-dir> <worktree>
+  fm_treehouse_pool_path "$1" "$2" >/dev/null
 }
 
 # Slot-owner claim: which task a Treehouse pool slot currently belongs to.

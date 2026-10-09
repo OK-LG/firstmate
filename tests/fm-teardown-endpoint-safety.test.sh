@@ -613,6 +613,49 @@ test_sole_slot_record_still_tears_down() {
   pass "fm-teardown: a task that solely holds its slot still returns it"
 }
 
+test_legacy_disk_path_returns_symlinked_pool_slot() {
+  local dir id=legacy-disk-slot pool_path disk_slot
+  dir=$(make_case symlinked-pool-slot)
+  mark_case_as_treehouse_pool "$dir"
+  pool_path="$dir/pool/1/project"
+  disk_slot="$dir/disk/1"
+  mkdir -p "$disk_slot"
+  git -C "$dir/project" worktree move "$pool_path" "$disk_slot/project"
+  rmdir "$dir/pool/1"
+  ln -s "$disk_slot" "$dir/pool/1"
+  cat > "$dir/fakebin/treehouse" <<'SH'
+#!/usr/bin/env bash
+if [ "${1:-}" = status ] && [ "${2:-}" = --json ]; then
+  printf '[{"path":"%s"}]\n' "$FM_FAKE_TREEHOUSE_POOL_PATH"
+  exit 0
+fi
+printf 'treehouse' >> "${FM_RUNTIME_LOG:?}"
+printf ' <%s>' "$@" >> "${FM_RUNTIME_LOG:?}"
+printf '\n' >> "${FM_RUNTIME_LOG:?}"
+if [ "${1:-}" = return ] && [ "${3:-}" != "$FM_FAKE_TREEHOUSE_POOL_PATH" ]; then
+  echo "worktree $3 is not managed by treehouse" >&2
+  exit 1
+fi
+exit 0
+SH
+  chmod +x "$dir/fakebin/treehouse"
+  fm_write_meta "$dir/home/state/$id.meta" \
+    "window=firstmate:fm-$id" "endpoint_task_id=$id" \
+    "worktree=$disk_slot/project" "project=$dir/project" "kind=scout"
+  printf 'task=%s\nhome=%s\n' "$id" "$dir/home" > "$disk_slot/.fm-slot-owner"
+
+  FM_FAKE_TREEHOUSE_POOL_PATH="$pool_path" run_case "$dir" "$id" \
+    > "$dir/stdout" 2> "$dir/stderr" \
+    || fail "legacy disk-path teardown failed: $(cat "$dir/stderr")"
+  assert_absent "$dir/home/state/$id.meta" "legacy disk-path teardown left task metadata"
+  assert_absent "$disk_slot/.fm-slot-owner" "legacy disk-path teardown left its claim"
+  assert_grep "treehouse <return> <--force> <$pool_path>" "$dir/runtime.log" \
+    "teardown did not pass the managed pool path to Treehouse"
+  assert_no_grep "treehouse <return> <--force> <$disk_slot/project>" "$dir/runtime.log" \
+    "teardown passed the disk path to Treehouse"
+  pass "legacy physical worktree records return the symlinked pool path"
+}
+
 test_recorded_endpoint_that_changed_directory_still_tears_down() {
   local dir id=moved-task
 
@@ -1439,6 +1482,7 @@ test_bare_relative_origin_shares_project_lock_with_clone
 test_reused_pool_slot_refuses_before_touching_the_other_task
 test_cross_home_pool_slot_collision_refuses
 test_sole_slot_record_still_tears_down
+test_legacy_disk_path_returns_symlinked_pool_slot
 test_reassigned_pool_slot_finishes_own_cleanup_without_touching_the_slot
 test_stale_record_on_claimed_slot_retires_then_claimant_tears_down
 test_own_and_absent_slot_claims_still_tear_down
