@@ -1459,6 +1459,8 @@ test_teardown_removes_poll_artifacts() {
   printf 'data\n' > "$dir/home/state/task-a.pr-poll"
   printf 'registration\n' > "$dir/home/state/task-a.pr-poll-registration"
   printf 'trust\n' > "$dir/home/state/task-a.check-trust"
+  printf 'ready alarm\n' > "$dir/home/state/task-a.pr-ready"
+  printf 'ready acknowledgement\n' > "$dir/home/state/task-a.pr-ready-ack"
   cat > "$fakebin/tmux" <<'SH'
 #!/usr/bin/env bash
 exit 0
@@ -1473,6 +1475,8 @@ SH
   [ ! -e "$dir/home/state/task-a.pr-poll" ] || fail "teardown left the sidecar"
   [ ! -e "$dir/home/state/task-a.pr-poll-registration" ] || fail "teardown left the PR poll registration"
   [ ! -e "$dir/home/state/task-a.check-trust" ] || fail "teardown left the custom check registration"
+  [ ! -e "$dir/home/state/task-a.pr-ready" ] || fail "teardown left PR-ready alarm state"
+  [ ! -e "$dir/home/state/task-a.pr-ready-ack" ] || fail "teardown left PR-ready acknowledgement"
 
   dir=$(make_case teardown-retirement-receipt)
   fakebin="$dir/fakebin"
@@ -1502,7 +1506,7 @@ SH
   assert_poll_absent "$dir/home/state" task-a
   [ ! -e "$dir/home/state/task-a.meta" ] || fail "receipt-aware teardown left task metadata"
 
-  for artifact in check.sh pr-poll; do
+  for artifact in check.sh pr-poll pr-ready pr-ready-ack; do
     dir=$(make_case "teardown-final-directory-${artifact//./-}")
     fakebin="$dir/fakebin"
     fm_write_meta "$dir/home/state/task-a.meta" \

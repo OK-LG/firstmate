@@ -76,8 +76,8 @@
 # Before destructive cleanup, teardown validates task check artifacts as
 # ordinary single-link files on the state device. It refuses and preserves
 # task state when that proof fails; otherwise it removes the task's check,
-# trust record, PR sidecar, and publication record with the rest of the
-# volatile state.
+# trust record, PR sidecar, publication record, PR-ready alarm state, and
+# PR-ready acknowledgement with the rest of the volatile state.
 # That volatile state includes the watcher's per-task .seen-* signature for
 # the task's turn-ended file, minted by bin/fm-wake-lib.sh (the .seen-*
 # signature for its status file and its .hb-surfaced- heartbeat marker are
@@ -1416,7 +1416,7 @@ validate_pr_poll_cleanup() {
   fm_task_id_path_safe "$id" || return 0
   for artifact in "$state_dir/$id.check.sh" "$state_dir/$id.pr-poll" \
     "$state_dir/$id.pr-poll-registration" "$state_dir/$id.pr-poll-retirement" \
-    "$state_dir/$id.merge-authority" "$state_dir/$id.check-trust"; do
+    "$state_dir/$id.merge-authority" "$state_dir/$id.check-trust" "$state_dir/$id.pr-ready" "$state_dir/$id.pr-ready-ack"; do
     [ -e "$artifact" ] || [ -L "$artifact" ] || continue
     has_artifact=1
   done
@@ -1425,7 +1425,7 @@ validate_pr_poll_cleanup() {
   state_device=$(fm_pr_file_device "$state_dir") || return 1
   for artifact in "$state_dir/$id.check.sh" "$state_dir/$id.pr-poll" \
     "$state_dir/$id.pr-poll-registration" "$state_dir/$id.pr-poll-retirement" \
-    "$state_dir/$id.merge-authority" "$state_dir/$id.check-trust"; do
+    "$state_dir/$id.merge-authority" "$state_dir/$id.check-trust" "$state_dir/$id.pr-ready" "$state_dir/$id.pr-ready-ack"; do
     [ -e "$artifact" ] || [ -L "$artifact" ] || continue
     if [ ! -f "$artifact" ] || [ -L "$artifact" ] \
       || [ "$(fm_pr_file_device "$artifact")" != "$state_device" ] \
@@ -1452,7 +1452,7 @@ remove_pr_poll_artifacts() {
   fm_pr_poll_merge_notified_remove "$state_dir" "$id" || return 1
   rm -f "$state_dir/$id.check.sh" "$state_dir/$id.pr-poll" \
     "$state_dir/$id.pr-poll-registration" "$state_dir/$id.pr-poll-retirement" \
-    "$state_dir/$id.merge-authority" "$state_dir/$id.check-trust" || return 1
+    "$state_dir/$id.merge-authority" "$state_dir/$id.check-trust" "$state_dir/$id.pr-ready" "$state_dir/$id.pr-ready-ack" || return 1
 }
 
 # Resolve the PR number for a worktree branch via gh-axi. Echoes the number on a

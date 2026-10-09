@@ -84,6 +84,9 @@
 #                          successful attempts never wake firstmate
 #                          (bin/fm-task-inbox-lib.sh owns the ladder policy)
 #   check: <script>: <out> authenticated check output, always actionable
+#   check: PR-ready overdue: task=<id> PR=<url> age=<seconds>s; ...
+#                          a ship's ready PR has no acknowledged landing handoff;
+#                          fm-pr-ready-lib.sh owns age, repeat and acknowledgement
 #   check: process-event result captured: <keys>
 #                          a durably captured process-to-event result is queued
 #                          and has not been surfaced yet; reported once per
@@ -187,6 +190,8 @@ WATCH_HOME_EXISTED=0
 . "$SCRIPT_DIR/fm-push-transition-lib.sh"
 # shellcheck source=bin/fm-pr-lib.sh
 . "$SCRIPT_DIR/fm-pr-lib.sh"
+# shellcheck source=/dev/null
+. "$SCRIPT_DIR/fm-pr-ready-lib.sh"
 # Only for the arm-time check on FM_PROCEVENT_LAUNCH_CONFIRM_SECONDS below;
 # the per-cycle reconcile itself runs as a separate process.
 # shellcheck source=bin/fm-procevent-lib.sh
@@ -2718,6 +2723,15 @@ while :; do
   # A process-event result carries richer adapter-owned wake context than the
   # generic recovery reason, so give that owner first refusal.
   resurface_after_downtime
+
+  # Independent of status presentation, pane activity, and away posture: a
+  # drained ready signal still needs an acknowledged landing handoff.
+  if pr_ready_out=$(fm_pr_ready_tick "$STATE" "$(date +%s)"); then
+    [ -z "$pr_ready_out" ] || wake "$pr_ready_out"
+  else
+    echo "watcher: PR-ready alarm reconciliation failed" >&2
+    exit 1
+  fi
 
   # The existing poll loop also owns the bounded inactive-outcome cadence.
   # This is mechanical and silent unless a durable terminal-outcome obligation

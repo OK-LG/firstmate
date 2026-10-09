@@ -6,6 +6,37 @@ This record contains reusable version-scoped evidence for active runtime guarant
 The backend guides own current setup, safety boundaries, and limitations.
 Exact task chronology, branch names, temporary homes, local paths, process ids, thread ids, and delivery transcripts remain in private reports or PR evidence.
 
+## PR-ready handoff alarm
+
+The alarm runs in the shared watcher used by the Claude, Codex, Cursor, Grok, OpenCode, Pi/pi-signed, and omp supervision protocols, including the supervision host's watcher cycles.
+Its inputs are status files, explicit handoff acknowledgements, and published merge receipts, so harness output and runtime endpoint probes are not applicable to this check; the regression deliberately supplies no live worker endpoint.
+The native backend event wait remains bounded by the watcher's poll interval and returns to the same alarm scan.
+[`bin/fm-pr-ready-lib.sh`](../../bin/fm-pr-ready-lib.sh) owns the alarm contract.
+Initial alarm coverage was verified on 2026-10-09 with GNU Bash 5.2.21 on Linux:
+
+```sh
+bash bin/fm-test-run.sh tests/fm-pr-ready.test.sh
+```
+
+The current [regression](../../tests/fm-pr-ready.test.sh) also covers delayed acknowledgements, report-token validation and capture, alarm-supplied acknowledgement commands, and task-specific wake cleanup; the recorded output below covers the initial cases only.
+
+Recorded output:
+
+```text
+ok - age and repeat survive restart and wake acknowledgement
+ok - explicit acknowledgement survives restart and retirement but not a new review cycle
+ok - wrong acknowledgements and merge monitoring cannot silence the alarm
+ok - acknowledgement binds to observed status bytes even before the watcher sees them
+ok - truncating and regrowing a status log cannot revive an old acknowledgement
+ok - published matching merge outcome acknowledges an unobserved ready PR
+ok - failed wake publication cannot suppress the next alarm
+ok - only ready declarations open alarms and unrelated status cannot erase them
+ok - partial appends, unknown emission time and replacement keep correct age
+ok - configuration is bounded and non-ships are excluded
+ok - real quiet watcher queues the actionable PR alarm without a live endpoint
+FM_TEST_SUMMARY total=1 failed=0 skipped_gate=0 duration_ms=21825
+```
+
 ## Harness detection precedence
 
 Firstmate's own harness comes from two kinds of evidence, and `bin/fm-harness.sh` owns how they combine: an environment marker names its harness, and the nearest harness process in the parent chain proves who owns the process tree.
