@@ -212,6 +212,20 @@ printf 'watcher: attached pid=%s (beacon 2s)\n' "$$"
 exit 0
 SH
       ;;
+    acked-then-actionable)
+      cat >> "$dir/bin/fm-watch-arm.sh" <<'SH'
+touch "$FM_HOME/state/.last-watcher-beat"
+printf 'watcher: started pid=%s (beacon fresh)\n' "$$"
+if [ "$(wc -l < "$FM_HOME/state/arm-ran" | tr -d ' ')" -eq 1 ]; then
+  printf 'acked:downtime:fixture-generation\n' > "$FM_HOME/state/.watcher-down"
+  printf 'check: rearm-resurface\n'
+else
+  printf 'pending:downtime:fixture-generation-2\n' > "$FM_HOME/state/.watcher-down"
+  printf 'signal: task.status done: fixture next\n'
+fi
+exit 0
+SH
+      ;;
     attached-delivered)
       cat >> "$dir/bin/fm-watch-arm.sh" <<'SH'
 printf 'watcher: attached pid=%s (beacon 2s)\n' "$$"
@@ -554,6 +568,26 @@ test_unconfirmed_handling_successor_still_rewakes() {
   assert_contains "$out" "watcher: FAILED - no live watcher with a fresh beacon" "the rewake must carry the successor's own failure line"
   [ "$(wc -l < "$dir/state/successor-ran" | tr -d ' ')" -eq 1 ] || fail "the failed successor must not be retried inside the rewake path"
   pass "auto-arm: an unconfirmed handling successor is reported in the rewake instead of blocking it"
+}
+
+# Without the host, an acknowledged close still started a handling successor;
+# exiting on the refused rewake would leave that successor with no owner.
+test_acknowledged_close_parks_again_without_the_host() {
+  local dir out status
+  dir=$(make_primary_dir "$TMP_ROOT/acked-repark")
+  : > "$dir/state/task.meta"
+  write_arm_fixture "$dir" acked-then-actionable
+  out=$(run_autoarm "$dir" 2>/dev/null); status=$?
+  expect_code 2 "$status" "the close after an acknowledged one must still rewake main"
+  [ "$(wc -l < "$dir/state/arm-ran" | tr -d ' ')" -eq 2 ] \
+    || fail "an acknowledged close must park the arm again, arm runs: $(wc -l < "$dir/state/arm-ran" | tr -d ' ')"
+  assert_contains "$out" "signal: task.status done: fixture next" "the next close must reach main"
+  assert_not_contains "$out" "check: rearm-resurface" "the acknowledged close must not reach main"
+  [ "$(printf '%s\n' "$out" | grep -c '^firstmate watcher wake')" -eq 1 ] \
+    || fail "the rewake must carry exactly one banner:"$'\n'"$out"
+  assert_absent "$dir/state/.claude-autoarm-failure-notified" "an acknowledged close opened a failure episode"
+  [ "$(epoch_outcome "$dir")" = rewake ] || fail "the next close must record outcome=rewake, got: $(epoch_outcome "$dir")"
+  pass "auto-arm: an arm close main already acknowledged parks again, and the next close rewakes main"
 }
 
 test_failed_close_rewakes_with_failure_banner() {
@@ -1422,11 +1456,19 @@ printf 'supervision-host: watcher downtime could not be restored for the main ha
 exit 1
 SH
         ;;
-      benign-refusal)
+      acked-then-signal)
+        # First park: a pass-through close whose episode main already drained
+        # and acknowledged in a turn that ran meanwhile. Next park: the cycle
+        # that pass-through left running closes on new work.
         cat <<'SH'
-printf 'acked:downtime:fixture-generation\n' > "$FM_HOME/state/.watcher-down"
-printf 'signal: fixture.status\n'
-printf 'supervision-host: branch-outcome: fixture\n'
+if [ "$(wc -l < "$FM_HOME/state/host-ran" | tr -d ' ')" -eq 1 ]; then
+  printf 'acked:downtime:fixture-generation\n' > "$FM_HOME/state/.watcher-down"
+  printf 'check: rearm-resurface\n'
+else
+  printf 'pending:downtime:fixture-generation-2\n' > "$FM_HOME/state/.watcher-down"
+  touch "$FM_HOME/state/.last-watcher-beat"
+  printf 'signal: fixture-next.status\n'
+fi
 SH
         ;;
       handed-back-many)
@@ -1588,22 +1630,29 @@ test_host_stand_down_is_silent() {
   pass "auto-arm: a host that stood down closes silently without a retry"
 }
 
-# Main already drained and acknowledged the wake, so the rewake is refused on a
-# marker that is no longer downtime: that refusal stays silent and opens no
-# failure episode.
-test_host_benign_rewake_refusal_opens_no_failure_episode() {
+# The overnight gap: a turn ran while the hook was parked and drained and
+# acknowledged the episode, so the host's pass-through close is refused a rewake.
+# The hook must park again rather than exit, or the cycle that pass-through left
+# running closes with no owner and an idle session is never woken.
+test_host_acknowledged_close_parks_again_and_delivers_the_next_wake() {
   local dir out status
-  dir=$(make_primary_dir "$TMP_ROOT/host-benign-refusal")
+  dir=$(make_primary_dir "$TMP_ROOT/host-acked-repark")
   mkdir -p "$dir/config"
   rm -f "$dir/config/supervision-host-off"
   : > "$dir/state/task.meta"
-  write_host_fixture "$dir" benign-refusal
+  write_host_fixture "$dir" acked-then-signal
   out=$(run_autoarm "$dir" 2>/dev/null); status=$?
-  expect_code 0 "$status" "a refused rewake on an acknowledged marker must stay silent"
-  assert_not_contains "$out" "auto-arm FAILED" "a benign refusal must not deliver a failure notice"
-  assert_absent "$dir/state/.claude-autoarm-failure-notified" "a benign refusal opened a failure episode"
-  [ "$(epoch_outcome "$dir")" != failed ] || fail "a benign refusal must not record outcome=failed"
-  pass "auto-arm: a host rewake refused on an acknowledged marker opens no failure episode"
+  expect_code 2 "$status" "the close after an acknowledged one must still rewake main"
+  [ "$(wc -l < "$dir/state/host-ran" | tr -d ' ')" -eq 2 ] \
+    || fail "an acknowledged close must park the host again, host runs: $(wc -l < "$dir/state/host-ran" | tr -d ' ')"
+  assert_contains "$out" "signal: fixture-next.status" "the next close must reach main"
+  assert_not_contains "$out" "check: rearm-resurface" "the acknowledged close must not reach main"
+  [ "$(printf '%s\n' "$out" | grep -c '^firstmate watcher wake')" -eq 1 ] \
+    || fail "the rewake must carry exactly one banner:"$'\n'"$out"
+  assert_not_contains "$out" "auto-arm FAILED" "an acknowledged close must not deliver a failure notice"
+  assert_absent "$dir/state/.claude-autoarm-failure-notified" "an acknowledged close opened a failure episode"
+  [ "$(epoch_outcome "$dir")" = rewake ] || fail "the next close must record outcome=rewake, got: $(epoch_outcome "$dir")"
+  pass "auto-arm: a host close main already acknowledged parks again, and the next close rewakes main"
 }
 
 # The host handed a wake back but left the marker in handling (pending or
@@ -1760,7 +1809,8 @@ test_host_handback_beside_a_quiet_record_carries_no_away_note
 test_plain_arm_banner_keeps_its_wake_line_cap
 test_host_handback_carries_every_host_line
 test_host_stand_down_is_silent
-test_host_benign_rewake_refusal_opens_no_failure_episode
+test_host_acknowledged_close_parks_again_and_delivers_the_next_wake
+test_acknowledged_close_parks_again_without_the_host
 test_host_lost_handback_notifies_once_per_episode
 test_host_lost_announced_handback_notifies_once_per_episode
 test_host_crash_is_retried_then_reported
