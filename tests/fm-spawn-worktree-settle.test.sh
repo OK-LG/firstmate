@@ -291,6 +291,19 @@ test_symlinked_slot_to_primary_fails_isolation() {
   pass "a symlinked slot path to the primary checkout fails isolation"
 }
 
+test_failed_pool_lookup_refuses_spawn() {
+  local rec id=settle-lookup-failure out status
+  rec=$(make_settle_case settle-lookup-failure "$id" 0)
+  read_settle_record "$rec"
+  printf '#!/usr/bin/env bash\nexit 1\n' > "$FAKEBIN_DIR/treehouse"
+  out=$(run_settle_spawn "$id")
+  status=$?
+  [ "$status" -ne 0 ] || fail "spawn accepted uncertain Treehouse ownership"
+  assert_contains "$out" 'Treehouse lookup failed' "spawn did not explain its lookup refusal"
+  assert_absent "$HOME_DIR/state/$id.meta" "failed lookup published task metadata"
+  pass "spawn refuses unknown pool membership before launching a worker"
+}
+
 test_pool_resolution_requires_unique_authoritative_entry() {
   local dir="$TMP_ROOT/pool-resolution" pool slot out status mode
   pool="$dir/pool with spaces"
@@ -306,7 +319,7 @@ cat "$FM_POOL_CASE/status"
 [ ! -e "$FM_POOL_CASE/status-fails" ]
 SH
   chmod +x "$dir/fakebin/treehouse"
-  for mode in available dirty in-use leased here absent malformed symlink-state ambiguous unrelated status-fails; do
+  for mode in available dirty in-use leased here absent malformed symlink-state ambiguous unrelated status-fails malformed-status; do
     rm -f "$pool/treehouse-state.json" "$dir/status-fails"
     printf '{"worktrees":[{"name":"17","path":"%s"}]}\n' "$slot" > "$pool/treehouse-state.json"
     status=$mode
@@ -332,6 +345,7 @@ SH
         ;;
       unrelated) : > "$dir/status" ;;
       status-fails) : > "$dir/status-fails" ;;
+      malformed-status) printf 'invalid status output\n' > "$dir/status" ;;
     esac
     out=$(FM_POOL_CASE="$dir" PATH="$dir/fakebin:$PATH" bash -c \
       '. "$1"; fm_treehouse_pool_path "$2" "$3"' _ "$ROOT/bin/fm-wake-lib.sh" "$dir/project" "$slot")
@@ -341,8 +355,13 @@ SH
         expect_code 0 "$status" "valid $mode pool entry was rejected"
         [ "$out" = "$slot" ] || fail "$mode resolved the wrong pool path"
         ;;
+      unrelated)
+        expect_code 1 "$status" "confirmed non-pool result did not remain distinct"
+        [ -z "$out" ] || fail "$mode authorized a pool path"
+        ;;
       *)
-        [ "$status" -ne 0 ] && [ -z "$out" ] || fail "$mode authorized a pool path"
+        expect_code 2 "$status" "$mode was mistaken for a confirmed non-pool result"
+        [ -z "$out" ] || fail "$mode authorized a pool path"
         ;;
     esac
   done
@@ -356,6 +375,7 @@ test_transient_primary_checkout_is_not_accepted
 test_primary_checkout_that_never_settles_fails_at_the_deadline
 test_symlinked_pool_slot_records_pool_path
 test_symlinked_slot_to_primary_fails_isolation
+test_failed_pool_lookup_refuses_spawn
 test_pool_resolution_requires_unique_authoritative_entry
 
 echo "# all fm-spawn-worktree-settle tests passed"

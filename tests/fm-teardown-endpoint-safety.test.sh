@@ -83,6 +83,79 @@ assert_refused_without_mutation() {  # <case> <id> <description>
   [ ! -s "$dir/runtime.log" ] || fail "$description: runtime command ran before refusal: $(cat "$dir/runtime.log")"
 }
 
+test_treehouse_lookup_failure_preserves_foreign_slot() {
+  local dir id=stale-lookup other=foreign-owner worker rc failure
+  for failure in 1 2 3 4 malformed; do
+    dir=$(make_case "lookup-failure-$failure")
+    mark_case_as_treehouse_pool "$dir"
+    fm_write_meta "$dir/home/state/$id.meta" \
+      "window=firstmate:fm-$id" "endpoint_task_id=$id" \
+      "worktree=$dir/worktree" "project=$dir/project" "kind=scout"
+    claim_pool_slot "$dir" "$other" "$dir/other-home"
+    cp "$dir/home/state/$id.meta" "$dir/meta.before"
+    cp "$dir/pool/1/.fm-slot-owner" "$dir/claim.before"
+    cat > "$dir/fakebin/treehouse" <<'SH'
+#!/usr/bin/env bash
+case "$*" in
+  status)
+    n=0
+    [ ! -f "$FM_LOOKUP_CASE/count" ] || n=$(cat "$FM_LOOKUP_CASE/count")
+    n=$((n + 1))
+    printf '%s\n' "$n" > "$FM_LOOKUP_CASE/count"
+    if [ "$n" = "$FM_LOOKUP_FAILURE" ]; then
+      echo 'failed to load config' >&2
+      exit 1
+    fi
+    printf '%-4s  %-11s  %s\n' 1 available "$FM_LOOKUP_CASE/pool/1/project"
+    ;;
+  return*)
+    printf 'treehouse <return>\n' >> "$FM_RUNTIME_LOG"
+    rm -f "$FM_LOOKUP_CASE/worktree/sentinel"
+    ;;
+  *) exit 1 ;;
+esac
+SH
+    [ "$failure" != malformed ] || printf '{' > "$dir/pool/treehouse-state.json"
+    ( cd "$dir/worktree" && exec sleep 60 ) &
+    worker=$!
+    rc=0
+    FM_LOOKUP_CASE="$dir" FM_LOOKUP_FAILURE="$failure" run_case "$dir" "$id" \
+      > "$dir/stdout" 2> "$dir/stderr" || rc=$?
+    kill -0 "$worker" 2>/dev/null || fail "$failure: lookup failure killed the foreign worker"
+    kill "$worker" 2>/dev/null || true
+    wait "$worker" 2>/dev/null || true
+    [ "$rc" -ne 0 ] || fail "$failure: uncertain ownership allowed teardown"
+    cmp -s "$dir/meta.before" "$dir/home/state/$id.meta" || fail "$failure: refusal changed task metadata"
+    cmp -s "$dir/claim.before" "$dir/pool/1/.fm-slot-owner" || fail "$failure: refusal changed the foreign claim"
+    assert_present "$dir/worktree/sentinel" "$failure: refusal changed the foreign checkout"
+    assert_grep 'slot ownership is uncertain' "$dir/stderr" "$failure: refusal did not explain lookup uncertainty"
+    assert_no_grep 'treehouse <return>' "$dir/runtime.log" "$failure: uncertain slot was returned"
+    assert_no_grep 'tmux <kill-window>' "$dir/runtime.log" "$failure: uncertain slot endpoint was closed"
+  done
+  pass "Treehouse lookup failures at each ownership check preserve foreign slots and records"
+}
+
+test_confirmed_non_pool_git_worktree_still_cleans_up() {
+  local dir id=non-pool-git
+  dir=$(make_case non-pool-git)
+  rm -rf "$dir/worktree"
+  git -C "$dir/project" -c user.name=test -c user.email=test@example.invalid commit --allow-empty -qm fixture
+  git -C "$dir/project" worktree add -q --detach "$dir/worktree"
+  cat > "$dir/fakebin/treehouse" <<'SH'
+#!/usr/bin/env bash
+[ "$*" != status ] || exit 0
+printf 'treehouse <return>\n' >> "$FM_RUNTIME_LOG"
+SH
+  fm_write_meta "$dir/home/state/$id.meta" \
+    "window=firstmate:fm-$id" "endpoint_task_id=$id" \
+    "worktree=$dir/worktree" "project=$dir/project" "kind=scout"
+  run_case "$dir" "$id" > "$dir/stdout" 2> "$dir/stderr" \
+    || fail "confirmed non-pool cleanup refused: $(cat "$dir/stderr")"
+  assert_absent "$dir/home/state/$id.meta" "confirmed non-pool cleanup retained metadata"
+  assert_grep 'treehouse <return>' "$dir/runtime.log" "confirmed non-pool cleanup skipped worktree cleanup"
+  pass "confirmed non-pool Git worktrees retain normal cleanup"
+}
+
 test_invalid_endpoint_records_refuse_before_mutation() {
   local dir id=endpoint-a
 
@@ -1480,6 +1553,8 @@ test_already_gone_endpoint_still_completes_without_a_refusal() {
   pass "fm-teardown: an already-exited endpoint, and a server that is already gone, still complete cleanup silently"
 }
 
+test_treehouse_lookup_failure_preserves_foreign_slot
+test_confirmed_non_pool_git_worktree_still_cleans_up
 test_invalid_endpoint_records_refuse_before_mutation
 test_control_lock_contention_refuses_before_mutation
 test_non_pool_teardown_ignores_task_set_lock

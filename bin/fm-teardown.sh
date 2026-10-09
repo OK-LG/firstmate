@@ -414,6 +414,16 @@ if [ "$FORCE" = --force ] && [ "$(fm_lease_actor)" = branch ]; then
 fi
 fm_lease_guard "$ID" "teardown (fm-teardown)"
 
+teardown_resolve_treehouse_slot() {
+  local rc=0
+  TEARDOWN_TREEHOUSE_POOL_PATH=$(fm_treehouse_pool_path "$1" "$2") || rc=$?
+  case "$rc" in
+    0|1) return 0 ;;
+  esac
+  echo "REFUSED: Treehouse lookup failed for $2; slot ownership is uncertain; refusing cleanup" >&2
+  return 1
+}
+
 META="$STATE/$ID.meta"
 TREEHOUSE_PROJECT_LOCK=
 TREEHOUSE_PROJECT_LOCK_HELD=0
@@ -425,9 +435,11 @@ if [ -f "$META" ] && [ ! -L "$META" ]; then
   [ -n "$TEARDOWN_LOCK_BACKEND" ] || TEARDOWN_LOCK_BACKEND=tmux
   TEARDOWN_LOCK_WT=$(fm_meta_get "$META" worktree)
   TEARDOWN_LOCK_PROJECT=$(fm_meta_get "$META" project)
-  if [ "$TEARDOWN_LOCK_KIND" != secondmate ] \
-     && [ "$TEARDOWN_LOCK_BACKEND" != orca ] \
-     && fm_treehouse_pool_slot "$TEARDOWN_LOCK_PROJECT" "$TEARDOWN_LOCK_WT"; then
+  TEARDOWN_TREEHOUSE_POOL_PATH=
+  if [ "$TEARDOWN_LOCK_KIND" != secondmate ] && [ "$TEARDOWN_LOCK_BACKEND" != orca ]; then
+    teardown_resolve_treehouse_slot "$TEARDOWN_LOCK_PROJECT" "$TEARDOWN_LOCK_WT" || exit 1
+  fi
+  if [ -n "$TEARDOWN_TREEHOUSE_POOL_PATH" ]; then
     TREEHOUSE_SLOT_LOCK_REQUIRED=1
     TREEHOUSE_PROJECT_LOCK=$(fm_treehouse_project_lock_path "$TEARDOWN_LOCK_PROJECT") || {
       echo "REFUSED: cannot resolve the shared Treehouse project lock for ${TEARDOWN_LOCK_PROJECT:-<missing>}; nothing was changed" >&2
@@ -1140,8 +1152,11 @@ CLEANUP_RECOVERY=$TEARDOWN_CLEANUP_RECOVERY
 
 KIND=$TEARDOWN_META_KIND
 EXPECTED_TREEHOUSE_PROJECT_LOCK=
-if [ "$KIND" != secondmate ] && [ "$BACKEND" != orca ] \
-   && fm_treehouse_pool_slot "$PROJ" "$WT"; then
+TEARDOWN_TREEHOUSE_POOL_PATH=
+if [ "$KIND" != secondmate ] && [ "$BACKEND" != orca ]; then
+  teardown_resolve_treehouse_slot "$PROJ" "$WT" || exit 1
+fi
+if [ -n "$TEARDOWN_TREEHOUSE_POOL_PATH" ]; then
   EXPECTED_TREEHOUSE_PROJECT_LOCK=$(fm_treehouse_project_lock_path "$PROJ") || {
     echo "REFUSED: cannot resolve the shared Treehouse project lock for ${PROJ:-<missing>}; nothing was changed" >&2
     exit 1
@@ -1790,14 +1805,13 @@ cleanup_stale_lock_for_safety_check() {
 # stale git index.lock left by a killed crew process. See the script header.
 teardown_treehouse_return() {
   local dir=$1 cd_dir=$2 label=$3 post_cleanup_check=${4:-}
-  local out lock attempt=0 max_retries lock_desc pool_dir
+  local out lock attempt=0 max_retries lock_desc
 
   # Older task records may hold the physical target of a symlinked pool slot.
   # Return the pool path Treehouse reports while leaving all safety checks on
   # the same underlying checkout.
-  if pool_dir=$(fm_treehouse_pool_path "$cd_dir" "$dir"); then
-    dir=$pool_dir
-  fi
+  teardown_resolve_treehouse_slot "$cd_dir" "$dir" || return "$TEARDOWN_TREEHOUSE_LOCK_REFUSED"
+  [ -z "$TEARDOWN_TREEHOUSE_POOL_PATH" ] || dir=$TEARDOWN_TREEHOUSE_POOL_PATH
 
   # Capture stdout+stderr so non-lock failures stay visible and lock failures can
   # be matched by signature even when the lock file is already gone mid-check.
@@ -2313,8 +2327,10 @@ require_orca_worktree_path_match_if_present() {
 # record with nothing live to return skips them rather than refusing.
 teardown_live_slot_path() {
   [ "$KIND" != secondmate ] || return 1
-  fm_treehouse_pool_slot "$PROJ" "$WT" || return 1
-  canonical_existing_dir "$WT"
+  [ "$BACKEND" != orca ] || return 1
+  teardown_resolve_treehouse_slot "$PROJ" "$WT" || return 2
+  [ -n "$TEARDOWN_TREEHOUSE_POOL_PATH" ] || return 1
+  canonical_existing_dir "$WT" || return 2
 }
 
 collect_local_firstmate_states() {
@@ -2399,7 +2415,10 @@ require_exclusive_worktree_slot_record() {
 
 require_exclusive_task_worktree_slot() {
   local slot
-  slot=$(teardown_live_slot_path) || return 0
+  slot=$(teardown_live_slot_path) || {
+    [ "$?" -eq 1 ] && return 0
+    return 1
+  }
   require_exclusive_worktree_slot_record "$META" "$ID" "$STATE" "$slot"
 }
 
@@ -2451,7 +2470,10 @@ TEARDOWN_SLOT_REASSIGNED_TO=
 TEARDOWN_SLOT_REASSIGNED_HOME=
 require_owned_task_worktree_slot() {
   local slot rc=0
-  slot=$(teardown_live_slot_path) || return 0
+  slot=$(teardown_live_slot_path) || {
+    [ "$?" -eq 1 ] && return 0
+    return 1
+  }
   require_owned_worktree_slot_record "$ID" "$slot" || rc=$?
   case "$rc" in
     0) return 0 ;;
@@ -2952,9 +2974,8 @@ preflight_descendant_treehouse_slots() {
     if [ "$kind" = secondmate ] || [ "$backend" = orca ]; then
       continue
     fi
-    if ! fm_treehouse_pool_slot "$project" "$worktree"; then
-      continue
-    fi
+    teardown_resolve_treehouse_slot "$project" "$worktree" || return 1
+    [ -n "$TEARDOWN_TREEHOUSE_POOL_PATH" ] || continue
     lock_path=$(fm_treehouse_project_lock_path "$project") || {
       echo "REFUSED: cannot resolve the shared Treehouse project lock for child $task_id; forced teardown changed nothing" >&2
       return 1
@@ -2985,9 +3006,8 @@ preflight_descendant_treehouse_slots() {
     if [ "$kind" = secondmate ] || [ "$backend" = orca ]; then
       continue
     fi
-    if ! fm_treehouse_pool_slot "$project" "$worktree"; then
-      continue
-    fi
+    teardown_resolve_treehouse_slot "$project" "$worktree" || return 1
+    [ -n "$TEARDOWN_TREEHOUSE_POOL_PATH" ] || continue
     fm_backend_validate_task_endpoint "$meta" "$task_id" || return 1
     require_exclusive_worktree_slot_record "$meta" "$task_id" "$state" "$worktree" || return 1
     owner_rc=0
@@ -3273,7 +3293,8 @@ cleanup_firstmate_home_children() {
       # or return, so only its records are cleaned up. The preflight above
       # already named the reassignment on stderr under the same lock.
       child_owner_rc=0
-      if fm_treehouse_pool_slot "$child_proj" "$child_wt"; then
+      teardown_resolve_treehouse_slot "$child_proj" "$child_wt" || return 1
+      if [ -n "$TEARDOWN_TREEHOUSE_POOL_PATH" ]; then
         require_owned_worktree_slot_record "$child_id" "$child_wt" 2>/dev/null || child_owner_rc=$?
       fi
       if [ "$child_owner_rc" -eq "$TEARDOWN_SLOT_REASSIGNED_RC" ]; then

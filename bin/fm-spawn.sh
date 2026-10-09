@@ -4222,6 +4222,9 @@ elif [ "$RELAUNCH" -eq 1 ]; then
     validate_spawn_worktree "relaunch" "$T"
     if pool_worktree=$(fm_treehouse_pool_path "$PROJ_ABS" "$WT"); then
       WT=$pool_worktree
+    elif [ "$?" -ne 1 ]; then
+      echo "error: Treehouse lookup failed for $WT; refusing to relaunch with uncertain slot ownership" >&2
+      exit 1
     fi
   fi
 elif [ "$KIND" != secondmate ] && [ "$BACKEND" != orca ]; then
@@ -4306,6 +4309,9 @@ elif [ "$KIND" != secondmate ] && [ "$BACKEND" != orca ]; then
       exit 1
     fi
     SPAWN_SLOT_CLAIMED=1
+  elif [ "$?" -ne 1 ]; then
+    echo "error: Treehouse lookup failed for $WT; refusing to launch with uncertain slot ownership" >&2
+    exit 1
   fi
 fi
 if [ "$RELAUNCH" -eq 0 ] && [ "$KIND" != secondmate ]; then
