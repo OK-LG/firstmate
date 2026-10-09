@@ -1484,44 +1484,12 @@ fm_treehouse_project_lock_path() {  # <project-dir>
 }
 
 fm_treehouse_pool_path() {
-  local project=$1 worktree=$2 listing rc
-  [ -d "$worktree" ] || return 1
-  [ -e "$worktree/.git" ] || [ -L "$worktree/.git" ] || return 1
-  [ -d "$project" ] || return 2
-  git -C "$project" rev-parse --git-dir >/dev/null 2>&1 || return 2
-  git -C "$worktree" rev-parse --git-dir >/dev/null 2>&1 || return 2
-  listing=$(CDPATH='' cd -- "$project" && NO_COLOR=1 TREEHOUSE_NO_UPDATE_CHECK=1 treehouse status 2>/dev/null) || return 2
-  printf '%s\n' "$listing" | node -e '
-const fs = require("node:fs");
-const path = require("node:path");
-try {
-  const real = fs.realpathSync(process.argv[1]);
-  const matches = [];
-  for (const line of fs.readFileSync(0, "utf8").split("\n")) {
-    if (!line || /^ {19}/.test(line)) continue;
-    const row = /^(\S+) +(?:available|dirty|in-use|leased|you\x27re here) +(.+)$/.exec(line);
-    if (!row) process.exit(2);
-    let candidate = row[2];
-    if (/^\S+ +leased +/.test(line)) candidate = candidate.replace(/  \(held by .*\)$/, "");
-    if (candidate.startsWith("~/") && process.env.HOME) candidate = process.env.HOME + candidate.slice(1);
-    if (!path.isAbsolute(candidate)) process.exit(2);
-    const statePath = path.join(path.dirname(path.dirname(candidate)), "treehouse-state.json");
-    if (!fs.lstatSync(statePath).isFile()) process.exit(2);
-    const state = JSON.parse(fs.readFileSync(statePath, "utf8"));
-    if (!Array.isArray(state.worktrees)) process.exit(2);
-    const entries = state.worktrees.filter(entry => entry.name === row[1] && entry.path === candidate && !entry.destroying);
-    if (entries.length !== 1) process.exit(2);
-    if (fs.realpathSync(candidate) === real) matches.push(candidate);
-  }
-  if (matches.length > 1) process.exit(2);
-  if (!matches.length) process.exit(1);
-  process.stdout.write(matches[0] + "\n");
-} catch { process.exit(2); }
-' "$worktree" || {
-    rc=$?
-    [ "$rc" -eq 1 ] && return 1
-    return 2
-  }
+  local rc=0
+  node "$(dirname "${BASH_SOURCE[0]}")/fm-treehouse-pool-path.mjs" "$1" "$2" || rc=$?
+  case "$rc" in
+    0|1) return "$rc" ;;
+    *) return 2 ;;
+  esac
 }
 
 fm_treehouse_pool_slot() {  # <project-dir> <worktree>

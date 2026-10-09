@@ -2015,6 +2015,7 @@ test_secondmate_force_teardown_refuses_duplicated_child_slot() {
   fm_git_worktree "$childproj" "$childwt" duplicate-child
   printf '{"worktrees":[{"name":"1","path":"%s"}]}\n' "$childwt" \
     > "$TMP_ROOT/force-duplicate-slot-pool/treehouse-state.json"
+  fm_test_treehouse_pool "$childproj" "$TMP_ROOT/force-duplicate-slot-pool"
   printf 'domain\n' > "$subhome/.fm-secondmate-home"
   cat > "$home/state/domain.meta" <<EOF
 window=firstmate:fm-domain
@@ -2040,11 +2041,6 @@ yolo=off
 EOF
   done
   fakebin=$(make_fake_tmux "$TMP_ROOT/force-duplicate-slot-fake")
-  cat > "$fakebin/treehouse" <<SH
-#!/usr/bin/env bash
-[ "\$*" = status ] || exit 1
-printf '%-4s  %-11s  %s\\n' 1 available "$childwt"
-SH
   log="$TMP_ROOT/force-duplicate-slot-fake/tmux.log"
 
   set +e
@@ -2074,6 +2070,7 @@ test_secondmate_force_teardown_preserves_child_on_unproven_lock() {
   fm_git_worktree "$childproj" "$childwt" force-child-lock
   printf '{"worktrees":[{"name":"1","path":"%s"}]}\n' "$childwt" \
     > "$TMP_ROOT/force-lock-child-pool/treehouse-state.json"
+  fm_test_treehouse_pool "$childproj" "$TMP_ROOT/force-lock-child-pool"
   printf 'domain\n' > "$subhome/.fm-secondmate-home"
   cat > "$home/state/domain.meta" <<EOF
 window=firstmate:fm-domain
@@ -2098,14 +2095,9 @@ yolo=off
 EOF
   fakebin=$(make_fake_tmux "$TMP_ROOT/force-lock-child-fake")
   log="$TMP_ROOT/force-lock-child-fake/tmux.log"
-  printf '%-4s  %-11s  %s\n' 1 available "$childwt" > "$fakebin/pool-status"
   cat > "$fakebin/treehouse" <<'SH'
 #!/usr/bin/env bash
 set -u
-if [ "$*" = status ]; then
-  cat "$(dirname "$0")/pool-status"
-  exit 0
-fi
 printf 'treehouse %s\n' "$*" >> "${FM_FAKE_TMUX_LOG:-/dev/null}"
 case "${1:-}" in
   return)
