@@ -1422,15 +1422,16 @@ test_long_poll_grace_reaches_arm_wrapper() {
 }
 
 # Supervision-host fixture variants, installed per test as
-# <dir>/bin/fm-supervision-host.sh. Each run appends its pid to state/host-ran
-# and its park length to state/host-park-seconds, and records the environment
-# the hook handed it.
+# <dir>/bin/fm-supervision-host.sh. Each run appends its pid to state/host-ran,
+# its park length to state/host-park-seconds and its park limit to
+# state/host-park-limit, and records the environment the hook handed it.
 write_host_fixture() {
   local dir=$1 kind=$2
   {
     printf '#!/usr/bin/env bash\n'
     printf 'echo "$$" >> "$FM_HOME/state/host-ran"\n'
     printf 'printf "%%s\\n" "${FM_SUPERVISION_HOST_PARK_SECONDS:-unset}" >> "$FM_HOME/state/host-park-seconds"\n'
+    printf 'printf "%%s\\n" "${FM_SUPERVISION_HOST_PARK_LIMIT:-unset}" >> "$FM_HOME/state/host-park-limit"\n'
     printf 'printf "gen=%%s owner=%%s primary=%%s mode=%%s\\n" "${FM_SUPERVISION_HOST_AUTOARM_GEN:-}" "${FM_SUPERVISION_HOST_OWNER_PID:-}" "${FM_SUPERVISION_HOST_PRIMARY:-}" "${1:-}" > "$FM_HOME/state/host-env"\n'
     case "$kind" in
       boundary)
@@ -1487,6 +1488,25 @@ if [ "$(wc -l < "$FM_HOME/state/host-ran" | tr -d ' ')" -eq 1 ]; then
 else
   printf 'watcher: a park the spent budget must never start\n'
 fi
+SH
+        ;;
+      lost-handback-takeover)
+        # The hand-back is undelivered, but another session took the home lock
+        # while this park ran, so this hook no longer owns the home's state.
+        cat <<'SH'
+cat "$FM_HOME/state/takeover-pid" > "$FM_HOME/state/.lock"
+printf 'pending:handling:fixture-generation\n' > "$FM_HOME/state/.watcher-down"
+printf 'signal: fixture.status\n'
+printf 'supervision-host: watcher downtime could not be restored for the main hand-back\n'
+exit 1
+SH
+        ;;
+      slow-benign)
+        # A close with no wake that spends the whole park budget this test
+        # hands the hook, so no attempt is left for a retry.
+        cat <<'SH'
+sleep 3.2
+printf 'watcher: fixture close with no wake\n'
 SH
         ;;
       handed-back-many)
@@ -1728,7 +1748,7 @@ test_host_spent_park_budget_delivers_the_close_it_holds() {
 # what this hook already spent: a short bound must never be magnified into the
 # default seven-and-a-half-hour park.
 test_configured_park_bound_reaches_the_host_unmagnified() {
-  local dir out status first
+  local dir out status first limit
   dir=$(make_primary_dir "$TMP_ROOT/host-small-park-bound")
   mkdir -p "$dir/config"
   rm -f "$dir/config/supervision-host-off"
@@ -1742,7 +1762,48 @@ test_configured_park_bound_reaches_the_host_unmagnified() {
   case "$first" in ''|*[!0-9]*) fail "the park must get a park length, got: $first" ;; esac
   [ "$first" -le 30 ] && [ "$first" -gt 0 ] \
     || fail "a configured park bound must reach the host unmagnified, got: $first of 30"
+  limit=$(sed -n '1p' "$dir/state/host-park-limit")
+  [ "$limit" = "$first" ] \
+    || fail "the park's turn limit must be bounded with its park length, got: $limit for $first"
   pass "auto-arm: a configured park bound reaches the host as configured, not as the default"
+}
+
+# An undelivered hand-back belongs to the session that still owns the home. A
+# session whose home lock was taken over mid-park must not write a failure
+# episode into the state the new owner's turn-end guard now reads.
+test_host_lost_handback_stands_down_after_a_lock_takeover() {
+  local dir out status
+  dir=$(make_primary_dir "$TMP_ROOT/host-handback-takeover")
+  mkdir -p "$dir/config"
+  rm -f "$dir/config/supervision-host-off"
+  : > "$dir/state/task.meta"
+  printf '999999\n' > "$dir/state/takeover-pid"
+  write_host_fixture "$dir" lost-handback-takeover
+  out=$(run_autoarm "$dir" 2>/dev/null); status=$?
+  expect_code 0 "$status" "a hook whose home lock was taken over must stand down silently"
+  assert_not_contains "$out" "auto-arm FAILED" "a taken-over hook delivered a failure notice"
+  assert_absent "$dir/state/.claude-autoarm-failure-notified" "a taken-over hook opened a failure episode in the new owner's home"
+  [ "$(epoch_outcome "$dir")" != failed ] \
+    || fail "a taken-over hook must not record outcome=failed, got: $(epoch_outcome "$dir")"
+  pass "auto-arm: an undelivered hand-back stands down once another session owns the home lock"
+}
+
+# A budget spent during the park must not cost the operator the evidence from
+# the park that produced the failure notice.
+test_spent_budget_failure_notice_keeps_the_park_output() {
+  local dir out status
+  dir=$(make_primary_dir "$TMP_ROOT/host-spent-notice")
+  mkdir -p "$dir/config"
+  rm -f "$dir/config/supervision-host-off"
+  : > "$dir/state/task.meta"
+  write_host_fixture "$dir" slow-benign
+  out=$(FM_SUPERVISION_HOST_PARK_SECONDS=3 run_autoarm "$dir" 2>/dev/null); status=$?
+  expect_code 2 "$status" "an unverified close with no retry budget must still fail closed"
+  [ "$(wc -l < "$dir/state/host-ran" | tr -d ' ')" -eq 1 ] \
+    || fail "a spent park budget must start no retry, host runs: $(wc -l < "$dir/state/host-ran" | tr -d ' ')"
+  assert_contains "$out" "auto-arm FAILED" "an exhausted cycle must deliver the failure notice"
+  assert_contains "$out" "watcher: fixture close with no wake" "the failure notice must carry the park output it diagnoses"
+  pass "auto-arm: a failure notice after a spent park budget still carries the park's own output"
 }
 
 # The host handed a wake back but left the marker in handling (pending or
@@ -1933,6 +1994,8 @@ test_configured_park_bound_reaches_the_host_unmagnified
 test_host_lost_handback_notifies_once_per_episode
 test_host_lost_announced_handback_notifies_once_per_episode
 test_host_lost_handback_beside_a_healthy_watcher_still_reaches_main
+test_host_lost_handback_stands_down_after_a_lock_takeover
+test_spent_budget_failure_notice_keeps_the_park_output
 test_host_crash_is_retried_then_reported
 test_arguments_never_arm
 test_fm_lock_status_still_works_with_shared_lib

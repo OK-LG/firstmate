@@ -473,7 +473,6 @@ while :; do
       [ -z "$OUT" ] || rm -f "$OUT" 2>/dev/null || true
       exit 0
     fi
-    park_budget_left || [ "$attempt" -eq 0 ] || break
     attempt=$((attempt + 1))
     OUT=$(mktemp "$STATE/.claude-autoarm-output.XXXXXX") || OUT=
     if [ "$HOST_MODE" -eq 1 ]; then
@@ -481,6 +480,7 @@ while :; do
       FM_SUPERVISION_HOST_AUTOARM_GEN=$MY_GEN FM_SUPERVISION_HOST_OWNER_PID=$$ \
         FM_SUPERVISION_HOST_PRIMARY=claude FM_GUARD_GRACE="$GRACE" \
         FM_SUPERVISION_HOST_PARK_SECONDS=$PARK_BUDGET_LEFT \
+        FM_SUPERVISION_HOST_PARK_LIMIT=$PARK_BUDGET_LEFT \
         "$SCRIPT_DIR/fm-supervision-host.sh" park >"${OUT:-/dev/null}" 2>&1 || HOST_RC=$?
     else
       run_arm "$OUT"
@@ -511,7 +511,7 @@ while :; do
       # no owner to deliver the close; retrying lets the next host stop what it
       # left and own a fresh cycle, which the healthy-watcher predicate cannot.
       if [ "$HOST_RC" -gt 128 ] || [ -z "$OUT" ] || [ ! -s "$OUT" ]; then
-        [ "$attempt" -lt "$AUTOARM_ATTEMPTS" ] || break
+        { [ "$attempt" -lt "$AUTOARM_ATTEMPTS" ] && park_budget_left; } || break
         [ -z "$OUT" ] || rm -f "$OUT" 2>/dev/null || true
         OUT=
         continue
@@ -527,7 +527,7 @@ while :; do
       HEALTHY=1
       break
     fi
-    [ "$attempt" -lt "$AUTOARM_ATTEMPTS" ] || break
+    { [ "$attempt" -lt "$AUTOARM_ATTEMPTS" ] && park_budget_left; } || break
     [ -z "$OUT" ] || rm -f "$OUT" 2>/dev/null || true
     OUT=
   done
@@ -603,6 +603,7 @@ while :; do
       exit 2
     fi
     if [ "$HOST_MODE" -eq 1 ] && fm_autoarm_still_owner "$STATE" "$MY_GEN" \
+      && fm_session_lock_owned_by_self "$STATE" \
       && fm_recovery_marker_snapshot "$STATE/.watcher-down" \
       && [[ "$FM_RECOVERY_MARKER_TOKEN" == pending:handling:* || "$FM_RECOVERY_MARKER_TOKEN" == announced:handling:* ]]; then
       deliver_refused_close 'firstmate watcher auto-arm FAILED - the supervision host returned an actionable wake, but its rewake could not be committed.'
