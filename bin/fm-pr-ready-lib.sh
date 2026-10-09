@@ -28,12 +28,27 @@ FM_PR_READY_LIB_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=/dev/null
 . "$FM_PR_READY_LIB_DIR/fm-wake-lib.sh"
 
+fm_pr_ready_line_url() {
+  local line=$1 verb token
+  local -a words
+  status_line_verb "$line" verb
+  case "$verb" in done|ready) ;; *) return 1 ;; esac
+  read -r -a words <<< "$line"
+  for token in "${words[@]}"; do
+    case "$token" in https://*) ;; *) continue ;; esac
+    while :; do
+      case "$token" in *[.,\;\)\]]) token=${token%?} ;; *) break ;; esac
+    done
+    fm_pr_url_parse "$token" && return 0
+  done
+  return 1
+}
+
 fm_pr_ready_tick() {
   local state=$1 now=$2 age=${FM_PR_READY_AGE_SECS:-1200} repeat=${FM_PR_READY_REPEAT_SECS:-1200}
   local id size ident f marker device old_ident offset url since last handled version
-  local line verb candidate token stamp reason tmp snapshot before after ready_end
+  local line candidate token stamp reason tmp snapshot before after ready_end report_token
   local ack_ident ack_end ack_url ack_reason ack_version ack
-  local -a words
   local LC_ALL=C
   for token in "$age" "$repeat"; do
     case "$token" in ''|0*|*[!0-9]*) echo 'error: PR-ready alarm intervals must be positive seconds' >&2; return 1 ;; esac
@@ -92,18 +107,8 @@ fm_pr_ready_tick() {
     # Read only the newly captured bytes; a partial append remains unread.
     while IFS= read -r line; do
       offset=$((offset + ${#line} + 1))
-      status_line_verb "$line" verb
-      case "$verb" in done|ready) ;; *) continue ;; esac
-      candidate=
-      read -r -a words <<< "$line"
-      for token in "${words[@]}"; do
-        case "$token" in https://*) ;; *) continue ;; esac
-        while :; do
-          case "$token" in *[.,\;\)\]]) token=${token%?} ;; *) break ;; esac
-        done
-        if fm_pr_url_parse "$token"; then candidate=$token; break; fi
-      done
-      [ -n "$candidate" ] || continue
+      fm_pr_ready_line_url "$line" || continue
+      candidate=$FM_PR_URL
       if [ "$candidate" != "$url" ] || [ "$handled" -eq 1 ]; then
         url=$candidate last=0 handled=0
         stamp=$(status_line_at_epoch "$line") || stamp=$now
@@ -122,7 +127,8 @@ fm_pr_ready_tick() {
         handled=1
       elif [ "$((now - since))" -ge "$age" ] \
         && { [ "$last" -eq 0 ] || [ "$((now - last))" -ge "$repeat" ]; }; then
-        reason="check: PR-ready overdue: task=$id PR=$url age=$((now - since))s; start its authorized review or landing, then acknowledge with bin/fm-pr-ready-ack.sh $id $url <review-started|merge-started|held>"
+        printf -v report_token '%q' "$ident|$ready_end"
+        reason="check: PR-ready overdue: task=$id PR=$url age=$((now - since))s; start its authorized review or landing, then acknowledge with bin/fm-pr-ready-ack.sh $id $url <review-started|merge-started|held> $report_token"
         fm_wake_append check "pr-ready-$id" "$reason" || return 1
         printf '%s\n' "$reason"
         last=$now

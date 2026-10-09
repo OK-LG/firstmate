@@ -31,8 +31,14 @@ arm() {
   ' _ "$ROOT" "$1" || fail 'could not arm authenticated poll'
 }
 
+capture_pr() {
+  FM_STATE_OVERRIDE="$STATE_DIR" bash "$ROOT/bin/fm-pr-ready-ack.sh" --capture ship "$1" 2> "$CASE/capture.err"
+}
+
 ack_pr() {
-  FM_STATE_OVERRIDE="$STATE_DIR" "$ROOT/bin/fm-pr-ready-ack.sh" ship "$1" "${2:-review-started}" >/dev/null \
+  local report
+  report=${3:-$(capture_pr "$1")} || fail 'could not capture ready report'
+  FM_STATE_OVERRIDE="$STATE_DIR" bash "$ROOT/bin/fm-pr-ready-ack.sh" ship "$1" "${2:-review-started}" "$report" >/dev/null \
     || fail 'could not acknowledge handled PR'
 }
 
@@ -81,7 +87,12 @@ pass 'explicit acknowledgement survives restart and retirement but not a new rev
 new_case wrong-poll
 printf 'done [at=100]: PR %s\n' "$URL" > "$STATE_DIR/ship.status"
 arm https://github.com/o/r/pull/8
-ack_pr https://github.com/o/r/pull/8
+report=$(capture_pr "$URL") || fail 'could not capture actual PR'
+if FM_STATE_OVERRIDE="$STATE_DIR" bash "$ROOT/bin/fm-pr-ready-ack.sh" ship \
+  https://github.com/o/r/pull/8 review-started "$report" >/dev/null 2>&1; then
+  fail 'acknowledgement accepted a report for another PR'
+fi
+[ ! -e "$STATE_DIR/ship.pr-ready-ack" ] || fail 'invalid acknowledgement was persisted'
 assert_contains "$(tick 1300)" 'PR-ready overdue' 'other PR registration cannot acknowledge'
 arm "$URL"
 printf '\n# tampered\n' >> "$STATE_DIR/ship.check.sh"
@@ -97,6 +108,82 @@ printf 'done [at=1500]: PR %s\n' "$URL" >> "$STATE_DIR/ship.status"
 [ -z "$(tick 2699)" ] || fail 'next review cycle inherited old age'
 assert_contains "$(tick 2700)" 'age=1200s' 'old acknowledgement cannot cover future ready bytes'
 pass 'acknowledgement binds to observed status bytes even before the watcher sees them'
+
+for observed in no yes; do
+  new_case "delayed-ack-$observed"
+  printf 'done [at=100]: PR %s\n' "$URL" > "$STATE_DIR/ship.status"
+  report=$(capture_pr "$URL") || fail 'could not capture first review report'
+  [ -z "$(tick 100)" ] || fail 'first report alarmed early'
+  printf 'ready [at=1500]: PR %s fixes ready\n' "$URL" >> "$STATE_DIR/ship.status"
+  if [ "$observed" = yes ]; then
+    assert_contains "$(tick 1500)" 'PR-ready overdue' 'unacknowledged report remains pending'
+  fi
+  ack_pr "$URL" review-started "$report"
+  assert_contains "$(tick 2700)" 'PR-ready overdue' 'delayed acknowledgement cannot silence the next review'
+  ack_pr "$URL"
+  [ -z "$(tick 3900)" ] || fail 'second review acknowledgement did not stop alarms'
+done
+pass 'delayed acknowledgement preserves newer reports before and after watcher observation'
+
+new_case invalid-report
+printf 'done [at=100]: PR %s\n' "$URL" > "$STATE_DIR/ship.status"
+report=$(capture_pr "$URL") || fail 'could not capture report'
+endpoint=${report##*|}
+printf 'working: unrelated append\n' >> "$STATE_DIR/ship.status"
+size=$(wc -c < "$STATE_DIR/ship.status" | tr -d ' ')
+for token in "${report%|*}|$((endpoint - 1))" "${report%|*}|$size" "${report%|*}|$((size + 1))" "${report%|*}|0"; do
+  if FM_STATE_OVERRIDE="$STATE_DIR" bash "$ROOT/bin/fm-pr-ready-ack.sh" ship "$URL" held "$token" >/dev/null 2>&1; then
+    fail 'invalid report endpoint was accepted'
+  fi
+done
+if FM_STATE_OVERRIDE="$STATE_DIR" bash "$ROOT/bin/fm-pr-ready-ack.sh" ship "$URL" held >/dev/null 2>&1; then
+  fail 'acknowledgement without captured report was accepted'
+fi
+printf 'done [at=100]: PR %s\n' "$URL" > "$CASE/replacement"
+mv "$CASE/replacement" "$STATE_DIR/ship.status"
+if FM_STATE_OVERRIDE="$STATE_DIR" bash "$ROOT/bin/fm-pr-ready-ack.sh" ship "$URL" held "$report" >/dev/null 2>&1; then
+  fail 'replaced status accepted an old report token'
+fi
+[ ! -e "$STATE_DIR/ship.pr-ready-ack" ] || fail 'invalid token created an acknowledgement'
+assert_contains "$(tick 1300)" 'PR-ready overdue' 'refused tokens preserve the obligation'
+pass 'acknowledgement rejects missing, partial, unrelated, future and replaced report tokens'
+
+new_case capture-boundary
+printf 'ready [at=100]: café PR %s' "$URL" > "$STATE_DIR/ship.status"
+if capture_pr "$URL" >/dev/null; then fail 'capture accepted an incomplete ready report'; fi
+printf '\nworking: unrelated update\n' >> "$STATE_DIR/ship.status"
+report=$(capture_pr "$URL") || fail 'complete ready report was not captured'
+assert_contains "$(cat "$CASE/capture.err")" "café PR $URL" 'capture presents the report being handled'
+if capture_pr https://github.com/o/r/pull/8 >/dev/null; then fail 'capture accepted another PR'; fi
+ack_pr "$URL" held "$report"
+[ -z "$(tick 1300)" ] || fail 'multibyte report with trailing progress was not acknowledged'
+pass 'capture uses complete ready report bytes and presents the exact report'
+
+new_case alarm-token
+printf 'done [at=100]: PR %s\n' "$URL" > "$STATE_DIR/ship.status"
+out=$(tick 1300) || fail 'alarm tick failed'
+command=${out#*acknowledge with }
+command=${command/'<review-started|merge-started|held>'/review-started}
+printf 'ready [at=1500]: PR %s\n' "$URL" >> "$STATE_DIR/ship.status"
+(cd "$ROOT" && FM_STATE_OVERRIDE="$STATE_DIR" bash -c "$command") >/dev/null \
+  || fail 'alarm acknowledgement command failed'
+assert_contains "$(tick 2700)" 'PR-ready overdue' 'alarm command acknowledges only its captured report'
+pass 'alarm supplies an executable acknowledgement bound to its report'
+
+new_case cleanup
+printf 'done [at=100]: PR %s\n' "$URL" > "$STATE_DIR/ship.status"
+assert_contains "$(tick 1300)" 'PR-ready overdue' 'cleanup fixture has a real overdue alarm'
+FM_STATE_OVERRIDE="$STATE_DIR" bash -c '
+  . "$1/bin/fm-wake-lib.sh"
+  fm_wake_append check pr-ready-ship-extra "check: another overdue task" || exit 1
+  fm_wake_append signal pr-ready-ship "signal: unrelated key" || exit 1
+  fm_wake_queue_prune_task "$STATE" ship
+' _ "$ROOT" || fail 'task wake cleanup failed'
+queue=$(cat "$STATE_DIR/.wake-queue")
+[[ "$queue" != *$'\tcheck\tpr-ready-ship\t'* ]] || fail 'cleanup retained the task overdue alarm'
+assert_contains "$queue" $'\tcheck\tpr-ready-ship-extra\t' 'cleanup retains other task alarms'
+assert_contains "$queue" $'\tsignal\tpr-ready-ship\t' 'cleanup retains other wake kinds'
+pass 'task cleanup retires its overdue alarm and preserves unrelated wakes'
 
 new_case truncated
 printf 'done [at=100]: PR %s with a long description of the ready change\n' "$URL" > "$STATE_DIR/ship.status"
