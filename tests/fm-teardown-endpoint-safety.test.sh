@@ -195,6 +195,9 @@ test_confirmed_non_pool_git_worktree_still_cleans_up() {
 #!/usr/bin/env bash
 [ "$*" != status ] || exit 0
 printf 'treehouse <return>\n' >> "$FM_RUNTIME_LOG"
+[ -z "${FM_TREEHOUSE_RECOVERY_TEST_BIN:-}" ] || exec "$FM_TREEHOUSE_RECOVERY_TEST_BIN" "$@"
+echo 'worktree is not managed by treehouse' >&2
+exit 1
 SH
   fm_write_meta "$dir/home/state/$id.meta" \
     "window=firstmate:fm-$id" "endpoint_task_id=$id" \
@@ -202,7 +205,8 @@ SH
   run_case "$dir" "$id" > "$dir/stdout" 2> "$dir/stderr" \
     || fail "confirmed non-pool cleanup refused: $(cat "$dir/stderr")"
   assert_absent "$dir/home/state/$id.meta" "confirmed non-pool cleanup retained metadata"
-  assert_grep 'treehouse <return>' "$dir/runtime.log" "confirmed non-pool cleanup skipped worktree cleanup"
+  assert_absent "$dir/worktree" "confirmed non-pool cleanup retained the worktree"
+  assert_no_grep 'treehouse <return>' "$dir/runtime.log" "confirmed non-pool cleanup called Treehouse"
   pass "confirmed non-pool Git worktrees retain normal cleanup"
 }
 
