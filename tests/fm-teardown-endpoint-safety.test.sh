@@ -45,6 +45,7 @@ mark_case_as_treehouse_pool() {  # <case>
   ln -s "pool/1/project" "$dir/worktree"
   printf '{"worktrees":[{"name":"1","path":"%s"}]}\n' \
     "$dir/pool/1/project" > "$dir/pool/treehouse-state.json"
+  fm_test_treehouse_pool "$dir/project" "$dir/pool"
   : > "$dir/worktree/sentinel"
 }
 
@@ -70,6 +71,144 @@ assert_refused_without_mutation() {  # <case> <id> <description>
   assert_present "$dir/home/state/$id.meta" "$description: metadata changed before refusal"
   assert_present "$dir/worktree/sentinel" "$description: worktree changed before refusal"
   [ ! -s "$dir/runtime.log" ] || fail "$description: runtime command ran before refusal: $(cat "$dir/runtime.log")"
+}
+
+test_treehouse_201_recovery_preserves_symlink_evidence() {
+  local treehouse=${FM_TREEHOUSE_RECOVERY_TEST_BIN:-} version dir pool_path disk_slot state worker mode rc out
+  [ -n "$treehouse" ] || treehouse=$(command -v treehouse || true)
+  if [ -z "$treehouse" ]; then
+    echo 'skip - Treehouse v2.0.1 recovery test requires treehouse'
+    return 0
+  fi
+  version=$("$treehouse" --version)
+  if [ "$version" != v2.0.1 ] && [ "$version" != 2.0.1 ]; then
+    [ -z "${FM_TREEHOUSE_RECOVERY_TEST_BIN:-}" ] || fail "recovery test requires v2.0.1, found $version"
+    echo "skip - Treehouse v2.0.1 recovery test found $version"
+    return 0
+  fi
+  dir=$(make_case actual-treehouse-recovery)
+  mark_case_as_treehouse_pool "$dir"
+  disk_slot="$dir/disk/17"
+  pool_path="$dir/pool/17/project"
+  state="$dir/pool/treehouse-state.json"
+  mkdir -p "$disk_slot"
+  git -C "$dir/project" worktree add -q -b foreign-branch "$disk_slot/project"
+  ln -s "$disk_slot" "$dir/pool/17"
+  printf 'task=foreign-owner\nhome=%s\n' "$dir/other-home" > "$disk_slot/.fm-slot-owner"
+  printf 'must survive\n' > "$disk_slot/project/sentinel"
+  printf '{"worktrees":[{"name":"17","path":"%s"}]}\n' "$pool_path" > "$dir/healthy-state"
+  printf '{"worktrees":[' > "$state"
+  (cd "$dir/project" && TREEHOUSE_NO_UPDATE_CHECK=1 "$treehouse" status) > "$dir/status.out" 2> "$dir/status.err" \
+    || fail "Treehouse v2.0.1 did not recover corrupt state: $(cat "$dir/status.err")"
+  node -e '
+const fs = require("node:fs");
+const entries = JSON.parse(fs.readFileSync(process.argv[1], "utf8")).worktrees;
+if (!Array.isArray(entries) || entries.length !== 1 || entries[0].name !== "1" || !entries[0].leased) process.exit(1);
+' "$state" || fail 'actual Treehouse recovery did not omit the symlinked slot and lease the ordinary slot'
+  cp "$state" "$dir/recovered-state"
+  fm_write_meta "$dir/home/state/recovery-stale.meta" \
+    'window=firstmate:fm-recovery-stale' 'endpoint_task_id=recovery-stale' \
+    "worktree=$disk_slot/project" "project=$dir/project" 'kind=scout' 'branch=foreign-branch'
+  cp "$dir/home/state/recovery-stale.meta" "$dir/meta.before"
+  cp "$disk_slot/.fm-slot-owner" "$dir/claim.before"
+  cat > "$dir/fakebin/treehouse" <<'SH'
+#!/usr/bin/env bash
+printf '%s\n' "$*" >> "$FM_REAL_TREEHOUSE_CALLS"
+exec "$FM_REAL_TREEHOUSE" "$@"
+SH
+  (cd "$disk_slot/project" && exec sleep 120) &
+  worker=$!
+  for mode in corrupt recovered; do
+    if [ "$mode" = corrupt ]; then
+      printf '{"worktrees":[' > "$state"
+    else
+      cp "$dir/recovered-state" "$state"
+    fi
+    cp "$state" "$dir/state.before"
+    rc=0
+    FM_REAL_TREEHOUSE="$treehouse" FM_REAL_TREEHOUSE_CALLS="$dir/treehouse.calls" \
+      run_case "$dir" recovery-stale > "$dir/stdout" 2> "$dir/stderr" || rc=$?
+    [ "$rc" -ne 0 ] || fail "$mode: teardown accepted uncertain symlink membership"
+    assert_grep 'slot ownership is uncertain' "$dir/stderr" "$mode: teardown did not refuse lookup uncertainty"
+    cmp -s "$state" "$dir/state.before" || fail "$mode: lookup rewrote the pool evidence"
+    cmp -s "$dir/home/state/recovery-stale.meta" "$dir/meta.before" || fail "$mode: lookup changed task metadata"
+    cmp -s "$disk_slot/.fm-slot-owner" "$dir/claim.before" || fail "$mode: lookup changed the foreign claim"
+    kill -0 "$worker" 2>/dev/null || fail "$mode: lookup killed the foreign worker"
+    assert_present "$disk_slot/project/sentinel" "$mode: lookup changed the foreign checkout"
+    git -C "$dir/project" show-ref --verify --quiet refs/heads/foreign-branch || fail "$mode: lookup deleted the foreign branch"
+    [ ! -s "$dir/treehouse.calls" ] || fail "$mode: lookup invoked mutating Treehouse commands"
+  done
+  cp "$dir/healthy-state" "$state"
+  out=$(bash -c '. "$1"; fm_treehouse_pool_path "$2" "$3"' _ \
+    "$ROOT/bin/fm-wake-lib.sh" "$dir/project" "$disk_slot/project") \
+    || fail 'healthy state did not resolve the physical checkout'
+  [ "$out" = "$pool_path" ] || fail 'healthy state resolved the wrong logical path'
+  cmp -s "$state" "$dir/healthy-state" || fail 'healthy lookup rewrote state'
+  kill "$worker" 2>/dev/null || true
+  wait "$worker" 2>/dev/null || true
+  pass 'actual Treehouse v2.0.1 recovery omits symlinked slots; lookup preserves corrupt and recovered evidence'
+}
+
+test_treehouse_lookup_failure_preserves_foreign_slot() {
+  local dir id=stale-lookup other=foreign-owner worker rc failure
+  for failure in config malformed omitted missing; do
+    dir=$(make_case "lookup-failure-$failure")
+    mark_case_as_treehouse_pool "$dir"
+    fm_write_meta "$dir/home/state/$id.meta" \
+      "window=firstmate:fm-$id" "endpoint_task_id=$id" \
+      "worktree=$dir/worktree" "project=$dir/project" "kind=scout"
+    claim_pool_slot "$dir" "$other" "$dir/other-home"
+    cp "$dir/home/state/$id.meta" "$dir/meta.before"
+    cp "$dir/pool/1/.fm-slot-owner" "$dir/claim.before"
+    case "$failure" in
+      config) printf 'root = [\n' > "$dir/project/treehouse.toml" ;;
+      malformed) printf '{' > "$dir/pool/treehouse-state.json" ;;
+      omitted) printf '{"worktrees":[]}\n' > "$dir/pool/treehouse-state.json" ;;
+      missing) rm "$dir/pool/treehouse-state.json" ;;
+    esac
+    ( cd "$dir/worktree" && exec sleep 60 ) &
+    worker=$!
+    rc=0
+    run_case "$dir" "$id" \
+      > "$dir/stdout" 2> "$dir/stderr" || rc=$?
+    kill -0 "$worker" 2>/dev/null || fail "$failure: lookup failure killed the foreign worker"
+    kill "$worker" 2>/dev/null || true
+    wait "$worker" 2>/dev/null || true
+    [ "$rc" -ne 0 ] || fail "$failure: uncertain ownership allowed teardown"
+    cmp -s "$dir/meta.before" "$dir/home/state/$id.meta" || fail "$failure: refusal changed task metadata"
+    cmp -s "$dir/claim.before" "$dir/pool/1/.fm-slot-owner" || fail "$failure: refusal changed the foreign claim"
+    assert_present "$dir/worktree/sentinel" "$failure: refusal changed the foreign checkout"
+    assert_grep 'slot ownership is uncertain' "$dir/stderr" "$failure: refusal did not explain lookup uncertainty"
+    assert_no_grep 'treehouse <return>' "$dir/runtime.log" "$failure: uncertain slot was returned"
+    assert_no_grep 'tmux <kill-window>' "$dir/runtime.log" "$failure: uncertain slot endpoint was closed"
+  done
+  pass "Treehouse config and state failures preserve foreign slots and records"
+}
+
+test_confirmed_non_pool_git_worktree_still_refuses() {
+  local dir id=non-pool-git rc=0
+  dir=$(make_case non-pool-git)
+  rm -rf "$dir/worktree"
+  git -C "$dir/project" -c user.name=test -c user.email=test@example.invalid commit --allow-empty -qm fixture
+  git -C "$dir/project" worktree add -q --detach "$dir/worktree"
+  cat > "$dir/fakebin/treehouse" <<'SH'
+#!/usr/bin/env bash
+[ "$*" != status ] || exit 0
+printf 'treehouse <return>\n' >> "$FM_RUNTIME_LOG"
+[ -z "${FM_TREEHOUSE_RECOVERY_TEST_BIN:-}" ] || exec "$FM_TREEHOUSE_RECOVERY_TEST_BIN" "$@"
+echo 'worktree is not managed by treehouse' >&2
+exit 1
+SH
+  fm_write_meta "$dir/home/state/$id.meta" \
+    "window=firstmate:fm-$id" "endpoint_task_id=$id" \
+    "worktree=$dir/worktree" "project=$dir/project" "kind=scout"
+  run_case "$dir" "$id" > "$dir/stdout" 2> "$dir/stderr" || rc=$?
+  [ "$rc" -ne 0 ] || fail "confirmed non-pool cleanup unexpectedly succeeded"
+  assert_present "$dir/home/state/$id.meta" "confirmed non-pool refusal removed metadata"
+  assert_present "$dir/worktree" "confirmed non-pool refusal removed the worktree"
+  assert_grep 'treehouse <return>' "$dir/runtime.log" "confirmed non-pool cleanup skipped Treehouse"
+  assert_grep 'not managed by treehouse' "$dir/stderr" "confirmed non-pool refusal lost Treehouse error"
+  pass "confirmed non-pool Git worktrees retain Treehouse refusal"
 }
 
 test_invalid_endpoint_records_refuse_before_mutation() {
@@ -611,6 +750,51 @@ test_sole_slot_record_still_tears_down() {
   kill "$worker" 2>/dev/null || true
   wait "$worker" 2>/dev/null || true
   pass "fm-teardown: a task that solely holds its slot still returns it"
+}
+
+test_legacy_disk_path_returns_symlinked_pool_slot() {
+  local dir id=legacy-disk-slot pool_path disk_slot jq_free project
+  dir=$(make_case symlinked-pool-slot)
+  mark_case_as_treehouse_pool "$dir"
+  pool_path="$dir/pool/1/project"
+  disk_slot="$dir/disk/1"
+  mkdir -p "$disk_slot"
+  git -C "$dir/project" worktree move "$pool_path" "$disk_slot/project"
+  rmdir "$dir/pool/1"
+  ln -s "$disk_slot" "$dir/pool/1"
+  cat > "$dir/fakebin/treehouse" <<'SH'
+#!/usr/bin/env bash
+printf 'treehouse' >> "${FM_RUNTIME_LOG:?}"
+printf ' <%s>' "$@" >> "${FM_RUNTIME_LOG:?}"
+printf '\n' >> "${FM_RUNTIME_LOG:?}"
+if [ "${1:-}" = return ] && [ "${3:-}" != "$FM_FAKE_TREEHOUSE_POOL_PATH" ]; then
+  echo "worktree $3 is not managed by treehouse" >&2
+  exit 1
+fi
+exit 0
+SH
+  chmod +x "$dir/fakebin/treehouse"
+  project="$dir/secondmate/project"
+  git -C "$dir/project" remote add origin "$dir/project"
+  git clone -q "$dir/project" "$project"
+  fm_test_treehouse_pool "$project" "$dir/pool"
+  fm_write_meta "$dir/home/state/$id.meta" \
+    "window=firstmate:fm-$id" "endpoint_task_id=$id" \
+    "worktree=$disk_slot/project" "project=$project" "kind=scout"
+  printf 'task=%s\nhome=%s\n' "$id" "$dir/home" > "$disk_slot/.fm-slot-owner"
+
+  jq_free=$(fm_test_base_path_sans "$PATH" jq)
+  ! PATH="$jq_free" command -v jq >/dev/null 2>&1 || fail "jq is still available"
+  FM_FAKE_TREEHOUSE_POOL_PATH="$pool_path" PATH="$jq_free" run_case "$dir" "$id" \
+    > "$dir/stdout" 2> "$dir/stderr" \
+    || fail "legacy disk-path teardown failed: $(cat "$dir/stderr")"
+  assert_absent "$dir/home/state/$id.meta" "legacy disk-path teardown left task metadata"
+  assert_absent "$disk_slot/.fm-slot-owner" "legacy disk-path teardown left its claim"
+  assert_grep "treehouse <return> <--force> <$pool_path>" "$dir/runtime.log" \
+    "teardown did not pass the managed pool path to Treehouse"
+  assert_no_grep "treehouse <return> <--force> <$disk_slot/project>" "$dir/runtime.log" \
+    "teardown passed the disk path to Treehouse"
+  pass "legacy physical worktree records return the symlinked pool path"
 }
 
 test_recorded_endpoint_that_changed_directory_still_tears_down() {
@@ -1420,6 +1604,9 @@ test_already_gone_endpoint_still_completes_without_a_refusal() {
   pass "fm-teardown: an already-exited endpoint, and a server that is already gone, still complete cleanup silently"
 }
 
+test_treehouse_201_recovery_preserves_symlink_evidence
+test_treehouse_lookup_failure_preserves_foreign_slot
+test_confirmed_non_pool_git_worktree_still_refuses
 test_invalid_endpoint_records_refuse_before_mutation
 test_control_lock_contention_refuses_before_mutation
 test_non_pool_teardown_ignores_task_set_lock
@@ -1439,6 +1626,7 @@ test_bare_relative_origin_shares_project_lock_with_clone
 test_reused_pool_slot_refuses_before_touching_the_other_task
 test_cross_home_pool_slot_collision_refuses
 test_sole_slot_record_still_tears_down
+test_legacy_disk_path_returns_symlinked_pool_slot
 test_reassigned_pool_slot_finishes_own_cleanup_without_touching_the_slot
 test_stale_record_on_claimed_slot_retires_then_claimant_tears_down
 test_own_and_absent_slot_claims_still_tear_down

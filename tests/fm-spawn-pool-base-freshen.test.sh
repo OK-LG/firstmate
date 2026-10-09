@@ -687,6 +687,7 @@ lay_out_as_pool_slot() {
     > "$slot_root/treehouse-state.json"
   POOL_DIR="$slot_root/1/project"
   SLOT_CLAIM="$slot_root/1/.fm-slot-owner"
+  fm_test_treehouse_pool "$PROJECT_DIR" "$slot_root"
 }
 
 # The spawn side of the slot-owner claim that bin/fm-teardown.sh later reads:

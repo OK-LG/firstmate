@@ -732,6 +732,16 @@ fm_git_worktree() {
   git -C "$repo" worktree add --quiet -b "$branch" "$worktree"
 }
 
+fm_test_treehouse_pool() {
+  local project=$1 pool=$2 root identity pool_name
+  root="$(dirname "$pool")/treehouse-config"
+  identity=$(git -C "$project" remote get-url origin 2>/dev/null) || identity=$(cd "$project" && pwd -P)
+  pool_name=$(node -e 'process.stdout.write(require("node:crypto").createHash("sha256").update(process.argv[1]).digest("hex").slice(0, 6))' "$identity")
+  mkdir -p "$root/.treehouse"
+  [ -L "$root/.treehouse/$(basename "$project")-$pool_name" ] || ln -s "$pool" "$root/.treehouse/$(basename "$project")-$pool_name"
+  printf 'root = "%s"\n' "$root" > "$project/treehouse.toml"
+}
+
 # --- state/<id>.meta writers ------------------------------------------------
 
 # fm_write_meta <file> <key=val> ...: write the given key=val lines to a meta

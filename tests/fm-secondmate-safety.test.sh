@@ -2015,6 +2015,7 @@ test_secondmate_force_teardown_refuses_duplicated_child_slot() {
   fm_git_worktree "$childproj" "$childwt" duplicate-child
   printf '{"worktrees":[{"name":"1","path":"%s"}]}\n' "$childwt" \
     > "$TMP_ROOT/force-duplicate-slot-pool/treehouse-state.json"
+  fm_test_treehouse_pool "$childproj" "$TMP_ROOT/force-duplicate-slot-pool"
   printf 'domain\n' > "$subhome/.fm-secondmate-home"
   cat > "$home/state/domain.meta" <<EOF
 window=firstmate:fm-domain
@@ -2069,6 +2070,7 @@ test_secondmate_force_teardown_preserves_child_on_unproven_lock() {
   fm_git_worktree "$childproj" "$childwt" force-child-lock
   printf '{"worktrees":[{"name":"1","path":"%s"}]}\n' "$childwt" \
     > "$TMP_ROOT/force-lock-child-pool/treehouse-state.json"
+  fm_test_treehouse_pool "$childproj" "$TMP_ROOT/force-lock-child-pool"
   printf 'domain\n' > "$subhome/.fm-secondmate-home"
   cat > "$home/state/domain.meta" <<EOF
 window=firstmate:fm-domain

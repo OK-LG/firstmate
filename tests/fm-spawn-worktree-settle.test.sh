@@ -221,9 +221,186 @@ test_primary_checkout_that_never_settles_fails_at_the_deadline() {
   pass "a pane stuck on the primary checkout fails loudly at the deadline"
 }
 
+test_symlinked_pool_slot_records_pool_path() {
+  local rec id out status pool_path disk_slot case_dir original_project jq_free
+  id=settle-symlink-pool-z5
+  rec=$(make_settle_case settle-symlink-pool "$id" 0)
+  read_settle_record "$rec"
+  case_dir=${HOME_DIR%/home}
+  disk_slot="$case_dir/disk/17"
+  pool_path="$case_dir/pool/17/project"
+  mkdir -p "$disk_slot" "$case_dir/pool"
+  git -C "$PROJ_DIR" worktree move "$WT_DIR" "$disk_slot/project"
+  ln -s "$disk_slot" "$case_dir/pool/17"
+  printf '{"worktrees":[{"name":"17","path":"%s"}]}\n' "$pool_path" \
+    > "$case_dir/pool/treehouse-state.json"
+  fm_test_treehouse_pool "$PROJ_DIR" "$case_dir/pool"
+  WT_DIR="$disk_slot/project"
+  jq_free=$(fm_test_base_path_sans "$PATH" jq)
+  ! PATH="$jq_free" command -v jq >/dev/null 2>&1 || fail "jq is still available"
+  out=$(PATH="$jq_free" run_settle_spawn "$id")
+  status=$?
+  expect_code 0 "$status" "same-clone spawn should resolve without jq"$'\n'"$out"
+  assert_grep "worktree=$pool_path" "$HOME_DIR/state/$id.meta" "same-clone spawn retained the disk path"
+  original_project=$PROJ_DIR
+  PROJ_DIR="$case_dir/secondmate/project"
+  git clone -q "$(git -C "$original_project" remote get-url origin)" "$PROJ_DIR"
+  fm_test_treehouse_pool "$PROJ_DIR" "$case_dir/pool"
+  [ "$(git -C "$original_project" remote get-url origin)" = "$(git -C "$PROJ_DIR" remote get-url origin)" ] \
+    || fail "fixture clones do not share an origin"
+  [ "$(git -C "$PROJ_DIR" rev-parse --path-format=absolute --git-common-dir)" != "$(git -C "$WT_DIR" rev-parse --path-format=absolute --git-common-dir)" ] \
+    || fail "fixture clones share a Git common directory"
+  id=settle-shared-pool-z7
+  fm_test_spawn_brief "$HOME_DIR" "$id" "Reuse a shared pool slot from a separate clone."
+  out=$(PATH="$jq_free" run_settle_spawn "$id")
+  status=$?
+  expect_code 0 "$status" "spawn should accept a symlinked Treehouse slot"$'\n'"$out"
+  assert_grep "worktree=$pool_path" "$HOME_DIR/state/$id.meta" \
+    "spawn recorded the disk path instead of Treehouse's pool path"
+  assert_present "$disk_slot/.fm-slot-owner" "spawn did not claim the symlinked slot"
+  assert_grep "task=$id" "$disk_slot/.fm-slot-owner" "shared-clone spawn did not claim its slot"
+  pass "same and separate clones record and claim symlinked slots without jq"
+}
+
+test_symlinked_slot_to_primary_fails_isolation() {
+  local rec id out status pool_path case_dir
+  id=settle-symlink-primary-z6
+  rec=$(make_settle_case settle-symlink-primary "$id" 0)
+  read_settle_record "$rec"
+  case_dir=${HOME_DIR%/home}
+  mkdir -p "$case_dir/pool"
+  ln -s "$case_dir" "$case_dir/pool/17"
+  pool_path="$case_dir/pool/17/project"
+  WT_DIR=$pool_path
+  fm_test_fake_sleep_noop "$FAKEBIN_DIR"
+  out=$(run_settle_spawn "$id")
+  status=$?
+  [ "$status" -ne 0 ] || fail "spawn accepted a symlinked path to the primary checkout"
+  assert_contains "$out" "spawning project itself" \
+    "isolation refusal did not identify the primary checkout"
+  [ ! -e "$HOME_DIR/state/$id.meta" ] || fail "isolation refusal published task metadata"
+  pass "a symlinked slot path to the primary checkout fails isolation"
+}
+
+test_failed_pool_lookup_refuses_spawn() {
+  local rec id=settle-lookup-failure out status
+  rec=$(make_settle_case settle-lookup-failure "$id" 0)
+  read_settle_record "$rec"
+  printf 'root = [\n' > "$PROJ_DIR/treehouse.toml"
+  out=$(run_settle_spawn "$id")
+  status=$?
+  [ "$status" -ne 0 ] || fail "spawn accepted uncertain Treehouse ownership"
+  assert_contains "$out" 'Treehouse lookup failed' "spawn did not explain its lookup refusal"
+  assert_absent "$HOME_DIR/state/$id.meta" "failed lookup published task metadata"
+  pass "spawn refuses unknown pool membership before launching a worker"
+}
+
+test_pool_resolution_handles_config_comment_eof() {
+  local dir="$TMP_ROOT/config-comment-eof" pool slot
+  pool="$dir/pool"
+  slot="$pool/17/project"
+  mkdir -p "$pool"
+  fm_git_worktree "$dir/project" "$dir/disk/project" config-comment-eof
+  fm_test_treehouse_pool "$dir/project" "$pool"
+  ln -s "$dir/disk" "$pool/17"
+  printf '{"worktrees":[{"name":"17","path":"%s"}]}\n' "$slot" > "$pool/treehouse-state.json"
+  node --input-type=module - "$ROOT" "$dir/project" "$slot" <<'JS' || fail 'config comment EOF regression'
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import { spawnSync } from 'node:child_process';
+const [root, project, slot] = process.argv.slice(2);
+const config = fs.readFileSync(`${project}/treehouse.toml`, 'utf8');
+const cases = [
+  ['hooks = { post_create = [] # interrupted edit', 2],
+  ['hooks = { post_create = [] # interrupted edit\n', 2],
+  ['hooks = { post_create = [] }', 0],
+  ['hooks = { post_create = [] } # final comment', 0],
+  ['[hooks]\npost_create = [\n# before hook\n"echo ready", # after hook\n]', 0],
+  ['ignored = [[1], # nested array\n[2]]', 0],
+];
+for (const [toml, status] of cases) {
+  fs.writeFileSync(`${project}/treehouse.toml`, status === 0 ? config + toml : toml);
+  const result = spawnSync(process.execPath,
+    [`${root}/bin/fm-treehouse-pool-path.mjs`, project, slot],
+    { encoding: 'utf8', timeout: 5000 });
+  assert.ifError(result.error);
+  assert.equal(result.status, status, toml);
+  assert.equal(result.stdout, status === 0 ? `${slot}\n` : '', toml);
+}
+JS
+  pass "pool lookup refuses unterminated comments promptly and accepts valid TOML"
+}
+
+test_pool_resolution_requires_unique_authoritative_entry() {
+  local dir="$TMP_ROOT/pool-resolution" pool slot out status mode
+  pool="$dir/pool with spaces"
+  slot="$pool/17/project"
+  mkdir -p "$pool"
+  fm_git_worktree "$dir/project" "$dir/disk/project" pool-resolution
+  fm_test_treehouse_pool "$dir/project" "$pool"
+  ln -s "$dir/disk" "$pool/17"
+  ln -s "$dir/disk" "$pool/18"
+  for mode in valid absent malformed symlink-state ambiguous claimed-omission; do
+    rm -f "$pool/treehouse-state.json" "$dir/disk/.fm-slot-owner"
+    printf '{"worktrees":[{"name":"17","path":"%s"}]}\n' "$slot" > "$pool/treehouse-state.json"
+    case "$mode" in
+      absent|claimed-omission) printf '{"worktrees":[]}\n' > "$pool/treehouse-state.json" ;;
+      malformed) printf '{' > "$pool/treehouse-state.json" ;;
+      symlink-state)
+        mv "$pool/treehouse-state.json" "$dir/state.json"
+        ln -s "$dir/state.json" "$pool/treehouse-state.json"
+        ;;
+      ambiguous)
+        printf '{"worktrees":[{"name":"17","path":"%s"},{"name":"18","path":"%s"}]}\n' \
+          "$slot" "$pool/18/project" > "$pool/treehouse-state.json"
+        ;;
+    esac
+    [ "$mode" != claimed-omission ] || printf 'task=foreign\n' > "$dir/disk/.fm-slot-owner"
+    out=$(bash -c '. "$1"; fm_treehouse_pool_path "$2" "$3"' _ \
+      "$ROOT/bin/fm-wake-lib.sh" "$dir/project" "$slot")
+    status=$?
+    case "$mode" in
+      valid)
+        expect_code 0 "$status" "valid pool entry was rejected"
+        [ "$out" = "$slot" ] || fail "resolved the wrong pool path"
+        ;;
+      absent)
+        expect_code 1 "$status" "confirmed non-pool result did not remain distinct"
+        [ -z "$out" ] || fail "$mode authorized a pool path"
+        ;;
+      *)
+        expect_code 2 "$status" "$mode was mistaken for a confirmed non-pool result"
+        [ -z "$out" ] || fail "$mode authorized a pool path"
+        ;;
+    esac
+  done
+  rm -f "$dir/disk/.fm-slot-owner"
+  printf '{"worktrees":[{"name":"17","path":"%s"}]}\n' "$slot" > "$pool/treehouse-state.json"
+  cp "$pool/treehouse-state.json" "$dir/state.before"
+  for mode in relative env multiline; do
+    case "$mode" in
+      relative) printf "root = '../treehouse-config'\n" > "$dir/project/treehouse.toml" ;;
+      env) printf 'root = "%s{FM_TEST_TREEHOUSE_ROOT}"\n' '$' > "$dir/project/treehouse.toml" ;;
+      multiline) printf '"root" = """../treehouse-config""" # pool root\n' > "$dir/project/treehouse.toml" ;;
+    esac
+    out=$(FM_TEST_TREEHOUSE_ROOT="$dir/treehouse-config" bash -c \
+      '. "$1"; fm_treehouse_pool_path "$2" "$3"' _ "$ROOT/bin/fm-wake-lib.sh" "$dir/project" "$slot") \
+      || fail "$mode root did not resolve"
+    [ "$out" = "$slot" ] || fail "$mode root resolved the wrong slot"
+    cmp -s "$pool/treehouse-state.json" "$dir/state.before" || fail "$mode lookup rewrote pool state"
+  done
+  pass "pool resolution requires one authoritative entry and preserves claim uncertainty"
+}
+
+
 test_single_stale_first_read_is_not_accepted
 test_already_settled_pane_costs_one_confirm_read
 test_transient_primary_checkout_is_not_accepted
 test_primary_checkout_that_never_settles_fails_at_the_deadline
+test_symlinked_pool_slot_records_pool_path
+test_symlinked_slot_to_primary_fails_isolation
+test_failed_pool_lookup_refuses_spawn
+test_pool_resolution_handles_config_comment_eof
+test_pool_resolution_requires_unique_authoritative_entry
 
 echo "# all fm-spawn-worktree-settle tests passed"

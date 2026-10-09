@@ -159,6 +159,10 @@
 #   while it still holds the allocation lock drops its own claim; an abort after
 #   metadata publication has released that lock leaves the claim in place, and
 #   the next spawn's claim replaces it.
+#   Fresh spawns and relaunches record the pool path returned by
+#   bin/fm-wake-lib.sh's fm_treehouse_pool_path in worktree=, retaining symlinks
+#   while isolation checks compare physical paths. Uncertain membership refuses
+#   launch before publishing task metadata.
 #   The local root is whatever bin/fm-wake-lib.sh's
 #   fm_firstmate_root_home resolves, so a home seeded from another machine anchors
 #   that lock itself rather than failing to resolve one;
@@ -3160,7 +3164,7 @@ BRIEF_REAL="$BRIEF_DIR_REAL/$(basename "$BRIEF")"
 # still-symlinked PROJ_ABS can misfire both ways: false-negative (the poll
 # below never notices the pane left the project) or false-positive (the
 # isolation guard refuses a spawn that never actually tangled). Canonicalize
-# once here so every downstream comparison uses the same physical form
+# the project here for isolation comparisons; Treehouse pool paths remain logical
 # (docs/herdr-backend.md "Known gaps").
 PROJ_ABS_REAL=$(cd "$PROJ_ABS" 2>/dev/null && pwd -P) || PROJ_ABS_REAL="$PROJ_ABS"
 
@@ -4218,7 +4222,15 @@ elif [ "$RELAUNCH" -eq 1 ]; then
       exit 1
     fi
   fi
-  [ "$KIND" = secondmate ] || validate_spawn_worktree "relaunch" "$T"
+  if [ "$KIND" != secondmate ]; then
+    validate_spawn_worktree "relaunch" "$T"
+    if pool_worktree=$(fm_treehouse_pool_path "$PROJ_ABS" "$WT"); then
+      WT=$pool_worktree
+    elif [ "$?" -ne 1 ]; then
+      echo "error: Treehouse lookup failed for $WT; refusing to relaunch with uncertain slot ownership" >&2
+      exit 1
+    fi
+  fi
 elif [ "$KIND" != secondmate ] && [ "$BACKEND" != orca ]; then
   spawn_send_text_line "$WT_TARGET" 'treehouse get'
 
@@ -4293,12 +4305,17 @@ elif [ "$KIND" != secondmate ] && [ "$BACKEND" != orca ]; then
   # under its successor.
   # Written under the Treehouse project lock held from before slot allocation
   # through metadata publication, so no other spawn or return sees a half-claim.
-  if fm_treehouse_pool_slot "$PROJ_ABS" "$WT"; then
+  if pool_worktree=$(fm_treehouse_pool_path "$PROJ_ABS" "$WT"); then
+    WT=$pool_worktree
+    validate_spawn_worktree "Treehouse pool path" "$T"
     if ! fm_treehouse_slot_owner_claim "$WT" "$ID" "$FM_HOME"; then
       echo "error: could not claim Treehouse pool slot $WT for task $ID; refusing to launch a worker whose slot cannot later be proved to be its own; inspect window $T" >&2
       exit 1
     fi
     SPAWN_SLOT_CLAIMED=1
+  elif [ "$?" -ne 1 ]; then
+    echo "error: Treehouse lookup failed for $WT; refusing to launch with uncertain slot ownership" >&2
+    exit 1
   fi
 fi
 if [ "$RELAUNCH" -eq 0 ] && [ "$KIND" != secondmate ]; then
