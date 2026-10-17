@@ -576,11 +576,8 @@ See [`fleet-ledger.md`](fleet-ledger.md) for the opt-in setup, record contract, 
 
 ## Automatic PR handover (config/auto-handover)
 
-The optional local, gitignored `config/auto-handover` file opts named projects into three handover steps that otherwise wait for firstmate.
-A `review <project> <command>` line starts the project's review command once a ship reports a ready PR whose checks are green.
-A `merge <project>` line merges a PR through `bin/fm-pr-merge.sh` once its newest trusted review receipt passes at the live head and its checks are green.
-A `conflict-steer <project>` line asks the workers whose open PRs a merge left conflicting to merge the default branch in and push after a confirmed merge into that branch.
-Optional `receipt-author <login>` lines name the accounts whose receipts count; without one, only receipts from the account that `gh` is authenticated as count.
+The optional local, gitignored `config/auto-handover` file independently opts named projects into automatic review starts on green ready PRs, guarded merges on passing review receipts, and worker conflict recovery for this home's ships on GitHub.
+[`bin/fm-auto-handover.sh`](../bin/fm-auto-handover.sh) owns the configuration and receipt formats, repository and readiness checks, retry limits, and records; the [environment reference](#environment-variables) owns the watcher's cadence setting.
 
 Merge acts only where the task record and the project's registered posture both have yolo on, so the file never widens merge authority.
 Every refusal of the merge path still applies, including red or unreported required checks, captain holds, and away authority.
@@ -588,15 +585,15 @@ While an away-mode record exists, automatic merging defers to the supervisor's i
 The guarded merge path enforces this exclusion under its away-record lock; quiet mode remains eligible for automatic merging.
 A PR that carries a hold label, a passing review with red checks, and a repeated failure are reported to firstmate instead of acted on.
 With the file absent, nothing runs and behavior is unchanged.
-[`bin/fm-auto-handover.sh`](../bin/fm-auto-handover.sh) owns the file format, the receipt format, the cadence and retry settings, and the records it keeps.
 The file is a home-local choice and is not inherited by secondmate homes.
 
 ## Local website stack slots
 
 Each home has exactly two local website stack slots.
-Ship and scout briefs direct workers to `bin/fm-local-stack.sh run <task-id> -- <foreground-stack-command>`, which exports the slot and port offset and releases the lease after the command exits.
+Ship and scout briefs direct workers through the [`bin/fm-local-stack.sh`](../bin/fm-local-stack.sh) launch wrapper.
 The project launcher must consume the offset and stop its services before returning.
-[`bin/fm-local-stack.sh`](../bin/fm-local-stack.sh) owns the slot records, the port offset, waiting for a free slot, and release.
+The helper's header owns invocation, slot records, port offsets, waiting, cancellation, and release.
+Slots are home-local; separate homes on one machine do not coordinate their leases or port offsets.
 
 ## Waiting worker spends no turns (config/wait-no-turns)
 

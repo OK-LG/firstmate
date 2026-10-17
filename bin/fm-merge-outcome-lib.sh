@@ -22,6 +22,13 @@
 # is committed, so a failed commit stays eligible for at-least-once retry and
 # may rarely duplicate rather than leave a merge silent.
 #
+# Before publishing a new GitHub merge outcome, a home with config/auto-handover
+# dispatches bin/fm-auto-handover.sh's conflict pass detached, capturing the
+# merged task's project before cleanup can remove its metadata. This applies to
+# both self and poll outcomes, including a queued merge later confirmed by poll.
+# The pass owns opt-in and default-branch checks; it never blocks or changes the
+# merge result. Already-recorded outcomes do not dispatch it again.
+#
 # Sourced by bin/fm-pr-merge.sh, bin/fm-watch.sh, and tests. No side effects on
 # source beyond its sourced libraries.
 

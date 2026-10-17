@@ -12,6 +12,9 @@
 # exports both port variables to the command, and releases it when that command
 # exits. The command must keep its stack in the foreground and stop its services
 # before returning; its launcher must apply the offset to every listening port.
+# run requires task metadata and rejects another run for the same task. INT or
+# TERM forwards TERM to its active allocator or command and waits for it before
+# releasing any lease; the command remains responsible for stopping its services.
 # acquire prints two shell assignments a worker can eval:
 #   FM_LOCAL_STACK_SLOT=<n>               slot index, 0 or 1
 #   FM_LOCAL_STACK_PORT_OFFSET=<n*stride> add to each of the stack's ports

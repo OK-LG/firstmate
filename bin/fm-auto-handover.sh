@@ -19,6 +19,10 @@
 # An invalid file changes nothing and queues one check wake per distinct content.
 #
 # tick (bin/fm-watch.sh runs it detached, on its own cadence):
+# - Before either stage, the PR's host and owner/repo must match the task
+#   project's readable origin remote (HTTPS, git@host:path, or ssh://git@host/path).
+#   Both stages apply bin/fm-dod-lib.sh's mode-aware named-head readiness gate,
+#   retaining its no-mistakes forge-head exception.
 # - A ship's latest done:/ready: report (bin/fm-pr-ready-lib.sh owns that
 #   parse) names a PR. Review starts only while that handoff is unacknowledged,
 #   the PR is open and not a draft, no check is still running, and
@@ -27,24 +31,35 @@
 #   $3 PR number, $4 head commit, bounded by FM_AUTO_REVIEW_TIMEOUT_SECS
 #   (default 900); output goes to state/<task>.auto-review.log. Success
 #   acknowledges the handoff as review-started through bin/fm-pr-ready-ack.sh.
-#   One review starts per PR head. A failed start retries after
-#   FM_AUTO_HANDOVER_RETRY_SECS (default 300); the third failure queues a wake.
+#   One successful review start is recorded per PR head. A failed start retries
+#   after FM_AUTO_HANDOVER_RETRY_SECS (default 300); the third failure queues a
+#   wake and stops automatic starts for that URL and head.
 # - Merge needs yolo=on in the task record AND in the project's registered
 #   posture (bin/fm-project-mode.sh), so this never widens merge authority.
-#   The receipt is the newest PR comment by a trusted author whose first line
-#   is `GATE: pass @ <head>` or `GATE: fail @ <head>`; only a pass naming the
-#   live head counts. The default trusted author is gh's authenticated login.
+#   The receipt is the newest matching PR comment by a trusted author whose
+#   first line is `GATE: pass @ <head>` or `GATE: fail @ <head>`, where <head>
+#   is the live head's full 40-character lowercase SHA. Receipts for other heads
+#   are ignored; the matching verdict must be pass and the paginated comments
+#   read must complete. The default trusted author is gh's authenticated login.
 #   With a passing receipt and settled checks, a PR labelled do-not-merge,
 #   needs-captain, security, or destructive queues a wake for the captain's
 #   call instead; red checks queue a wake too. Otherwise bin/fm-pr-merge.sh runs
 #   with --automatic and --expected-head for the reviewed commit, so its
 #   green, required-check, captain-hold, and away-authority refusals all apply,
-#   and it publishes the merge outcome itself. A refusal retries on the retry
-#   cadence; the third refusal for one head queues a wake.
+#   and it publishes the merge outcome itself. Away deferral queues one notice
+#   per URL and head without consuming retries; docs/configuration.md owns the
+#   automatic-away policy. Red checks and hold-label notices likewise do not
+#   consume retries. A refusal retries on the retry cadence; the third refusal
+#   for one URL and head queues a wake and stops automatic merge attempts.
+#   An accepted request resets the refusal count but is not proof of landing.
+#   While the PR is in the merge queue no new request runs; an open PR ejected
+#   from that queue remains eligible at the same head after the retry interval
+#   once its checks recover. Confirmed merges are excluded from later passes.
 #
 # conflicts (bin/fm-merge-outcome-lib.sh dispatches after a confirmed merge):
-#   For the merged PR's project with conflict-steer, every other ship's PR in
-#   the same repository and default branch that GitHub reports CONFLICTING gets
+#   For the merged PR's project with conflict-steer, every other ship's PR
+#   recorded in this home, in the same repository and default branch, that
+#   GitHub reports CONFLICTING gets
 #   one fm-send.sh steer per PR head asking its worker to merge the base branch
 #   in and push, which restarts its checks. Nothing here rewrites a branch.
 #   GitHub recomputes mergeability lazily, so UNKNOWN is re-read up to

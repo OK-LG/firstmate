@@ -102,13 +102,15 @@
 # unreadable row refuses before that command, so a captain approval must be
 # recorded as an `answer --release` before this entrypoint is invoked. While
 # an away record exists (a quiet-mode record is a present captain, so its
-# merges stay attended: bin/fm-afk-contract.sh mode) any green merge may
-# proceed under away authority:
+# merges stay attended: bin/fm-afk-contract.sh mode), a supervisor-directed
+# green merge may proceed under away authority:
 # the record's presence is the whole mechanical fact, and which merge the
 # captain's away words meant is the supervision session's reading
 # (bin/fm-branch-prompt.sh "Postures"). An unreadable record refuses rather
 # than being skipped, neither posture releases a captain hold, and away
 # authority lapses when the record is archived.
+# --automatic defers with exit 75 while an away-mode record exists, under the
+# same authority lock; docs/configuration.md owns the automatic-away policy.
 # The authority read and synchronous forge command share the away record's
 # cross-subsystem lock, which bin/fm-afk-contract.sh owns, closing the common
 # live-owner TOCTOU; failure to take it refuses before the forge call. Async and
@@ -135,17 +137,18 @@
 # before the optional -- separator, re-enables those forge flags for an
 # explicit captain instruction and never skips the live green check, the
 # away-record read, or a captain hold.
+# --expected-head <commit> additionally requires the live GitHub or GitLab head
+# to equal that full commit SHA before merging; it never replaces the live read.
 #
 # Usage: fm-pr-merge.sh <task-id> <pr-url> [--expected-head <commit>] [--automatic] [--attended-override] [--allow-red <check-name>] [--allow-missing <check-name>] [-- <extra forge merge args>]
 #
 # On GitLab, this script confirms the MR is actually merged before reporting it;
 # an auto-merge-queued or unconfirmed request leaves the poll armed and records
 # no landed outcome. bin/fm-merge-outcome-lib.sh owns a confirmed merge's
-# destination, normal-case deduplication, and at-least-once recovery.
+# destination, normal-case deduplication, at-least-once recovery, and detached
+# conflict-recovery dispatch.
 # A landed merge whose outcome cannot be written is reported loudly rather than
-# misreported as a failed merge. A home with config/auto-handover then starts
-# bin/fm-auto-handover.sh's conflict-steer pass detached; it never blocks or
-# changes the merge result.
+# misreported as a failed merge.
 set -eu
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
