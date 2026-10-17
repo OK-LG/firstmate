@@ -584,6 +584,8 @@ Optional `receipt-author <login>` lines name the accounts whose receipts count; 
 
 Merge acts only where the task record and the project's registered posture both have yolo on, so the file never widens merge authority.
 Every refusal of the merge path still applies, including red or unreported required checks, captain holds, and away authority.
+While an away-mode record exists, automatic merging defers to the supervisor's interpretation of the captain's words and notifies it once per PR head.
+The guarded merge path enforces this exclusion under its away-record lock; quiet mode remains eligible for automatic merging.
 A PR that carries a hold label, a passing review with red checks, and a repeated failure are reported to firstmate instead of acted on.
 With the file absent, nothing runs and behavior is unchanged.
 [`bin/fm-auto-handover.sh`](../bin/fm-auto-handover.sh) owns the file format, the receipt format, the cadence and retry settings, and the records it keeps.

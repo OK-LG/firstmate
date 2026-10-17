@@ -37,7 +37,7 @@
 #   With a passing receipt and settled checks, a PR labelled do-not-merge,
 #   needs-captain, security, or destructive queues a wake for the captain's
 #   call instead; red checks queue a wake too. Otherwise bin/fm-pr-merge.sh runs
-#   with --expected-head for the reviewed commit, so its
+#   with --automatic and --expected-head for the reviewed commit, so its
 #   green, required-check, captain-hold, and away-authority refusals all apply,
 #   and it publishes the merge outcome itself. A refusal retries on the retry
 #   cadence; the third refusal for one head queues a wake.
@@ -53,7 +53,7 @@
 #
 # Every wake is a durable `check` row plus a line in state/.auto-handover-wake,
 # which the watcher announces. Per-task records are state/<task>.auto-review,
-# .auto-merge, .auto-merge-notice, and .conflict-steer; state/auto-handover.log is the audit trail.
+# .auto-merge, .auto-merge-notice, .auto-merge-away, and .conflict-steer; state/auto-handover.log is the audit trail.
 set -u
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -337,7 +337,7 @@ review_stage() {  # <id> <project> <url>
 
 merge_stage() {  # <id> <project> <url>
   local id=$1 project=$2 url=$3 rec="$STATE/$1.auto-merge" verdict checks label out rc
-  local slug queued notice="$STATE/$1.auto-merge-notice"
+  local slug queued notice="$STATE/$1.auto-merge-notice" away_notice="$STATE/$1.auto-merge-away"
   [ "$(meta_get "$STATE/$id.meta" yolo)" = on ] || return 0
   registered_yolo_on "$project" || return 0
   pr_read "$url" || { log "merge: could not read $url"; return 0; }
@@ -371,8 +371,16 @@ merge_stage() {  # <id> <project> <url>
     --jq '.data.repository.pullRequest.isInMergeQueue' 2>/dev/null) || return 0
   [ "$queued" = false ] || return 0
   rc=0
-  out=$(FM_HOME="$FM_HOME" FM_STATE_OVERRIDE="$STATE" "$PR_MERGE" "$id" "$url" --expected-head "$PR_HEAD" 2>&1 </dev/null) || rc=$?
+  out=$(FM_HOME="$FM_HOME" FM_STATE_OVERRIDE="$STATE" "$PR_MERGE" "$id" "$url" --expected-head "$PR_HEAD" --automatic 2>&1 </dev/null) || rc=$?
   printf '%s\n' "$out" >> "$STATE/$id.auto-merge.log" 2>/dev/null || true
+  if [ "$rc" -eq 75 ]; then
+    record_read "$away_notice"
+    if [ "$REC_URL" != "$url" ] || [ "$REC_HEAD" != "$PR_HEAD" ]; then
+      notify "merge-away-$id-$FM_PR_NUMBER-$PR_HEAD" "task=$id PR=$url passed review at $PR_HEAD; automatic merging is deferred while away so the supervisor can interpret the captain's away words" || return 1
+      record_write "$away_notice" "$url" "$PR_HEAD" deferred 0 || return 1
+    fi
+    return 0
+  fi
   if [ "$rc" -eq 0 ]; then
     record_write "$rec" "$url" "$PR_HEAD" accepted 0 || return 1
     log "merge: request accepted for $id $url at $PR_HEAD; completion follows the confirmed-merge outcome"

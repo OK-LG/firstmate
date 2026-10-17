@@ -136,7 +136,7 @@
 # explicit captain instruction and never skips the live green check, the
 # away-record read, or a captain hold.
 #
-# Usage: fm-pr-merge.sh <task-id> <pr-url> [--expected-head <commit>] [--attended-override] [--allow-red <check-name>] [--allow-missing <check-name>] [-- <extra forge merge args>]
+# Usage: fm-pr-merge.sh <task-id> <pr-url> [--expected-head <commit>] [--automatic] [--attended-override] [--allow-red <check-name>] [--allow-missing <check-name>] [-- <extra forge merge args>]
 #
 # On GitLab, this script confirms the MR is actually merged before reporting it;
 # an auto-merge-queued or unconfirmed request leaves the poll armed and records
@@ -197,11 +197,16 @@ if [ "$PROVIDER" = gerrit ]; then
 fi
 shift 2
 ATTENDED_OVERRIDE=false
+AUTOMATIC=false
 EXPECTED_HEAD=
 ALLOW_RED=()
 ALLOW_MISSING=()
 while [ "$#" -gt 0 ]; do
   case "$1" in
+    --automatic)
+      AUTOMATIC=true
+      shift
+      ;;
     --expected-head)
       [ -z "$EXPECTED_HEAD" ] && fm_pr_head_valid "${2:-}" || { echo "error: --expected-head requires one full commit SHA" >&2; exit 2; }
       EXPECTED_HEAD=$2
@@ -1063,6 +1068,10 @@ require_current_away_authority() {
   FM_PR_AWAY_POSTURE=false
   if fm_afk_contract_away_present "$STATE"; then
     FM_PR_AWAY_POSTURE=true
+    if [ "$AUTOMATIC" = true ]; then
+      echo "deferred: automatic merge while away requires the supervisor to interpret the captain's away words" >&2
+      return 75
+    fi
     if [ "$PROVIDER" = github ] && [ "$FM_PR_GITHUB_AUTO_REQUESTED" = true ]; then
       echo "error: --auto is attended-only; while the away-posture record exists only a synchronous merge may run under its authority lock" >&2
       return 2

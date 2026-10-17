@@ -143,10 +143,31 @@ run tick || fail "partial receipt tick failed"
 [ ! -e "$FAKE/merge.log" ] || fail "merged after an incomplete comments read"
 rm "$FAKE/comments-fail"
 run tick || fail "merge tick failed"
-assert_equals "s1 $URL --expected-head $HEAD_B" "$(cat "$FAKE/merge.log" 2>/dev/null)" "the guarded merge path is bound to the reviewed head"
+assert_equals "s1 $URL --expected-head $HEAD_B --automatic" "$(cat "$FAKE/merge.log" 2>/dev/null)" "the guarded merge path is bound to the reviewed head"
 run tick || fail "repeat merge tick failed"
 assert_equals 1 "$(wc -l < "$FAKE/merge.log" | tr -d ' ')" "one merge per head"
 pass "merge runs only on the newest trusted passing receipt for the live head"
+
+new_case merge-away-deferred
+ship s1 on "done [at=100]: PR $URL checks green"
+printf '%s\n' 'merge proj' > "$H/config/auto-handover"
+printf 'bot\tGATE: pass @ %s\n' "$HEAD_A" > "$FAKE/comments-7.tsv"
+pr_json 7 "$HEAD_A" MERGEABLE
+printf '75\n' > "$FAKE/merge-rc"
+for _ in 1 2 3 4; do
+  run tick || fail "away deferral failed"
+done
+assert_equals 1 "$(wc -l < "$H/state/.auto-handover-wake" | tr -d ' ')" "away deferral notifies once per head"
+assert_contains "$(cat "$H/state/.auto-handover-wake")" "supervisor" "away deferral routes the decision to the supervisor"
+[ ! -e "$H/state/s1.auto-merge" ] || fail "away deferral consumed merge retries"
+pr_json 7 "$HEAD_B" MERGEABLE
+printf 'bot\tGATE: pass @ %s\n' "$HEAD_B" > "$FAKE/comments-7.tsv"
+run tick || fail "new head deferral failed"
+assert_equals 2 "$(wc -l < "$H/state/.auto-handover-wake" | tr -d ' ')" "new reviewed head receives its own notification"
+rm "$FAKE/merge-rc"
+run tick || fail "merge after return failed"
+assert_equals MERGED "$(jq -r .state "$FAKE/pr-7.json")" "deferral does not prevent merging after return"
+pass "away deferral notifies once per head without exhausting merge attempts"
 
 new_case merge-queue-recovery
 ship s1 on "done [at=100]: PR $URL checks green"
@@ -206,7 +227,7 @@ run tick || fail "repeat red tick failed"
 assert_equals 1 "$(wc -l < "$H/state/.auto-handover-wake" | tr -d ' ')" "red checks notify only once"
 pr_json 7 "$HEAD_A" MERGEABLE
 run tick || fail "recovered checks tick failed"
-assert_equals "s1 $URL --expected-head $HEAD_A" "$(cat "$FAKE/merge.log")" "same-head recovery merges without resetting state"
+assert_equals "s1 $URL --expected-head $HEAD_A --automatic" "$(cat "$FAKE/merge.log")" "same-head recovery merges without resetting state"
 rm -f "$H/state/s1.auto-merge" "$H/state/.auto-handover-wake" "$FAKE/merge.log"
 pr_json 7 "$HEAD_A" MERGEABLE
 printf '1\n' > "$FAKE/merge-rc"
