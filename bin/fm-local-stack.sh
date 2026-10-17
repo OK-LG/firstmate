@@ -3,15 +3,17 @@
 # number of workers can run a local stack side by side without port clashes.
 #
 # Usage:
+#   fm-local-stack.sh run <task-id> -- <foreground-command> [args...]
 #   fm-local-stack.sh acquire <task-id> [--wait <seconds>]
 #   fm-local-stack.sh release <task-id>
 #   fm-local-stack.sh status
 #
-# The limit is the first non-empty line of the local, gitignored
-# config/local-stack-limit: a positive whole number, default 2 when the file is
-# absent. An unreadable or invalid value refuses rather than guessing a limit.
+# There are exactly two slots. run waits up to 300 seconds to acquire one,
+# exports both port variables to the command, and releases it when that command
+# exits. The command must keep its stack in the foreground and stop its services
+# before returning; its launcher must apply the offset to every listening port.
 # acquire prints two shell assignments a worker can eval:
-#   FM_LOCAL_STACK_SLOT=<n>               slot index, 0 .. limit-1
+#   FM_LOCAL_STACK_SLOT=<n>               slot index, 0 or 1
 #   FM_LOCAL_STACK_PORT_OFFSET=<n*stride> add to each of the stack's ports
 # so slot 0 keeps the stack's default ports and slot n shifts every port by
 # n * FM_LOCAL_STACK_PORT_STRIDE (whole number, default 10). Firstmate never
@@ -27,9 +29,8 @@ set -u
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 FM_HOME="${FM_HOME:-${FM_ROOT_OVERRIDE:-$(cd "$SCRIPT_DIR/.." && pwd)}}"
 STATE="${FM_STATE_OVERRIDE:-$FM_HOME/state}"
-CONFIG="${FM_CONFIG_OVERRIDE:-$FM_HOME/config}"
 case "${1:-}" in
-  -h|--help) sed -n '5,8p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,3\}//'; exit 0 ;;
+  -h|--help) sed -n '5,9p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,3\}//'; exit 0 ;;
 esac
 # shellcheck source=bin/fm-pr-lib.sh
 . "$SCRIPT_DIR/fm-pr-lib.sh"
@@ -40,7 +41,7 @@ SLOTS="$STATE/local-stack"
 LOCK="$STATE/.local-stack.lock"
 
 usage() {
-  sed -n '5,8p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,3\}//'
+  sed -n '5,9p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,3\}//'
 }
 
 die() {
@@ -51,17 +52,6 @@ die() {
 whole() {  # <value>
   case "$1" in ''|*[!0-9]*) return 1 ;; esac
   [ "${#1}" -le 6 ]
-}
-
-read_limit() {
-  local f="$CONFIG/local-stack-limit" line
-  LIMIT=2
-  [ -e "$f" ] || return 0
-  [ -f "$f" ] && [ -r "$f" ] || die "config/local-stack-limit is not a readable file"
-  line=$(grep -v '^[[:space:]]*$' "$f" | head -1 | tr -d '[:space:]')
-  whole "$line" && [ "$((10#$line))" -ge 1 ] \
-    || die "config/local-stack-limit must hold a positive whole number, got '$line'"
-  LIMIT=$((10#$line))
 }
 
 lock_take() {
@@ -124,7 +114,7 @@ holders() {
 
 cmd=${1:-}
 case "$cmd" in
-  acquire|release|status) shift ;;
+  run|acquire|release|status) shift ;;
   *) usage >&2; exit 2 ;;
 esac
 
@@ -133,9 +123,26 @@ whole "$STRIDE" || die "FM_LOCAL_STACK_PORT_STRIDE must be a whole number, got '
 STRIDE=$((10#$STRIDE))
 POLL=${FM_LOCAL_STACK_POLL_SECS:-5}
 whole "$POLL" && [ "$((10#$POLL))" -ge 1 ] || die "FM_LOCAL_STACK_POLL_SECS must be positive whole seconds"
-read_limit
+LIMIT=2
 
 case "$cmd" in
+  run)
+    if [ "$#" -lt 3 ] || ! fm_pr_task_id_valid "$1" || [ "$2" != -- ]; then usage >&2; exit 2; fi
+    ID=$1
+    shift 2
+    [ -f "$STATE/$ID.meta" ] || die "task $ID has no metadata"
+    RUN_LOCK="$STATE/.local-stack-$ID.run.lock"
+    fm_lock_try_acquire "$RUN_LOCK" || die "task $ID already has a running stack command"
+    trap 'fm_lock_release "$RUN_LOCK" || true' EXIT
+    assignments=$(FM_HOME="$FM_HOME" FM_STATE_OVERRIDE="$STATE" bash "$SCRIPT_DIR/fm-local-stack.sh" acquire "$ID" --wait 300) || exit "$?"
+    eval "$assignments"
+    export FM_LOCAL_STACK_SLOT FM_LOCAL_STACK_PORT_OFFSET
+    trap 'FM_HOME="$FM_HOME" FM_STATE_OVERRIDE="$STATE" bash "$SCRIPT_DIR/fm-local-stack.sh" release "$ID" >/dev/null; fm_lock_release "$RUN_LOCK" || true' EXIT
+    trap 'exit 130' INT
+    trap 'exit 143' TERM
+    "$@"
+    exit "$?"
+    ;;
   status)
     [ "$#" -eq 0 ] || { usage >&2; exit 2; }
     lock_take

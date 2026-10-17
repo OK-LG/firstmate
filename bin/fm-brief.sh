@@ -490,6 +490,11 @@ fi
 
 REPO=${POS[1]}
 
+LOCAL_STACK_SECTION="For local website stacks, use \`FM_HOME=$(shell_quote "$FM_HOME") $(shell_quote "$FM_ROOT/bin/fm-local-stack.sh") run $(shell_quote "$ID") -- <foreground-stack-command>\`.
+This helper may write this home's lease records outside your worktree.
+Ensure the project's launcher consumes the exported FM_LOCAL_STACK_PORT_OFFSET for every listening port, keeps the stack in the foreground, and stops all its services before exiting so the helper can release the slot.
+If the launcher does not support the offset, adapt it within your task's authorized scope or report the blocker before starting a stack."
+
 if [ "$HERDR_LAB" -eq 1 ]; then
 HERDR_LAB_HELPER=$(shell_quote "$FM_ROOT/bin/fm-herdr-lab.sh")
 # shellcheck disable=SC2016  # single quotes are deliberate: these lines are literal brief text whose backtick-wrapped $(...) and "$HERDR_LAB_SESSION" snippets must reach the reading agent verbatim, not expand at scaffold time; only the '"$VAR"' break-outs interpolate.
@@ -579,6 +584,8 @@ $TASK_SECTION
 
 $HERDR_SECTION
 
+$LOCAL_STACK_SECTION
+
 # Setup
 You are in a disposable git worktree of $REPO, at a detached HEAD on a clean default branch.
 This is a SCOUT task: the deliverable is a written report, not a PR.
@@ -649,6 +656,8 @@ You are a crewmate: an autonomous worker agent managed by firstmate. Work on you
 $TASK_SECTION
 
 $HERDR_SECTION
+
+$LOCAL_STACK_SECTION
 
 # Setup
 You are in a disposable git worktree of $REPO, at a detached HEAD on a clean default branch.

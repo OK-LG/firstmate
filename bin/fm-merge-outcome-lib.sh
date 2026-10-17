@@ -58,7 +58,7 @@ fm_merge_outcome_report() {  # <home> <state> <task-id> <pr-url> <origin> [autho
   local home=$1 state=$2 id=$3 url=$4 origin=$5
   local authority=${6-} suffix=
   local self_rc=0 destination='' line lock status=0
-  local provider host path number
+  local provider host path number project
   # shellcheck disable=SC2034 # Sourced wake helpers consume these scoped globals.
   local STATE FM_WAKE_QUEUE FM_WAKE_QUEUE_LOCK
   FM_MERGE_OUTCOME_ALREADY_RECORDED=false
@@ -97,6 +97,14 @@ fm_merge_outcome_report() {  # <home> <state> <task-id> <pr-url> <origin> [autho
     return 0
   fi
 
+  if [ "$provider" = github ] && [ -f "${FM_CONFIG_OVERRIDE:-$home/config}/auto-handover" ]; then
+    project=$(sed -n 's/^project=//p' "$state/$id.meta" 2>/dev/null | tail -1) || project=
+    if [ -n "$project" ]; then
+      project=$(basename "$project")
+      FM_HOME="$home" FM_STATE_OVERRIDE="$state" \
+        nohup "$_FM_MERGE_OUTCOME_LIB_DIR/fm-auto-handover.sh" conflicts "$id" "$url" "$project" </dev/null >/dev/null 2>&1 &
+    fi
+  fi
   if [ -n "$destination" ]; then
     fm_parent_channel_append_once "$destination" "$(status_stamp_line "$line")" || status=1
   fi

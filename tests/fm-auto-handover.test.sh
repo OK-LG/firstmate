@@ -27,7 +27,8 @@ printf '%s\n' "$*" >> "$FAKE/gh.log"
 case "$1 $2" in
   "pr view") n=${3##*/}; cat "$FAKE/pr-$n.json" ;;
   "api user") echo bot ;;
-  api\ repos/*/comments) n=${2%/comments}; n=${n##*/}; cat "$FAKE/comments-$n.tsv" 2>/dev/null ;;
+  api\ repos/*/comments) n=${2%/comments}; n=${n##*/}; cat "$FAKE/comments-$n.tsv" 2>/dev/null; [ ! -e "$FAKE/comments-fail" ] ;;
+  "api repos/o/r") echo main ;;
   *) exit 1 ;;
 esac
 SH
@@ -126,8 +127,12 @@ printf 'bot\tGATE: pass @ %s\nbot\tGATE: fail @ %s\n' "$HEAD_B" "$HEAD_B" > "$FA
 run tick || fail "merge tick failed"
 [ ! -e "$FAKE/merge.log" ] || fail "merged although the newest receipt for the head failed"
 printf 'bot\tGATE: fail @ %s\nbot\tGATE: pass @ %s\n' "$HEAD_B" "$HEAD_B" > "$FAKE/comments-7.tsv"
+touch "$FAKE/comments-fail"
+run tick || fail "partial receipt tick failed"
+[ ! -e "$FAKE/merge.log" ] || fail "merged after an incomplete comments read"
+rm "$FAKE/comments-fail"
 run tick || fail "merge tick failed"
-assert_equals "s1 $URL" "$(cat "$FAKE/merge.log" 2>/dev/null)" "the guarded merge path runs with no extra flags"
+assert_equals "s1 $URL --expected-head $HEAD_B" "$(cat "$FAKE/merge.log" 2>/dev/null)" "the guarded merge path is bound to the reviewed head"
 run tick || fail "repeat merge tick failed"
 assert_equals 1 "$(wc -l < "$FAKE/merge.log" | tr -d ' ')" "one merge per head"
 pass "merge runs only on the newest trusted passing receipt for the live head"
@@ -150,7 +155,7 @@ ship s1 on "done [at=100]: PR $URL checks green"
 printf '%s\n' 'merge proj' > "$H/config/auto-handover"
 printf 'bot\tGATE: pass @ %s\n' "$HEAD_A" > "$FAKE/comments-7.tsv"
 pr_json 7 "$HEAD_A" MERGEABLE '[]' '[{"name":"security"}]'
-run tick || fail "tick failed"
+FM_AUTO_MERGE_HOLD_LABELS= run tick || fail "tick failed"
 [ ! -e "$FAKE/merge.log" ] || fail "merged a PR carrying a hold label"
 assert_contains "$(cat "$H/state/.auto-handover-wake")" "carries label 'security'" "a hold label asks for the captain's call"
 rm -f "$H/state/s1.auto-merge" "$H/state/.auto-handover-wake"
@@ -158,8 +163,12 @@ pr_json 7 "$HEAD_A" MERGEABLE '[{"__typename":"CheckRun","name":"ci","status":"C
 run tick || fail "tick failed"
 [ ! -e "$FAKE/merge.log" ] || fail "merged on red checks"
 assert_contains "$(cat "$H/state/.auto-handover-wake")" "red checks" "a passing review with red checks wakes firstmate"
-rm -f "$H/state/s1.auto-merge" "$H/state/.auto-handover-wake"
+run tick || fail "repeat red tick failed"
+assert_equals 1 "$(wc -l < "$H/state/.auto-handover-wake" | tr -d ' ')" "red checks notify only once"
 pr_json 7 "$HEAD_A" MERGEABLE
+run tick || fail "recovered checks tick failed"
+assert_equals "s1 $URL --expected-head $HEAD_A" "$(cat "$FAKE/merge.log")" "same-head recovery merges without resetting state"
+rm -f "$H/state/s1.auto-merge" "$H/state/.auto-handover-wake" "$FAKE/merge.log"
 printf '1\n' > "$FAKE/merge-rc"
 for _ in 1 2 3; do
   FM_AUTO_HANDOVER_RETRY_SECS=1 run tick || fail "tick failed"
@@ -178,26 +187,71 @@ ship s3 off "done [at=100]: PR https://github.com/o/r/pull/3 checks green"
 ship s4 off "done [at=100]: PR https://github.com/o/other/pull/4 checks green"
 printf '%s\n' 'conflict-steer proj' > "$H/config/auto-handover"
 pr_json 1 "$HEAD_A" MERGEABLE
+jq '.state = "MERGED"' "$FAKE/pr-1.json" > "$FAKE/merged.json"
+mv "$FAKE/merged.json" "$FAKE/pr-1.json"
 pr_json 2 "$HEAD_A" UNKNOWN
 pr_json 3 "$HEAD_A" MERGEABLE
 pr_json 4 "$HEAD_A" CONFLICTING
 ( sleep 0.5; pr_json 2 "$HEAD_A" CONFLICTING ) &
-run conflicts merged https://github.com/o/r/pull/1 || fail "conflict pass failed"
+run conflicts merged https://github.com/o/r/pull/1 proj || fail "conflict pass failed"
 wait
 assert_equals s2 "$(cat "$FAKE/send.log" 2>/dev/null)" "only the conflicting PR in the same repository is steered"
 assert_contains "$(cat "$FAKE/send-text-s2")" "Merge main into your branch" "the steer asks for a merge of the base branch"
 assert_contains "$(cat "$FAKE/send-text-s2")" "Do not rebase or force-push" "the steer never asks to rewrite the branch"
-run conflicts merged https://github.com/o/r/pull/1 || fail "repeat conflict pass failed"
+run conflicts merged https://github.com/o/r/pull/1 proj || fail "repeat conflict pass failed"
 assert_equals 1 "$(wc -l < "$FAKE/send.log" | tr -d ' ')" "one steer per PR head"
 pass "after a merge, only newly conflicting PRs in the same repository are steered, once per head"
+
+rm -f "$FAKE/send.log" "$H/state/s2.conflict-steer"
+jq '.baseRefName = "release"' "$FAKE/pr-1.json" > "$FAKE/merged.json"
+mv "$FAKE/merged.json" "$FAKE/pr-1.json"
+jq '.baseRefName = "release"' "$FAKE/pr-2.json" > "$FAKE/merged.json"
+mv "$FAKE/merged.json" "$FAKE/pr-2.json"
+run conflicts merged https://github.com/o/r/pull/1 proj || fail "nondefault conflict pass failed"
+[ ! -e "$FAKE/send.log" ] || fail "steered after a merge to a nondefault branch"
+pass "conflict recovery only follows default-branch merges"
+
+for origin in self poll; do
+  new_case "outcome-$origin"
+  ship merged on "done [at=100]: PR https://github.com/o/r/pull/1 checks green"
+  ship s2 off "done [at=100]: PR https://github.com/o/r/pull/2 checks green"
+  printf '%s\n' 'conflict-steer proj' > "$H/config/auto-handover"
+  pr_json 1 "$HEAD_A" MERGEABLE
+  jq '.state = "MERGED"' "$FAKE/pr-1.json" > "$FAKE/merged.json"
+  mv "$FAKE/merged.json" "$FAKE/pr-1.json"
+  pr_json 2 "$HEAD_A" CONFLICTING
+  (
+    . "$ROOT/bin/fm-wake-lib.sh"
+    fm_lock_try_acquire "$H/state/.conflict-steer.lock" || exit 1
+    touch "$FAKE/locked"
+    while [ ! -e "$FAKE/release" ]; do sleep 0.05; done
+    fm_lock_release "$H/state/.conflict-steer.lock"
+  ) &
+  holder=$!
+  for _ in {1..100}; do [ ! -e "$FAKE/locked" ] || break; sleep 0.05; done
+  [ -e "$FAKE/locked" ] || fail "conflict lock holder did not start"
+  (
+    export FAKE PATH="$FAKE/bin:$PATH" FM_AUTO_HANDOVER_SEND_BIN="$FAKE/send"
+    . "$ROOT/bin/fm-merge-outcome-lib.sh"
+    fm_merge_outcome_report "$H" "$H/state" merged https://github.com/o/r/pull/1 "$origin"
+  ) || fail "merge outcome failed"
+  rm "$H/state/merged.meta"
+  touch "$FAKE/release"
+  wait "$holder" || fail "conflict lock release failed"
+  for _ in {1..100}; do [ ! -e "$H/state/s2.conflict-steer" ] || break; sleep 0.05; done
+  assert_equals s2 "$(cat "$FAKE/send.log" 2>/dev/null)" "$origin outcome steers even after the merged task is cleaned up"
+  pass "$origin merge outcome dispatches detached conflict recovery with captured routing"
+done
 
 new_case conflicts-off
 ship merged on "done [at=100]: PR https://github.com/o/r/pull/1 checks green"
 ship s2 off "done [at=100]: PR https://github.com/o/r/pull/2 checks green"
 printf '%s\n' 'merge proj' > "$H/config/auto-handover"
 pr_json 1 "$HEAD_A" MERGEABLE
+jq '.state = "MERGED"' "$FAKE/pr-1.json" > "$FAKE/merged.json"
+mv "$FAKE/merged.json" "$FAKE/pr-1.json"
 pr_json 2 "$HEAD_A" CONFLICTING
-run conflicts merged https://github.com/o/r/pull/1 || fail "conflict pass failed"
+run conflicts merged https://github.com/o/r/pull/1 proj || fail "conflict pass failed"
 [ ! -e "$FAKE/send.log" ] || fail "steered without conflict-steer for the project"
 pass "conflict steers are opt-in per project"
 

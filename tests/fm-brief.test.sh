@@ -206,6 +206,8 @@ test_ship_modes_generate_clean_briefs() {
     expect_code 0 "$status" "fm-brief.sh $id --mode $mode should exit 0"
     brief="$home/data/$id/brief.md"
     assert_present "$brief" "$id: brief was not scaffolded"
+    assert_grep "fm-local-stack.sh' run '$id' -- <foreground-stack-command>" "$brief" "$id: generated brief must route stack launch through the lease wrapper"
+    assert_grep "FM_LOCAL_STACK_PORT_OFFSET" "$brief" "$id: generated brief must name the launcher's port contract"
     assert_grep "# Definition of done" "$brief" "$id: brief missing Definition of done section"
     grep -qx "Delivery contract: mode=$mode" "$brief" \
       || fail "$id: brief did not record its machine-readable delivery contract line"

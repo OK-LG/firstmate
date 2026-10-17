@@ -2650,61 +2650,60 @@ EOF
   pass "forced teardown refuses while a fresh task is being published in the home"
 }
 
-test_fresh_spawn_refuses_while_a_forced_teardown_owns_the_task_set() {
-  local home subhome err rec held holder lock
+test_fresh_spawn_waits_for_the_task_set() {
+  local home subhome err rec held holder lock pid i
   rec=$(seed_task_set_lock_home taskset-spawn)
   IFS='|' read -r home subhome <<EOF
 $rec
 EOF
   err="$TMP_ROOT/taskset-spawn.err"
-  # Stand in for a forced teardown that already enumerated this home's task set.
-  held=$(hold_task_set_lock "$subhome/state") \
-    || fail "could not stage a held task-set lock"
+  held=$(hold_task_set_lock "$subhome/state") || fail "could not stage task-set lock"
   holder=${held%% *}
   lock=${held#* }
-  if FM_HOME="$subhome" FM_SPAWN_NO_GUARD=1 \
-    "$ROOT/bin/fm-spawn.sh" newtask "$subhome/projects/alpha" --scout >/dev/null 2>"$err"; then
-    kill "$holder" 2>/dev/null || true
-    fail "a fresh spawn published a task while a forced teardown owned the set"
-  fi
-  [ ! -e "$subhome/state/newtask.meta" ] \
-    || fail "a refused spawn still published a durable record"
-  [ -e "$lock" ] || fail "a refused spawn removed the teardown's task-set lock"
-  grep -F "task set is locked" "$err" >/dev/null \
-    || fail "the spawn refusal did not name the task-set contention: $(cat "$err")"
-  [ ! -e "$subhome/state/.spawn-newtask.lock" ] \
-    || fail "a refused spawn left its own task lock behind"
+  FM_HOME="$subhome" FM_BACKEND=tmux FM_SPAWN_NO_GUARD=1 \
+    "$ROOT/bin/fm-spawn.sh" newtask "$subhome/projects/alpha" echo --scout >/dev/null 2>"$err" &
+  pid=$!
+  for i in {1..100}; do
+    grep -F 'waiting: this home' "$err" >/dev/null && break
+    sleep 0.05
+  done
+  grep -F 'waiting: this home' "$err" >/dev/null || fail "fresh spawn did not queue"
+  kill -0 "$pid" 2>/dev/null || fail "fresh spawn refused instead of waiting"
+  [ ! -e "$subhome/state/newtask.meta" ] || fail "queued spawn published under a foreign lock"
+  [ -e "$lock" ] || fail "queued spawn removed the task-set lock"
   kill "$holder" 2>/dev/null || true
   wait "$holder" 2>/dev/null || true
-  pass "a fresh spawn refuses to publish while a forced teardown owns the task set"
+  wait "$pid" 2>/dev/null || true
+  grep -F "unknown harness 'echo'" "$err" >/dev/null || fail "released spawn did not reach ordinary launch validation: $(cat "$err")"
+  [ ! -e "$subhome/state/.spawn-newtask.lock" ] || fail "spawn left its task lock behind"
+  pass "a fresh spawn queues before task-set publication and resumes after release"
 }
 
-test_fresh_remote_secondmate_spawn_refuses_while_task_set_is_owned() {
-  local home err held holder lock
+test_fresh_remote_secondmate_spawn_refuses_removed_home() {
+  local home err held holder pid i
   home="$TMP_ROOT/taskset-remote-spawn-home"
   err="$TMP_ROOT/taskset-remote-spawn.err"
   mkdir -p "$home/state" "$home/data"
   printf '%s\n' '- remote-new - remote domain (host: remote-mac; root: /remote/root; home: /remote/home; scope: remote work; projects: alpha; added 2026-08-02)' \
     > "$home/data/secondmates.md"
-  held=$(hold_task_set_lock "$home/state") \
-    || fail "could not stage a held remote-spawn task-set lock"
+  held=$(hold_task_set_lock "$home/state") || fail "could not stage remote-spawn lock"
   holder=${held%% *}
-  lock=${held#* }
-  if FM_HOME="$home" FM_SPAWN_NO_GUARD=1 \
-    "$ROOT/bin/fm-spawn.sh" remote-new --secondmate >/dev/null 2>"$err"; then
-    kill "$holder" 2>/dev/null || true
-    fail "a fresh remote secondmate spawn published while the task set was owned"
-  fi
-  [ ! -e "$home/state/remote-new.meta" ] \
-    || fail "a refused remote secondmate spawn still published a durable record"
-  [ -e "$lock" ] || fail "a refused remote secondmate spawn removed the owner's task-set lock"
-  grep -F "task set is locked" "$err" >/dev/null \
-    || fail "the remote spawn refusal did not name task-set contention: $(cat "$err")"
-  [ ! -e "$home/state/.spawn-remote-new.lock" ] \
-    || fail "a refused remote secondmate spawn left its own task lock behind"
+  FM_HOME="$home" FM_SPAWN_NO_GUARD=1 \
+    "$ROOT/bin/fm-spawn.sh" remote-new --secondmate >/dev/null 2>"$err" &
+  pid=$!
+  for i in {1..100}; do
+    grep -F 'waiting: this home' "$err" >/dev/null && break
+    sleep 0.05
+  done
+  grep -F 'waiting: this home' "$err" >/dev/null || fail "remote spawn did not queue"
+  kill -0 "$pid" 2>/dev/null || fail "remote spawn refused instead of waiting"
+  rm -rf "$home"
+  if wait "$pid"; then fail "spawn accepted a home removed during its wait"; fi
+  [ ! -e "$home" ] || fail "waiting spawn recreated its removed home"
+  grep -F 'home state was removed or replaced' "$err" >/dev/null || fail "spawn did not report removed home: $(cat "$err")"
   kill "$holder" 2>/dev/null || true
   wait "$holder" 2>/dev/null || true
-  pass "a fresh remote secondmate spawn refuses while the task set is owned"
+  pass "a queued fresh remote spawn refuses after forced home removal"
 }
 
 test_secondmate_force_teardown_refuses_child_active_home_descendant() {
@@ -3093,8 +3092,8 @@ test_force_teardown_refuses_non_directory_descendant_state
 test_force_teardown_refuses_symlinked_descendant_state
 test_force_teardown_locks_descendant_with_absent_state
 test_force_teardown_refuses_while_a_task_is_being_published
-test_fresh_spawn_refuses_while_a_forced_teardown_owns_the_task_set
-test_fresh_remote_secondmate_spawn_refuses_while_task_set_is_owned
+test_fresh_spawn_waits_for_the_task_set
+test_fresh_remote_secondmate_spawn_refuses_removed_home
 test_secondmate_force_teardown_refuses_child_active_home_descendant
 test_secondmate_force_teardown_refuses_child_repo_descendant
 test_secondmate_force_teardown_refuses_unregistered_child_worktree

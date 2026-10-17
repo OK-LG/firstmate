@@ -136,7 +136,7 @@
 # explicit captain instruction and never skips the live green check, the
 # away-record read, or a captain hold.
 #
-# Usage: fm-pr-merge.sh <task-id> <pr-url> [--attended-override] [--allow-red <check-name>] [--allow-missing <check-name>] [-- <extra forge merge args>]
+# Usage: fm-pr-merge.sh <task-id> <pr-url> [--expected-head <commit>] [--attended-override] [--allow-red <check-name>] [--allow-missing <check-name>] [-- <extra forge merge args>]
 #
 # On GitLab, this script confirms the MR is actually merged before reporting it;
 # an auto-merge-queued or unconfirmed request leaves the poll armed and records
@@ -197,10 +197,16 @@ if [ "$PROVIDER" = gerrit ]; then
 fi
 shift 2
 ATTENDED_OVERRIDE=false
+EXPECTED_HEAD=
 ALLOW_RED=()
 ALLOW_MISSING=()
 while [ "$#" -gt 0 ]; do
   case "$1" in
+    --expected-head)
+      [ -z "$EXPECTED_HEAD" ] && fm_pr_head_valid "${2:-}" || { echo "error: --expected-head requires one full commit SHA" >&2; exit 2; }
+      EXPECTED_HEAD=$2
+      shift 2
+      ;;
     --attended-override)
       ATTENDED_OVERRIDE=true
       shift
@@ -518,6 +524,10 @@ FIELDS
     echo "error: could not read the GitLab merge request head commit before merging" >&2
     return 1
   fi
+  if [ -n "$EXPECTED_HEAD" ] && [ "$live_head" != "$EXPECTED_HEAD" ]; then
+    printf 'error: reviewed head %s differs from live head %s; refusing merge\n' "$EXPECTED_HEAD" "$live_head" >&2
+    return 1
+  fi
   # A rebase moves the head and leaves the recorded value behind, so the
   # disagreement is reported and the live head is what gets verified and merged.
   if [ -n "$RECORDED_HEAD" ] && [ "$RECORDED_HEAD" != "$live_head" ]; then
@@ -691,6 +701,10 @@ FIELDS
   draft=$(fm_pr_json_draft_state "$json")
   if ! fm_pr_head_valid "$live_head"; then
     echo "error: could not read the GitHub pull request head commit before merging" >&2
+    return 1
+  fi
+  if [ -n "$EXPECTED_HEAD" ] && [ "$live_head" != "$EXPECTED_HEAD" ]; then
+    printf 'error: reviewed head %s differs from live head %s; refusing merge\n' "$EXPECTED_HEAD" "$live_head" >&2
     return 1
   fi
   if ! red=$(fm_pr_github_checks_not_green "$json"); then
@@ -1410,10 +1424,3 @@ case "$outcome_rc" in
     ;;
 esac
 
-# Opt-in: steer the workers whose open PRs this merge left conflicting
-# (bin/fm-auto-handover.sh owns the conflicts pass). Detached, because GitHub
-# recomputes mergeability lazily and the merge itself is already final.
-if [ -f "${FM_CONFIG_OVERRIDE:-$FM_HOME/config}/auto-handover" ]; then
-  FM_HOME="$FM_HOME" FM_STATE_OVERRIDE="$STATE" \
-    nohup "$SCRIPT_DIR/fm-auto-handover.sh" conflicts "$ID" "$URL" </dev/null >/dev/null 2>&1 &
-fi

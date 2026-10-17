@@ -13,7 +13,7 @@ Start with the directory layout, then use the setting reference for the behavior
 | Backlog, preferences, and memory | [Backlog backend](#backlog-backend-taskstoml--configbacklog-backend), [captain preferences](#captain-preferences-datacaptainmd--datacaptain-sharedmd), and [startup memory budget](#startup-memory-budget-configstartup-memory-budget) |
 | Supervision and presentation | [Pi supervision branch](#pi-supervision-branch), [supervision host](#supervision-host-configsupervision-host), and [Calm preference](#calm-preference-configcalm) |
 | Persistent secondmates | [Secondmate routes](#secondmate-routes-datasecondmatesmd) |
-| Automatic PR handover and local stacks | [Automatic PR handover](#automatic-pr-handover-configauto-handover) and [local website stack slots](#local-website-stack-slots-configlocal-stack-limit) |
+| Automatic PR handover and local stacks | [Automatic PR handover](#automatic-pr-handover-configauto-handover) and [local website stack slots](#local-website-stack-slots) |
 | Per-run overrides and tuning | [Environment variables](#environment-variables) |
 
 ## FM_HOME
@@ -579,7 +579,7 @@ See [`fleet-ledger.md`](fleet-ledger.md) for the opt-in setup, record contract, 
 The optional local, gitignored `config/auto-handover` file opts named projects into three handover steps that otherwise wait for firstmate.
 A `review <project> <command>` line starts the project's review command once a ship reports a ready PR whose checks are green.
 A `merge <project>` line merges a PR through `bin/fm-pr-merge.sh` once its newest trusted review receipt passes at the live head and its checks are green.
-A `conflict-steer <project>` line asks the workers whose open PRs a merge left conflicting to merge the base branch in and push.
+A `conflict-steer <project>` line asks the workers whose open PRs a merge left conflicting to merge the default branch in and push after a confirmed merge into that branch.
 Optional `receipt-author <login>` lines name the accounts whose receipts count; without one, only receipts from the account that `gh` is authenticated as count.
 
 Merge acts only where the task record and the project's registered posture both have yolo on, so the file never widens merge authority.
@@ -589,11 +589,11 @@ With the file absent, nothing runs and behavior is unchanged.
 [`bin/fm-auto-handover.sh`](../bin/fm-auto-handover.sh) owns the file format, the receipt format, the cadence and retry settings, and the records it keeps.
 The file is a home-local choice and is not inherited by secondmate homes.
 
-## Local website stack slots (config/local-stack-limit)
+## Local website stack slots
 
-The optional local, gitignored `config/local-stack-limit` file holds a positive whole number: how many local website stacks may run at the same time in this home.
-It defaults to 2 when the file is absent.
-A worker takes a slot with `bin/fm-local-stack.sh acquire <task-id>` and gets a port offset for that slot, so two stacks do not use the same ports.
+Each home has exactly two local website stack slots.
+Ship and scout briefs direct workers to `bin/fm-local-stack.sh run <task-id> -- <foreground-stack-command>`, which exports the slot and port offset and releases the lease after the command exits.
+The project launcher must consume the offset and stop its services before returning.
 [`bin/fm-local-stack.sh`](../bin/fm-local-stack.sh) owns the slot records, the port offset, waiting for a free slot, and release.
 
 ## Waiting worker spends no turns (config/wait-no-turns)

@@ -145,8 +145,8 @@
 #   Every single-task invocation holds one task-id-scoped lock across backend
 #   creation through metadata publication, so concurrent same-id spawns serialize
 #   even when they select different backends. A fresh spawn first takes the
-#   per-home task-set lock and refuses rather than waits when forced teardown owns
-#   it; relaunch is exempt because the existing task's control lock covers it.
+#   per-home task-set lock, waiting up to 300 seconds while the same state directory
+#   remains present; relaunch is exempt because the existing task's control lock covers it.
 #   A fresh Treehouse-backed spawn also takes the project-identity lock in the local
 #   root Firstmate home's state directory before slot allocation and holds it through
 #   task metadata publication. Teardown holds that same lock while proving and
@@ -1619,17 +1619,38 @@ if [ "$RELAUNCH" -eq 0 ]; then
   # already covered by that task's control lock, which the teardown preflight
   # tests.
   #
-  # Refusing rather than waiting is the fail-closed direction: the home may be
-  # moments from removal, so there is nothing worth waiting for.
   SPAWN_TASK_SET_LOCK=$(fm_task_set_lock_path "$STATE") || {
     echo "error: could not resolve the task-set lock for $STATE" >&2
     exit 1
   }
-  if ! fm_lock_try_acquire "$SPAWN_TASK_SET_LOCK"; then
-    echo "error: this home's task set is locked by another operation (a forced teardown is enumerating or removing its tasks); refusing to create task $ID rather than racing it" >&2
+  spawn_state_identity=$(fm_pr_file_identity "$STATE") || exit 1
+  spawn_queue_deadline=$((SECONDS + 300))
+  spawn_queue_waiting=0
+  while :; do
+    if ! fm_backlog_directory_present "$STATE" "state directory" \
+      || [ "$(fm_pr_file_identity "$STATE")" != "$spawn_state_identity" ]; then
+      echo "error: spawn refused: home state was removed or replaced while waiting" >&2
+      exit 1
+    fi
+    if fm_lock_try_acquire "$SPAWN_TASK_SET_LOCK"; then
+      SPAWN_TASK_SET_LOCK_HELD=1
+      break
+    fi
+    if [ "$spawn_queue_waiting" -eq 0 ]; then
+      echo "waiting: this home's task set is locked; queueing task $ID" >&2
+      spawn_queue_waiting=1
+    fi
+    if [ "$SECONDS" -ge "$spawn_queue_deadline" ]; then
+      echo "error: this home's task set is locked after waiting 300 seconds; refusing task $ID" >&2
+      exit 1
+    fi
+    sleep 0.1
+  done
+  if ! fm_backlog_directory_present "$STATE" "state directory" \
+    || [ "$(fm_pr_file_identity "$STATE")" != "$spawn_state_identity" ]; then
+    echo "error: spawn refused: home state was removed or replaced while waiting" >&2
     exit 1
   fi
-  SPAWN_TASK_SET_LOCK_HELD=1
   spawn_refuse_if_away_spend_cap
   spawn_require_relocated_queued_work
 fi

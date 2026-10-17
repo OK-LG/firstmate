@@ -6,7 +6,7 @@
 #
 # Usage:
 #   fm-auto-handover.sh tick
-#   fm-auto-handover.sh conflicts <merged-task-id> <merged-PR-url>
+#   fm-auto-handover.sh conflicts <merged-task-id> <merged-PR-url> <project>
 #
 # Configuration is the local, gitignored config/auto-handover, one directive
 # per line; blank lines and lines starting with # are ignored:
@@ -35,16 +35,16 @@
 #   is `GATE: pass @ <head>` or `GATE: fail @ <head>`; only a pass naming the
 #   live head counts. The default trusted author is gh's authenticated login.
 #   With a passing receipt and settled checks, a PR labelled do-not-merge,
-#   needs-captain, security, or destructive (FM_AUTO_MERGE_HOLD_LABELS, comma
-#   separated) queues a wake for the captain's call instead; red checks queue a
-#   wake too. Otherwise bin/fm-pr-merge.sh runs with no extra flags, so its
+#   needs-captain, security, or destructive queues a wake for the captain's
+#   call instead; red checks queue a wake too. Otherwise bin/fm-pr-merge.sh runs
+#   with --expected-head for the reviewed commit, so its
 #   green, required-check, captain-hold, and away-authority refusals all apply,
 #   and it publishes the merge outcome itself. A refusal retries on the retry
 #   cadence; the third refusal for one head queues a wake.
 #
-# conflicts (bin/fm-pr-merge.sh runs it detached after a confirmed merge):
+# conflicts (bin/fm-merge-outcome-lib.sh dispatches after a confirmed merge):
 #   For the merged PR's project with conflict-steer, every other ship's PR in
-#   the same repository and base branch that GitHub reports CONFLICTING gets
+#   the same repository and default branch that GitHub reports CONFLICTING gets
 #   one fm-send.sh steer per PR head asking its worker to merge the base branch
 #   in and push, which restarts its checks. Nothing here rewrites a branch.
 #   GitHub recomputes mergeability lazily, so UNKNOWN is re-read up to
@@ -53,7 +53,7 @@
 #
 # Every wake is a durable `check` row plus a line in state/.auto-handover-wake,
 # which the watcher announces. Per-task records are state/<task>.auto-review,
-# .auto-merge, and .conflict-steer; state/auto-handover.log is the audit trail.
+# .auto-merge, .auto-merge-notice, and .conflict-steer; state/auto-handover.log is the audit trail.
 set -u
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -71,7 +71,7 @@ usage() {
 case "${1:-}" in
   -h|--help) usage; exit 0 ;;
   tick) [ "$#" -eq 1 ] || { usage >&2; exit 2; } ;;
-  conflicts) [ "$#" -eq 3 ] || { usage >&2; exit 2; } ;;
+  conflicts) [ "$#" -eq 4 ] || { usage >&2; exit 2; } ;;
   *) usage >&2; exit 2 ;;
 esac
 [ -f "$CONF" ] || exit 0
@@ -101,7 +101,6 @@ setting RETRY FM_AUTO_HANDOVER_RETRY_SECS 300
 setting REVIEW_TIMEOUT FM_AUTO_REVIEW_TIMEOUT_SECS 900
 setting STEER_ATTEMPTS FM_CONFLICT_STEER_ATTEMPTS 6
 setting STEER_WAIT FM_CONFLICT_STEER_WAIT_SECS 20
-HOLD_LABELS=${FM_AUTO_MERGE_HOLD_LABELS-do-not-merge,needs-captain,security,destructive}
 NOW=$(date +%s)
 
 log() {
@@ -271,7 +270,7 @@ pr_checks() {
 pr_hold_label() {
   local label want
   while IFS= read -r label; do
-    for want in ${HOLD_LABELS//,/ }; do
+    for want in do-not-merge needs-captain security destructive; do
       [ "$label" != "$want" ] || { printf '%s\n' "$label"; return 0; }
     done
   done < <(printf '%s' "$PR_JSON" | jq -r '.labels[]?.name')
@@ -280,11 +279,13 @@ pr_hold_label() {
 
 # Prints pass or fail for the newest trusted receipt naming <head>, else fails.
 receipt_for_head() {  # <owner/repo> <number> <head>
-  local login first verdict sha author ok
+  local login first verdict sha author ok comments
   [ "${#AUTHORS[@]}" -gt 0 ] || {
     login=$(gh api user --jq .login 2>/dev/null) && [ -n "$login" ] || return 1
     AUTHORS=("$login")
   }
+  comments=$(gh api "repos/$1/issues/$2/comments" --paginate \
+    --jq '.[] | [.user.login, ((.body // "") | split("\n")[0] | gsub("\r"; ""))] | @tsv' 2>/dev/null) || return 1
   verdict=''
   while IFS=$'\t' read -r login first; do
     ok=0
@@ -293,8 +294,7 @@ receipt_for_head() {  # <owner/repo> <number> <head>
     [[ $first =~ ^[[:space:]]*GATE:[[:space:]]+(pass|fail)[[:space:]]+@[[:space:]]+([0-9a-f]{40})[[:space:]]*$ ]] || continue
     sha=${BASH_REMATCH[2]}
     [ "$sha" = "$3" ] && verdict=${BASH_REMATCH[1]}
-  done < <(gh api "repos/$1/issues/$2/comments" --paginate \
-    --jq '.[] | [.user.login, ((.body // "") | split("\n")[0] | gsub("\r"; ""))] | @tsv' 2>/dev/null)
+  done <<< "$comments"
   [ -n "$verdict" ] || return 1
   printf '%s\n' "$verdict"
 }
@@ -337,7 +337,7 @@ review_stage() {  # <id> <project> <url>
 
 merge_stage() {  # <id> <project> <url>
   local id=$1 project=$2 url=$3 rec="$STATE/$1.auto-merge" verdict checks label out rc
-  local slug
+  local slug notice="$STATE/$1.auto-merge-notice"
   [ "$(meta_get "$STATE/$id.meta" yolo)" = on ] || return 0
   registered_yolo_on "$project" || return 0
   pr_read "$url" || { log "merge: could not read $url"; return 0; }
@@ -350,17 +350,23 @@ merge_stage() {  # <id> <project> <url>
   case "$checks" in
     pending) return 0 ;;
     red)
-      record_write "$rec" "$url" "$PR_HEAD" merged 3 || return 1
-      notify "merge-$id" "task=$id PR=$url has a passing review at $PR_HEAD but red checks; it was not merged"
+      record_read "$notice"
+      if [ "$REC_URL" != "$url" ] || [ "$REC_HEAD" != "$PR_HEAD" ] || [ "$REC_STATE" != red ]; then
+        notify "merge-$id" "task=$id PR=$url has a passing review at $PR_HEAD but red checks; it was not merged" || return 1
+        record_write "$notice" "$url" "$PR_HEAD" red 0 || return 1
+      fi
       return 0 ;;
   esac
   if label=$(pr_hold_label); then
-    record_write "$rec" "$url" "$PR_HEAD" merged 3 || return 1
-    notify "merge-$id" "task=$id PR=$url passed review and checks but carries label '$label'; it needs the captain's merge call"
+    record_read "$notice"
+    if [ "$REC_URL" != "$url" ] || [ "$REC_HEAD" != "$PR_HEAD" ] || [ "$REC_STATE" != "label:$label" ]; then
+      notify "merge-$id" "task=$id PR=$url passed review and checks but carries label '$label'; it needs the captain's merge call" || return 1
+      record_write "$notice" "$url" "$PR_HEAD" "label:$label" 0 || return 1
+    fi
     return 0
   fi
   rc=0
-  out=$(FM_HOME="$FM_HOME" FM_STATE_OVERRIDE="$STATE" "$PR_MERGE" "$id" "$url" 2>&1 </dev/null) || rc=$?
+  out=$(FM_HOME="$FM_HOME" FM_STATE_OVERRIDE="$STATE" "$PR_MERGE" "$id" "$url" --expected-head "$PR_HEAD" 2>&1 </dev/null) || rc=$?
   printf '%s\n' "$out" >> "$STATE/$id.auto-merge.log" 2>/dev/null || true
   if [ "$rc" -eq 0 ]; then
     record_write "$rec" "$url" "$PR_HEAD" merged "$NEXT_ATTEMPTS" || return 1
@@ -402,19 +408,19 @@ steer_text() {  # <url> <base> <merged-url>
 }
 
 run_conflicts() {
-  local merged_id=$1 merged_url=$2 project base slug attempt id url pending next
+  local merged_id=$1 merged_url=$2 project=$3 base slug attempt id url pending next
   if ! fm_pr_task_id_valid "$merged_id" || ! fm_pr_url_parse "$merged_url"; then
     usage >&2
     return 2
   fi
   [ "$FM_PR_PROVIDER" = github ] || return 0
   parse_config || return 0
-  [ -f "$STATE/$merged_id.meta" ] || return 0
-  project=$(task_project "$merged_id") || return 0
   steer_on "$project" || return 0
   slug="$FM_PR_OWNER/$FM_PR_REPO"
   pr_read "$merged_url" || { log "conflicts: could not read $merged_url"; return 0; }
-  base=$PR_BASE
+  [ "$PR_STATE" = MERGED ] || return 0
+  base=$(gh api "repos/$slug" --jq .default_branch 2>/dev/null) || return 0
+  [ -n "$base" ] && [ "$base" = "$PR_BASE" ] || return 0
   pending=()
   while IFS= read -r id; do
     [ "$id" != "$merged_id" ] || continue
@@ -467,7 +473,7 @@ case "$1" in
     LOCK="$STATE/.conflict-steer.lock"
     fm_lock_acquire_wait_max "$LOCK" 600 || exit 1
     rc=0
-    run_conflicts "$2" "$3" || rc=$?
+    run_conflicts "$2" "$3" "$4" || rc=$?
     fm_lock_release "$LOCK" || true
     exit "$rc"
     ;;

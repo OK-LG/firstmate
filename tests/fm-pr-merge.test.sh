@@ -510,6 +510,22 @@ write_away_record() {
     "$ROOT/bin/fm-afk-contract.sh" enter "$@" >/dev/null
 }
 
+test_reviewed_head_binding() {
+  local case_dir rc head=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+  case_dir=$(make_case reviewed-head)
+  add_gh_mocks "$case_dir" "$head"
+  rc=0
+  run_pr_merge "$case_dir" task-x1 https://github.com/example/repo/pull/9 \
+    --expected-head bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb > "$case_dir/stdout" 2> "$case_dir/stderr" || rc=$?
+  expect_code 1 "$rc" "a push since review refuses the merge"
+  assert_grep 'reviewed head' "$case_dir/stderr" "mismatch refusal identifies review binding"
+  if grep -F 'pr merge' "$case_dir/gh.log" >/dev/null; then fail "merged an unreviewed head"; fi
+  run_pr_merge "$case_dir" task-x1 https://github.com/example/repo/pull/9 \
+    --expected-head "$head" > "$case_dir/stdout" 2> "$case_dir/stderr" || fail "matching reviewed head refused"
+  assert_logged_gh_merge "$case_dir" 9 example/repo --squash
+  pass "guarded merge rejects unreviewed heads and accepts the reviewed head"
+}
+
 test_verified_merge_records_pr_and_head() {
   local case_dir rc
   case_dir=$(make_case records-before-merge)
@@ -2362,6 +2378,7 @@ test_github_zero_exit_queue_required_refuses_with_exact_retry
 test_github_closed_unqueued_outcome_omits_retry_flags
 test_github_agreeing_queue_rules_keep_retry_guidance
 test_github_conflicting_queue_rules_report_ambiguity
+test_reviewed_head_binding
 test_verified_merge_records_pr_and_head
 test_pr_metadata_is_recorded_before_the_forge_call
 test_merge_failure_propagates_after_recording

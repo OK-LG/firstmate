@@ -1405,7 +1405,7 @@ fm_meta_lock_path() {
 # and its worktree returned to the pool, with both commands reporting success).
 # Holding this lock from enumeration through cleanup makes the two operations
 # serialize: either the spawn publishes first and the teardown's preflight
-# covers it, or the teardown owns the set and the spawn refuses. Both directions
+# covers it, or the spawn waits for teardown and refuses if its home was removed. Both directions
 # fail closed.
 fm_task_set_lock_path() {  # <state-dir>
   local state=$1
