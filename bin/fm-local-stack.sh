@@ -104,7 +104,10 @@ try_claim() {  # <task-id>
   for ((n = 0; n < LIMIT; n++)); do
     slot_free "$n" || continue
     tmp=$(mktemp "$SLOTS/.claim.XXXXXX") || return 1
-    printf '%s\n' "$id" > "$tmp" && mv -f -- "$tmp" "$SLOTS/$n" || { rm -f -- "$tmp"; return 1; }
+    if ! { printf '%s\n' "$id" > "$tmp" && mv -f -- "$tmp" "$SLOTS/$n"; }; then
+      rm -f -- "$tmp"
+      return 1
+    fi
     print_slot "$n"
     return 0
   done
@@ -140,7 +143,7 @@ case "$cmd" in
     lock_drop
     ;;
   release)
-    [ "$#" -eq 1 ] && fm_pr_task_id_valid "$1" || { usage >&2; exit 2; }
+    if [ "$#" -ne 1 ] || ! fm_pr_task_id_valid "$1"; then usage >&2; exit 2; fi
     lock_take
     for f in "$SLOTS"/*; do
       [ -f "$f" ] && [ ! -L "$f" ] || continue
@@ -151,11 +154,11 @@ case "$cmd" in
     lock_drop
     ;;
   acquire)
-    [ "$#" -ge 1 ] && fm_pr_task_id_valid "$1" || { usage >&2; exit 2; }
+    if [ "$#" -lt 1 ] || ! fm_pr_task_id_valid "$1"; then usage >&2; exit 2; fi
     ID=$1 WAIT=0
     shift
     if [ "$#" -gt 0 ]; then
-      [ "$#" -eq 2 ] && [ "$1" = --wait ] && whole "$2" || { usage >&2; exit 2; }
+      if [ "$#" -ne 2 ] || [ "$1" != --wait ] || ! whole "$2"; then usage >&2; exit 2; fi
       WAIT=$((10#$2))
     fi
     deadline=$((SECONDS + WAIT))
