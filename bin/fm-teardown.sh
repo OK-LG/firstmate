@@ -149,8 +149,10 @@
 # boundary. Fresh Treehouse spawns for that project in
 # every local Firstmate home hold the same lock from before slot allocation
 # through metadata publication, closing the publication
-# gap; forced secondmate teardown takes it and runs the same checks for every
-# descendant Treehouse slot before touching any child.
+# gap. Ordinary teardown waits for a live holder within the bound that
+# fm_treehouse_project_lock_acquire owns; forced secondmate teardown takes it
+# without waiting and runs the same checks for every descendant Treehouse slot
+# before touching any child.
 # These refusals are not relaxed by --force: --force authorizes discarding THIS
 # task's unlanded work, never another task's live work. Nothing of this task's
 # own is removed by a refusal; reconcile whichever record is wrong and re-run.
@@ -453,8 +455,8 @@ if [ -f "$META" ] && [ ! -L "$META" ]; then
       echo "REFUSED: cannot resolve the shared Treehouse project lock for ${TEARDOWN_LOCK_PROJECT:-<missing>}; nothing was changed" >&2
       exit 1
     }
-    fm_lock_try_acquire "$TREEHOUSE_PROJECT_LOCK" || {
-      echo "REFUSED: another Treehouse slot allocation or return is in progress for $TEARDOWN_LOCK_PROJECT; nothing was changed" >&2
+    fm_treehouse_project_lock_acquire "$TREEHOUSE_PROJECT_LOCK" || {
+      echo "REFUSED: another Treehouse slot allocation or return is in progress for $TEARDOWN_LOCK_PROJECT (waited ${FM_TREEHOUSE_LOCK_WAITED:-0}s); nothing was changed" >&2
       exit 1
     }
     TREEHOUSE_PROJECT_LOCK_HELD=1

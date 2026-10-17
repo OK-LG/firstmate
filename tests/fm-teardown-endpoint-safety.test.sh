@@ -960,6 +960,58 @@ test_remote_seeded_home_returns_its_uncontested_slot() {
   pass "fm-teardown: a remote-seeded secondmate home returns its own uncontested pool slot"
 }
 
+test_pool_lock_holder_is_waited_for_then_cleanup_proceeds() {
+  local dir id=queued-task lock holder rc waited=0 started elapsed
+  dir=$(make_case pool-lock-wait)
+  mark_case_as_treehouse_pool "$dir"
+  write_remote_parent_record "$dir/home"
+  fm_write_meta "$dir/home/state/$id.meta" \
+    "window=firstmate:fm-$id" "endpoint_task_id=$id" \
+    "worktree=$dir/worktree" "project=$dir/project" "kind=scout"
+  lock=$(resolve_project_lock "$dir/home" "$dir/project") \
+    || fail "could not resolve the shared project lock"
+
+  # A concurrent spawn holds the pool lock for two seconds, then releases it.
+  FM_HOME="$dir/home" bash -c \
+    '. "$1"; fm_lock_try_acquire "$2" || exit 1; : > "$3"; sleep 2; fm_lock_release "$2"' _ \
+    "$ROOT/bin/fm-wake-lib.sh" "$lock" "$dir/lock-held" &
+  holder=$!
+  while [ ! -e "$dir/lock-held" ] && [ "$waited" -lt 100 ]; do
+    kill -0 "$holder" 2>/dev/null || break
+    sleep 0.1
+    waited=$((waited + 1))
+  done
+  [ -e "$dir/lock-held" ] || fail "the concurrent holder never took the shared project lock"
+
+  started=$SECONDS
+  set +e
+  FM_TREEHOUSE_LOCK_WAIT_SECS=30 run_case "$dir" "$id" > "$dir/stdout" 2> "$dir/stderr"
+  rc=$?
+  set -e
+  elapsed=$((SECONDS - started))
+  wait "$holder" 2>/dev/null || true
+
+  [ "$rc" -eq 0 ] || fail "cleanup did not wait for the pool lock: $(cat "$dir/stderr")"
+  [ "$elapsed" -ge 1 ] || fail "cleanup finished before the holder released the pool lock"
+  assert_absent "$dir/home/state/$id.meta" "queued cleanup left the task record"
+  grep -Fq "treehouse <return>" "$dir/runtime.log" \
+    || fail "queued cleanup did not return its pool slot: $(cat "$dir/runtime.log")"
+
+  # An invalid bound refuses rather than waiting without one.
+  fm_write_meta "$dir/home/state/$id.meta" \
+    "window=firstmate:fm-$id" "endpoint_task_id=$id" \
+    "worktree=$dir/worktree" "project=$dir/project" "kind=scout"
+  set +e
+  FM_TREEHOUSE_LOCK_WAIT_SECS=soon run_case "$dir" "$id" > "$dir/stdout" 2> "$dir/stderr"
+  rc=$?
+  set -e
+  [ "$rc" -ne 0 ] || fail "an invalid pool-lock wait was accepted"
+  assert_contains "$(cat "$dir/stderr")" "FM_TREEHOUSE_LOCK_WAIT_SECS must be whole seconds" \
+    "the refusal should name the invalid wait setting"
+
+  pass "fm-teardown: cleanup waits for a live pool-lock holder instead of refusing"
+}
+
 test_remote_seeded_home_still_refuses_a_slot_its_child_holds() {
   local dir id=remote-stale other=child-task child_home child_project rc
   dir=$(make_case remote-home-collision)
@@ -1040,8 +1092,9 @@ test_remote_layout_homes_serialize_on_one_project_lock() {
   done
   [ -e "$dir/lock-held" ] || fail "the local child never took the shared project lock"
 
+  # No wait: this case proves exclusion, so the refusal must come at once.
   set +e
-  run_case "$dir" "$id" > "$dir/stdout" 2> "$dir/stderr"
+  FM_TREEHOUSE_LOCK_WAIT_SECS=0 run_case "$dir" "$id" > "$dir/stdout" 2> "$dir/stderr"
   rc=$?
   set -e
   kill "$holder" 2>/dev/null || true
@@ -1633,5 +1686,6 @@ test_own_and_absent_slot_claims_still_tear_down
 test_recorded_endpoint_that_changed_directory_still_tears_down
 test_project_lock_anchors_at_the_local_root_across_home_layouts
 test_remote_seeded_home_returns_its_uncontested_slot
+test_pool_lock_holder_is_waited_for_then_cleanup_proceeds
 test_remote_seeded_home_still_refuses_a_slot_its_child_holds
 test_remote_layout_homes_serialize_on_one_project_lock

@@ -1483,6 +1483,29 @@ fm_treehouse_project_lock_path() {  # <project-dir>
   printf '%s/.treehouse-project-%s.lock\n' "$root/state" "$hash"
 }
 
+# Take that lock, waiting for a live holder instead of refusing at once, so a
+# spawn, a review launch, and a cleanup that start together run one after
+# another. FM_TREEHOUSE_LOCK_WAIT_SECS bounds the wait in whole seconds
+# (default 300); 0 restores the immediate refusal. An invalid value refuses
+# rather than waiting without a bound. Sets FM_TREEHOUSE_LOCK_WAITED to the
+# effective bound so a refusal can name it.
+fm_treehouse_project_lock_acquire() {  # <lock-path>
+  local wait=${FM_TREEHOUSE_LOCK_WAIT_SECS:-300}
+  FM_TREEHOUSE_LOCK_WAITED=0
+  case "$wait" in
+    ''|*[!0-9]*) echo "error: FM_TREEHOUSE_LOCK_WAIT_SECS must be whole seconds, got '$wait'" >&2; return 1 ;;
+  esac
+  [ "${#wait}" -le 6 ] || { echo "error: FM_TREEHOUSE_LOCK_WAIT_SECS is too large: $wait" >&2; return 1; }
+  wait=$((10#$wait))
+  # shellcheck disable=SC2034 # Read by sourcing callers' refusal messages.
+  FM_TREEHOUSE_LOCK_WAITED=$wait
+  if [ "$wait" -eq 0 ]; then
+    fm_lock_try_acquire "$1"
+  else
+    fm_lock_acquire_wait_max "$1" "$wait"
+  fi
+}
+
 # Resolve pool membership without changing its evidence: Treehouse v2.0.1's
 # status recovery can rewrite corrupt state while omitting symlinked slots.
 # fm-treehouse-pool-path.mjs reads the configured project's authoritative pool
