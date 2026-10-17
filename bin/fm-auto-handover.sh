@@ -411,6 +411,21 @@ merge_stage() {  # <id> <project> <url>
     || notify "merge-$id" "automatic merge of task=$id PR=$url was refused 3 times at $PR_HEAD; see state/$id.auto-merge.log"
 }
 
+task_pr_matches_project() {
+  local project origin identity
+  project=$(meta_get "$STATE/$1.meta" project)
+  [ -n "$project" ] || return 1
+  origin=$(git -C "$project" remote get-url origin 2>/dev/null) || return 1
+  origin=$(printf '%s' "$origin" | tr '[:upper:]' '[:lower:]')
+  origin=${origin%/}
+  origin=${origin%.git}
+  identity=$(printf '%s' "$FM_PR_HOST/$FM_PR_PATH" | tr '[:upper:]' '[:lower:]')
+  case "$origin" in
+    "https://$identity"|"git@${identity/\//:}"|"ssh://git@$identity") return 0 ;;
+  esac
+  return 1
+}
+
 run_tick() {
   local id project url
   touch "$STATE/.auto-handover-last"
@@ -420,6 +435,7 @@ run_tick() {
     review_cmd "$project" || merge_on "$project" || continue
     url=$(task_pr_url "$id") || continue
     fm_pr_url_parse "$url" || continue
+    task_pr_matches_project "$id" || continue
     if review_cmd "$project"; then
       review_stage "$id" "$project" "$url" || return 1
       fm_pr_url_parse "$url" || continue

@@ -20,6 +20,8 @@ new_case() {
   H="$CASE/home"
   FAKE="$CASE/fake"
   mkdir -p "$H/state" "$H/config" "$H/data" "$H/projects/proj" "$FAKE/bin"
+  git -C "$H/projects/proj" init -q -b main
+  git -C "$H/projects/proj" remote add origin https://github.com/o/r.git
   printf '%s\n' '# Fleet navigation registry' '' \
     '- proj [direct-PR +yolo] - fixture (added 2026-10-17)' > "$H/data/projects.md"
   cat > "$FAKE/bin/gh" <<'SH'
@@ -87,10 +89,50 @@ run tick || fail "tick without config failed"
 [ ! -e "$H/state/.auto-handover-last" ] || fail "tick without config touched state"
 pass "without config/auto-handover nothing runs"
 
+for remote in https://github.com/other/r.git https://github.com/o/other.git \
+  https://elsewhere.example/o/r.git https://github.com.attacker.example/o/r.git \
+  https://attacker.example/github.com/o/r.git missing unreadable; do
+  new_case "repository-binding-${remote//[^a-zA-Z0-9]/_}"
+  ship s1 on "done [at=100]: PR $URL checks green"
+  printf 'mode=no-mistakes\n' >> "$H/state/s1.meta"
+  printf '%s\n' 'review proj touch "$FM_HOME/review-started"' 'merge proj' > "$H/config/auto-handover"
+  pr_json 7 "$HEAD_A" MERGEABLE
+  printf 'bot\tGATE: pass @ %s\n' "$HEAD_A" > "$FAKE/comments-7.tsv"
+  if [ "$remote" = unreadable ]; then
+    printf 'project=%s/missing/proj\n' "$CASE" >> "$H/state/s1.meta"
+  elif [ "$remote" = missing ]; then
+    git -C "$H/projects/proj" remote remove origin
+  else
+    git -C "$H/projects/proj" remote set-url origin "$remote"
+  fi
+  run tick || fail "repository binding tick failed"
+  [ ! -e "$H/review-started" ] || fail "review started with unauthorized origin $remote"
+  [ ! -e "$FAKE/merge.log" ] || fail "merge started with unauthorized origin $remote"
+  [ ! -s "$FAKE/gh.log" ] || fail "mismatched project reached the forge"
+done
+pass "both stages reject mismatched, missing, or unreadable project origins"
+
+for remote in https://github.com/o/r.git git@github.com:o/r.git ssh://git@github.com/o/r.git; do
+  new_case "matching-origin-${remote//[^a-zA-Z0-9]/_}"
+  ship s1 on "done [at=100]: PR $URL checks green"
+  printf 'mode=no-mistakes\n' >> "$H/state/s1.meta"
+  git -C "$H/projects/proj" remote set-url origin "$remote"
+  printf '%s\n' 'review proj touch "$FM_HOME/review-started"' 'merge proj' > "$H/config/auto-handover"
+  pr_json 7 "$HEAD_A" MERGEABLE
+  printf 'bot\tGATE: pass @ %s\n' "$HEAD_A" > "$FAKE/comments-7.tsv"
+  run tick || fail "matching origin tick failed"
+  [ -e "$H/review-started" ] || fail "review refused matching origin $remote"
+  [ -e "$FAKE/merge.log" ] || fail "merge refused matching origin $remote"
+done
+pass "both stages accept matching HTTPS and SSH project origins"
+
 for stage in review merge; do
   new_case "readiness-$stage"
   WT="$CASE/worker"
+  git -C "$H/projects/proj" remote remove origin
   fm_git_worktree "$H/projects/proj" "$WT" fm/ready
+  git -C "$H/projects/proj" remote set-url --push origin "$H/projects/proj.origin.git"
+  git -C "$H/projects/proj" remote set-url origin https://github.com/o/r.git
   git -C "$WT" commit -q --allow-empty -m 'published PR head'
   published=$(git -C "$WT" rev-parse HEAD)
   git -C "$WT" push -q origin HEAD
