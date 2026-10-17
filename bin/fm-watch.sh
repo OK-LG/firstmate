@@ -87,6 +87,9 @@
 #   check: PR-ready overdue: task=<id> PR=<url> age=<seconds>s; ...
 #                          a ship's ready PR has no acknowledged landing handoff;
 #                          fm-pr-ready-lib.sh owns age, repeat and acknowledgement
+#   check: auto-handover: <reasons>
+#                          the opt-in automatic review/merge/conflict-steer pass
+#                          needs firstmate; fm-auto-handover.sh owns the reasons
 #   check: process-event result captured: <keys>
 #                          a durably captured process-to-event result is queued
 #                          and has not been surfaced yet; reported once per
@@ -2493,6 +2496,38 @@ home_summary_refresh_detached() {
   HOME_SUMMARY_PID=$!
 }
 
+# Opt-in automatic PR handover (config/auto-handover). The pass makes forge
+# calls and may start a review, so it runs detached like the publications
+# above; it queues its own durable wake rows and leaves one announcement line
+# each in state/.auto-handover-wake, which the next cycle delivers.
+AUTO_HANDOVER_INTERVAL=${FM_AUTO_HANDOVER_INTERVAL:-60}
+case "$AUTO_HANDOVER_INTERVAL" in
+  ''|*[!0-9]*|0) AUTO_HANDOVER_INTERVAL=60 ;;
+esac
+AUTO_HANDOVER_PID=
+auto_handover_detached() {
+  if [ -n "$AUTO_HANDOVER_PID" ]; then
+    if kill -0 "$AUTO_HANDOVER_PID" 2>/dev/null; then
+      return 0
+    fi
+    wait "$AUTO_HANDOVER_PID" 2>/dev/null || triage_log "auto-handover pass failed"
+    AUTO_HANDOVER_PID=
+  fi
+  FM_HOME="$FM_HOME" FM_STATE_OVERRIDE="$STATE" FM_CONFIG_OVERRIDE="$CONFIG" \
+    "$SCRIPT_DIR/fm-auto-handover.sh" tick </dev/null >/dev/null 2>&1 &
+  AUTO_HANDOVER_PID=$!
+}
+
+auto_handover_announce() {
+  local f="$STATE/.auto-handover-wake" taken reasons
+  [ -s "$f" ] || return 0
+  taken="$f.$$"
+  mv -f -- "$f" "$taken" 2>/dev/null || return 0
+  reasons=$(LC_ALL=C tr '\n' ';' < "$taken" | sed 's/;$//; s/;/; /g')
+  rm -f -- "$taken"
+  [ -z "$reasons" ] || wake "check: auto-handover: $reasons"
+}
+
 RECONCILE_REQUEST_PID=
 reconcile_requests_pending() {
   local request
@@ -2731,6 +2766,13 @@ while :; do
   else
     echo "watcher: PR-ready alarm reconciliation failed" >&2
     exit 1
+  fi
+
+  if [ -f "$CONFIG/auto-handover" ]; then
+    auto_handover_announce
+    if [ "$(age_of "$STATE/.auto-handover-last")" -ge "$AUTO_HANDOVER_INTERVAL" ]; then
+      auto_handover_detached
+    fi
   fi
 
   # The existing poll loop also owns the bounded inactive-outcome cadence.

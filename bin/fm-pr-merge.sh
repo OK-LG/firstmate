@@ -13,8 +13,9 @@
 # A GitHub merge is refused unless every pre-merge condition holds, each read
 # live at merge time rather than taken from recorded metadata: the pull request
 # is open, not a draft, mergeable, free of conflicts, every unwaived check
-# is green at the exact current head commit, where github_checks_not_green below
-# owns what makes a check green and judges each one by its current run, and
+# is green at the exact current head commit, where bin/fm-pr-lib.sh's
+# fm_pr_github_checks_not_green owns what makes a check green and judges each
+# one by its current run, and
 # every unwaived check the forge requires for the base branch has reported at
 # that head. When mergeable is the only failing condition and reads UNKNOWN,
 # meaning GitHub has not finished recomputing it, the caller re-reads and
@@ -101,13 +102,15 @@
 # unreadable row refuses before that command, so a captain approval must be
 # recorded as an `answer --release` before this entrypoint is invoked. While
 # an away record exists (a quiet-mode record is a present captain, so its
-# merges stay attended: bin/fm-afk-contract.sh mode) any green merge may
-# proceed under away authority:
+# merges stay attended: bin/fm-afk-contract.sh mode), a supervisor-directed
+# green merge may proceed under away authority:
 # the record's presence is the whole mechanical fact, and which merge the
 # captain's away words meant is the supervision session's reading
 # (bin/fm-branch-prompt.sh "Postures"). An unreadable record refuses rather
 # than being skipped, neither posture releases a captain hold, and away
 # authority lapses when the record is archived.
+# --automatic defers with exit 75 while an away-mode record exists, under the
+# same authority lock; docs/configuration.md owns the automatic-away policy.
 # The authority read and synchronous forge command share the away record's
 # cross-subsystem lock, which bin/fm-afk-contract.sh owns, closing the common
 # live-owner TOCTOU; failure to take it refuses before the forge call. Async and
@@ -134,13 +137,16 @@
 # before the optional -- separator, re-enables those forge flags for an
 # explicit captain instruction and never skips the live green check, the
 # away-record read, or a captain hold.
+# --expected-head <commit> additionally requires the live GitHub or GitLab head
+# to equal that full commit SHA before merging; it never replaces the live read.
 #
-# Usage: fm-pr-merge.sh <task-id> <pr-url> [--attended-override] [--allow-red <check-name>] [--allow-missing <check-name>] [-- <extra forge merge args>]
+# Usage: fm-pr-merge.sh <task-id> <pr-url> [--expected-head <commit>] [--automatic] [--attended-override] [--allow-red <check-name>] [--allow-missing <check-name>] [-- <extra forge merge args>]
 #
 # On GitLab, this script confirms the MR is actually merged before reporting it;
 # an auto-merge-queued or unconfirmed request leaves the poll armed and records
 # no landed outcome. bin/fm-merge-outcome-lib.sh owns a confirmed merge's
-# destination, normal-case deduplication, and at-least-once recovery.
+# destination, normal-case deduplication, at-least-once recovery, and detached
+# conflict-recovery dispatch.
 # A landed merge whose outcome cannot be written is reported loudly rather than
 # misreported as a failed merge.
 set -eu
@@ -194,10 +200,24 @@ if [ "$PROVIDER" = gerrit ]; then
 fi
 shift 2
 ATTENDED_OVERRIDE=false
+AUTOMATIC=false
+EXPECTED_HEAD=
 ALLOW_RED=()
 ALLOW_MISSING=()
 while [ "$#" -gt 0 ]; do
   case "$1" in
+    --automatic)
+      AUTOMATIC=true
+      shift
+      ;;
+    --expected-head)
+      if [ -n "$EXPECTED_HEAD" ] || ! fm_pr_head_valid "${2:-}"; then
+        echo "error: --expected-head requires one full commit SHA" >&2
+        exit 2
+      fi
+      EXPECTED_HEAD=$2
+      shift 2
+      ;;
     --attended-override)
       ATTENDED_OVERRIDE=true
       shift
@@ -515,6 +535,10 @@ FIELDS
     echo "error: could not read the GitLab merge request head commit before merging" >&2
     return 1
   fi
+  if [ -n "$EXPECTED_HEAD" ] && [ "$live_head" != "$EXPECTED_HEAD" ]; then
+    printf 'error: reviewed head %s differs from live head %s; refusing merge\n' "$EXPECTED_HEAD" "$live_head" >&2
+    return 1
+  fi
   # A rebase moves the head and leaves the recorded value behind, so the
   # disagreement is reported and the live head is what gets verified and merged.
   if [ -n "$RECORDED_HEAD" ] && [ "$RECORDED_HEAD" != "$live_head" ]; then
@@ -550,84 +574,6 @@ FIELDS
     "$URL" "$live_head" >&2
   FM_PR_MERGE_HEAD=$live_head
   FM_PR_GITLAB_ASYNC_CONFIGURED=$async_configured
-}
-
-# Every GitHub check that is not green in the given live pull-request JSON, one
-# name per line. An entry is green when it is a status context whose state is
-# SUCCESS, or a check run that completed with SUCCESS, NEUTRAL, or SKIPPED (so
-# a pending check is not green either). Exits nonzero when the rollup cannot be
-# read, so a malformed answer is a failed read and never an empty red set.
-#
-# The rollup can hold several runs of one check name at the same head, because
-# GitHub cancels a pull request's in-flight run when the base branch advances
-# and re-triggers it; the cancelled run stays in the rollup beside the passing
-# re-run. A check is therefore judged by its current run rather than by any run
-# that a later one superseded, which is what makes this agree with GitHub's own
-# CLEAN mergeStateStatus instead of refusing a pull request GitHub considers
-# mergeable.
-#
-# Supersession applies only among check runs with the same reported name. A
-# name is dropped from the red set only when every non-green run is COMPLETED,
-# has a whole-second UTC startedAt, and started strictly before a green run.
-# Status contexts are never grouped or superseded, and every non-green one is
-# reported independently. A still-running, queued, undated, or tied check run
-# stays red. A name whose runs are all green needs no timestamp, while a name
-# with no green run stays red.
-#
-# The reported name is also what --allow-red matches. An unnamed check run is
-# grouped alone and can neither supersede nor be superseded, because unrelated
-# unnamed checks must not be treated as one.
-github_checks_not_green() {
-  local json=$1
-  printf '%s' "$json" | jq -r '
-    def settled_at:
-      if type == "string" and test("^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$")
-      then . else null end;
-    if (.statusCheckRollup | type) != "array" then error("no check rollup") else . end
-    | [ .statusCheckRollup
-        | to_entries[]
-        | .key as $i
-        | .value
-        | if .__typename == "CheckRun" then
-            {
-              kind: "check_run",
-              name: (.name // ""),
-              completed: (.status == "COMPLETED"),
-              ok: (.status == "COMPLETED" and (.conclusion == "SUCCESS" or .conclusion == "NEUTRAL" or .conclusion == "SKIPPED")),
-              at: (.startedAt | settled_at)
-            }
-            | . + {group: (if .name == "" then ["", $i] else [.name, -1] end)}
-          else
-            {kind: "status_context", name: (.context // ""), ok: (.state == "SUCCESS")}
-          end
-      ]
-    | . as $entries
-    | (
-        ($entries[]
-          | select(.kind == "status_context" and (.ok | not))
-          | .name
-        ),
-        ($entries
-          | [.[] | select(.kind == "check_run")]
-          | group_by(.group)[]
-          | {
-              name: .[0].name,
-              reds: [.[] | select(.ok | not)],
-              newest_green: ([.[] | select(.ok) | .at | select(. != null)] | max)
-            }
-          | select(
-              (.reds | length) > 0
-              and (
-                .newest_green == null
-                or any(.reds[]; (.completed | not) or .at == null)
-                or ([.reds[] | .at] | max) >= .newest_green
-              )
-            )
-          | .name
-        )
-      )
-    | if . == "" then "(unnamed check)" else . end
-  ' 2>/dev/null || return 1
 }
 
 FM_PR_GITHUB_REQUIRED=
@@ -768,7 +714,11 @@ FIELDS
     echo "error: could not read the GitHub pull request head commit before merging" >&2
     return 1
   fi
-  if ! red=$(github_checks_not_green "$json"); then
+  if [ -n "$EXPECTED_HEAD" ] && [ "$live_head" != "$EXPECTED_HEAD" ]; then
+    printf 'error: reviewed head %s differs from live head %s; refusing merge\n' "$EXPECTED_HEAD" "$live_head" >&2
+    return 1
+  fi
+  if ! red=$(fm_pr_github_checks_not_green "$json"); then
     echo "error: could not read the GitHub pull request state before merging" >&2
     return 1
   fi
@@ -1124,6 +1074,10 @@ require_current_away_authority() {
   FM_PR_AWAY_POSTURE=false
   if fm_afk_contract_away_present "$STATE"; then
     FM_PR_AWAY_POSTURE=true
+    if [ "$AUTOMATIC" = true ]; then
+      echo "deferred: automatic merge while away requires the supervisor to interpret the captain's away words" >&2
+      return 75
+    fi
     if [ "$PROVIDER" = github ] && [ "$FM_PR_GITHUB_AUTO_REQUESTED" = true ]; then
       echo "error: --auto is attended-only; while the away-posture record exists only a synchronous merge may run under its authority lock" >&2
       return 2
@@ -1484,3 +1438,4 @@ case "$outcome_rc" in
     printf 'actionable: merged %s but could not record the outcome for supervision\n' "$URL" >&2
     ;;
 esac
+

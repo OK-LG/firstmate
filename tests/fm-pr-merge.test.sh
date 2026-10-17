@@ -510,6 +510,22 @@ write_away_record() {
     "$ROOT/bin/fm-afk-contract.sh" enter "$@" >/dev/null
 }
 
+test_reviewed_head_binding() {
+  local case_dir rc head=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+  case_dir=$(make_case reviewed-head)
+  add_gh_mocks "$case_dir" "$head"
+  rc=0
+  run_pr_merge "$case_dir" task-x1 https://github.com/example/repo/pull/9 \
+    --expected-head bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb > "$case_dir/stdout" 2> "$case_dir/stderr" || rc=$?
+  expect_code 1 "$rc" "a push since review refuses the merge"
+  assert_grep 'reviewed head' "$case_dir/stderr" "mismatch refusal identifies review binding"
+  if grep -F 'pr merge' "$case_dir/gh.log" >/dev/null; then fail "merged an unreviewed head"; fi
+  run_pr_merge "$case_dir" task-x1 https://github.com/example/repo/pull/9 \
+    --expected-head "$head" > "$case_dir/stdout" 2> "$case_dir/stderr" || fail "matching reviewed head refused"
+  assert_logged_gh_merge "$case_dir" 9 example/repo --squash
+  pass "guarded merge rejects unreviewed heads and accepts the reviewed head"
+}
+
 test_verified_merge_records_pr_and_head() {
   local case_dir rc
   case_dir=$(make_case records-before-merge)
@@ -2362,6 +2378,7 @@ test_github_zero_exit_queue_required_refuses_with_exact_retry
 test_github_closed_unqueued_outcome_omits_retry_flags
 test_github_agreeing_queue_rules_keep_retry_guidance
 test_github_conflicting_queue_rules_report_ambiguity
+test_reviewed_head_binding
 test_verified_merge_records_pr_and_head
 test_pr_metadata_is_recorded_before_the_forge_call
 test_merge_failure_propagates_after_recording
@@ -3955,3 +3972,65 @@ test_large_required_check_runs
 test_required_producer_identity
 test_app_bound_required_status_context_matches_by_name
 test_required_partial_reads_report_all_failures
+
+test_automatic_merge_defers_away_and_allows_quiet() {
+  local case_dir mode rc head=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+  for mode in away quiet; do
+    case_dir=$(make_case "automatic-$mode")
+    add_gh_mocks "$case_dir" "$head"
+    FM_AFK_MODE="$mode" write_away_record "$case_dir" --words 'do not merge until I return'
+    rc=0
+    run_pr_merge "$case_dir" task-x1 https://github.com/example/repo/pull/9 \
+      --expected-head "$head" --automatic > "$case_dir/stdout" 2> "$case_dir/stderr" || rc=$?
+    if [ "$mode" = away ]; then
+      expect_code 75 "$rc" "automatic merging defers while away"
+      assert_no_grep 'pr merge' "$case_dir/gh.log" "automatic merge bypassed the away mandate"
+      assert_grep 'supervisor' "$case_dir/stderr" "away deferral did not identify the decision owner"
+    else
+      expect_code 0 "$rc" "quiet mode remains eligible for automatic merging"
+      assert_logged_gh_merge "$case_dir" 9 example/repo --squash
+    fi
+  done
+  pass "automatic merges defer away decisions to the supervisor while quiet mode stays eligible"
+}
+
+test_automatic_merge_rechecks_away_after_preflight() {
+  local case_dir rc head=bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+  case_dir=$(make_case automatic-away-during-preflight)
+  add_gh_mocks "$case_dir" "$head"
+  write_away_record "$case_dir" --words 'do not merge until I return'
+  mv "$case_dir/state/.afk-contract" "$case_dir/away-record-after-view"
+  rc=0
+  run_pr_merge "$case_dir" task-x1 https://github.com/example/repo/pull/9 \
+    --expected-head "$head" --automatic > "$case_dir/stdout" 2> "$case_dir/stderr" || rc=$?
+  expect_code 75 "$rc" "away mode appearing during preflight defers automatic merging"
+  assert_present "$case_dir/state/.afk-contract" "fixture did not publish away mode during the live read"
+  assert_no_grep 'pr merge' "$case_dir/gh.log" "automatic merge ran after away mode appeared"
+  FM_HOME="$case_dir/home" FM_STATE_OVERRIDE="$case_dir/state" \
+    "$ROOT/bin/fm-afk-contract.sh" archive >/dev/null || fail "deferred automatic merge leaked the away lock"
+  pass "automatic merge rechecks away mode under the final authority lock"
+}
+
+test_automatic_merge_holds_away_lock_through_forge_call() {
+  local case_dir mutate head=cccccccccccccccccccccccccccccccccccccccc
+  case_dir=$(make_case automatic-away-at-forge)
+  add_gh_mocks "$case_dir" "$head"
+  mutate=$(away_change_script "$case_dir" enter-at-merge <<'SH'
+"$CONTRACT" enter --words 'do not merge until I return'
+SH
+  )
+  FM_TEST_AWAY_MUTATE_AT_MERGE="$mutate" run_pr_merge "$case_dir" task-x1 https://github.com/example/repo/pull/9 \
+    --expected-head "$head" --automatic > "$case_dir/stdout" 2> "$case_dir/stderr" \
+    || fail "automatic attended merge failed: $(cat "$case_dir/stderr")"
+  assert_logged_gh_merge "$case_dir" 9 example/repo --squash
+  [ -s "$case_dir/away-mutate-rc" ] || fail "away publication was not attempted during the forge call"
+  [ "$(cat "$case_dir/away-mutate-rc")" != 0 ] || fail "away publication raced the automatic merge"
+  assert_grep 'locked by live process' "$case_dir/away-mutate-output" "publication was not excluded by the authority lock"
+  assert_absent "$case_dir/state/.afk-contract" "away record appeared during the automatic merge"
+  write_away_record "$case_dir" --words 'do not merge until I return'
+  pass "automatic merging holds the away lock through the forge call and releases it afterward"
+}
+
+test_automatic_merge_defers_away_and_allows_quiet
+test_automatic_merge_rechecks_away_after_preflight
+test_automatic_merge_holds_away_lock_through_forge_call

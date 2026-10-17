@@ -421,16 +421,6 @@ finish_concurrent_spawn() {  # <id> <status> <stdout> <stderr>
     || fail "projected spawn $id retry failed after task-set publication completed: $(cat "$err")"
 }
 
-finish_concurrent_expected_abort() {  # <id> <status> <stdout> <stderr>
-  local id=$1 status=$2 out=$3 err=$4
-  [ "$status" -ne 0 ] || fail "post-create abort fixture $id unexpectedly succeeded"
-  if grep -F "task set is locked" "$err" >/dev/null 2>&1; then
-    if spawn_task "$id" "$HOME_DIR" "$PROJECT_DIR" > "$out" 2> "$err"; then
-      fail "post-create abort fixture $id unexpectedly succeeded after task-set publication completed"
-    fi
-  fi
-}
-
 spawn_secondmate_task() {
   local id=$1 home=$2
   FM_GATE_REFUSE_BYPASS=1 FM_SPAWN_NO_GUARD=1 FM_HOME="$HOME_DIR" FM_ROOT_OVERRIDE="$ROOT" \
@@ -849,8 +839,10 @@ spawn_task abort-b "$HOME_DIR" "$PROJECT_DIR" > "$TMP_ROOT/abort-b.out" 2> "$TMP
 ABORT_B_PID=$!
 if wait "$ABORT_A_PID"; then ABORT_A_STATUS=0; else ABORT_A_STATUS=$?; fi
 if wait "$ABORT_B_PID"; then ABORT_B_STATUS=0; else ABORT_B_STATUS=$?; fi
-finish_concurrent_expected_abort abort-a "$ABORT_A_STATUS" "$TMP_ROOT/abort-a.out" "$TMP_ROOT/abort-a.err"
-finish_concurrent_expected_abort abort-b "$ABORT_B_STATUS" "$TMP_ROOT/abort-b.out" "$TMP_ROOT/abort-b.err"
+# Queued spawns already run after contention clears; retrying a wait message
+# would replace the pane identity whose cleanup this test must verify.
+[ "$ABORT_A_STATUS" -ne 0 ] || fail "post-create abort fixture abort-a unexpectedly succeeded"
+[ "$ABORT_B_STATUS" -ne 0 ] || fail "post-create abort fixture abort-b unexpectedly succeeded"
 # The forced foreground_cwd is a plain non-git directory, which the discovery
 # poll now screens out on every read rather than adopting, so the armed failure
 # arrives as the poll's own deadline refusal naming that path.

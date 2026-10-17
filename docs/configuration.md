@@ -13,6 +13,7 @@ Start with the directory layout, then use the setting reference for the behavior
 | Backlog, preferences, and memory | [Backlog backend](#backlog-backend-taskstoml--configbacklog-backend), [captain preferences](#captain-preferences-datacaptainmd--datacaptain-sharedmd), and [startup memory budget](#startup-memory-budget-configstartup-memory-budget) |
 | Supervision and presentation | [Pi supervision branch](#pi-supervision-branch), [supervision host](#supervision-host-configsupervision-host), and [Calm preference](#calm-preference-configcalm) |
 | Persistent secondmates | [Secondmate routes](#secondmate-routes-datasecondmatesmd) |
+| Automatic PR handover and local stacks | [Automatic PR handover](#automatic-pr-handover-configauto-handover) and [local website stack slots](#local-website-stack-slots) |
 | Per-run overrides and tuning | [Environment variables](#environment-variables) |
 
 ## FM_HOME
@@ -572,6 +573,27 @@ See [`trace-context.md`](trace-context.md) for carrier semantics, supported rout
 ## Fleet activity ledger (config/fleet-ledger)
 
 See [`fleet-ledger.md`](fleet-ledger.md) for the opt-in setup, record contract, and limits.
+
+## Automatic PR handover (config/auto-handover)
+
+The optional local, gitignored `config/auto-handover` file independently opts named projects into automatic review starts on green ready PRs, guarded merges on passing review receipts, and worker conflict recovery for this home's ships on GitHub.
+[`bin/fm-auto-handover.sh`](../bin/fm-auto-handover.sh) owns the configuration and receipt formats, repository and readiness checks, retry limits, and records; the [environment reference](#environment-variables) owns the watcher's cadence setting.
+
+Merge acts only where the task record and the project's registered posture both have yolo on, so the file never widens merge authority.
+Every refusal of the merge path still applies, including red or unreported required checks, captain holds, and away authority.
+While an away-mode record exists, automatic merging defers to the supervisor's interpretation of the captain's words and notifies it once per PR head.
+The guarded merge path enforces this exclusion under its away-record lock; quiet mode remains eligible for automatic merging.
+A PR that carries a hold label, a passing review with red checks, and a repeated failure are reported to firstmate instead of acted on.
+With the file absent, nothing runs and behavior is unchanged.
+The file is a home-local choice and is not inherited by secondmate homes.
+
+## Local website stack slots
+
+Each home has exactly two local website stack slots.
+Ship and scout briefs direct workers through the [`bin/fm-local-stack.sh`](../bin/fm-local-stack.sh) launch wrapper.
+The project launcher must consume the offset and stop its services before returning.
+The helper's header owns invocation, slot records, port offsets, waiting, cancellation, and release.
+Slots are home-local; separate homes on one machine do not coordinate their leases or port offsets.
 
 ## Waiting worker spends no turns (config/wait-no-turns)
 
@@ -2294,6 +2316,7 @@ FM_HEARTBEAT_MAX=7200   # heartbeat backoff cap
 FM_INACTIVE_RECONCILE_SECS=900  # 60..1800-second watcher cadence and inactivity threshold; locked session start also requests an immediate scan in the deferred worker
 FM_INACTIVE_RECONCILE_BUDGET_SECS=10  # 1..30-second scan deadline; wedged-scan kill backstop follows one second later
 FM_CHECK_INTERVAL=300   # seconds between slow checks (authenticated merge polls, custom checks, or Relay dispatch)
+FM_AUTO_HANDOVER_INTERVAL=60   # seconds between the watcher's detached automatic PR handover passes when config/auto-handover exists; invalid or zero values use 60
 FM_TASK_INBOX_GRACE_SECS=90   # seconds an unhandled steering-inbox message may sit before the watcher attempts doorbell delivery on an idle pane; also the minimum spacing between attempts
 FM_TASK_INBOX_RING_MAX=3      # watcher delivery attempts without an acknowledgement before the task surfaces as a stale wake for recovery
 FM_TASK_INBOX_SETTLE_SECS=0.5 # seconds a rung composer is left to settle before each read-back that decides whether the doorbell is still sitting there unsubmitted; fractional, and a value that is not a plain decimal falls back to the default
@@ -2375,6 +2398,7 @@ FM_WATCH_TRIAGE_LOG_MAX_BYTES=262144   # size cap for the watcher's absorbed-wak
 FM_FLEET_SYNC_BOOTSTRAP_TIMEOUT=     # optional seconds allowed for bootstrap's best-effort clone refresh; unset/blank defaults to max(20, 5 + 3 * origin-backed-project-count)
 FM_FLEET_PRUNE=1        # set to 0 to skip pruning local branches whose upstream is gone
 FM_STALE_WORKTREE_LOCK_AGE_SECS=30       # min mtime age before fm-teardown.sh treats a leftover worktree git index.lock as provably stale
+FM_TREEHOUSE_LOCK_WAIT_SECS=300   # seconds a spawn or ordinary cleanup waits for a running Treehouse slot allocation or return on the same project before it refuses; must be positive (bin/fm-wake-lib.sh)
 FM_TREEHOUSE_RETURN_LOCK_RETRIES=3        # retries after a treehouse return fails on the transient git index.lock signature
 FM_TREEHOUSE_RETURN_LOCK_RETRY_WAIT_SECS=1 # seconds fm-teardown.sh waits before each retry after that signature
 FM_STALE_WORKTREE_LOCK_RETRY_WAIT_SECS=   # legacy alias for FM_TREEHOUSE_RETURN_LOCK_RETRY_WAIT_SECS when the new variable is unset

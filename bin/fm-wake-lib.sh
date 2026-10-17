@@ -1405,7 +1405,7 @@ fm_meta_lock_path() {
 # and its worktree returned to the pool, with both commands reporting success).
 # Holding this lock from enumeration through cleanup makes the two operations
 # serialize: either the spawn publishes first and the teardown's preflight
-# covers it, or the teardown owns the set and the spawn refuses. Both directions
+# covers it, or the spawn waits for teardown and refuses if its home was removed. Both directions
 # fail closed.
 fm_task_set_lock_path() {  # <state-dir>
   local state=$1
@@ -1481,6 +1481,26 @@ fm_treehouse_project_lock_path() {  # <project-dir>
   hash=$(printf '%s' "$identity" | git hash-object --stdin 2>/dev/null) || return 1
   [ -d "$root/state" ] || return 1
   printf '%s/.treehouse-project-%s.lock\n' "$root/state" "$hash"
+}
+
+# Take that lock, waiting for a live holder instead of refusing at once, so a
+# spawn, a review launch, and a cleanup that start together run one after
+# another. FM_TREEHOUSE_LOCK_WAIT_SECS bounds the wait in whole seconds
+# (default 300), with a positive bound required. An invalid value refuses
+# rather than waiting without a bound. Sets FM_TREEHOUSE_LOCK_WAITED to the
+# effective bound so a refusal can name it.
+fm_treehouse_project_lock_acquire() {  # <lock-path>
+  local wait=${FM_TREEHOUSE_LOCK_WAIT_SECS:-300}
+  FM_TREEHOUSE_LOCK_WAITED=0
+  case "$wait" in
+    ''|*[!0-9]*) echo "error: FM_TREEHOUSE_LOCK_WAIT_SECS must be whole seconds, got '$wait'" >&2; return 1 ;;
+  esac
+  [ "${#wait}" -le 6 ] || { echo "error: FM_TREEHOUSE_LOCK_WAIT_SECS is too large: $wait" >&2; return 1; }
+  wait=$((10#$wait))
+  [ "$wait" -gt 0 ] || { echo "error: FM_TREEHOUSE_LOCK_WAIT_SECS must be positive whole seconds" >&2; return 1; }
+  # shellcheck disable=SC2034 # Read by sourcing callers' refusal messages.
+  FM_TREEHOUSE_LOCK_WAITED=$wait
+  fm_lock_acquire_wait_max "$1" "$wait"
 }
 
 # Resolve pool membership without changing its evidence: Treehouse v2.0.1's
