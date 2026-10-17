@@ -10,6 +10,7 @@ TMP_ROOT=$(fm_test_tmproot fm-auto-handover)
 URL=https://github.com/o/r/pull/7
 HEAD_A=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
 HEAD_B=bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+fm_git_identity fmtest fmtest@example.invalid
 
 # A fake gh: `pr view <url>` prints $FAKE/pr-<number>.json, `api user` prints
 # the login, and the comments read prints $FAKE/comments-<number>.tsv as the
@@ -85,6 +86,56 @@ run tick || fail "tick without config failed"
 [ ! -s "$FAKE/gh.log" ] || fail "tick without config read the forge"
 [ ! -e "$H/state/.auto-handover-last" ] || fail "tick without config touched state"
 pass "without config/auto-handover nothing runs"
+
+for stage in review merge; do
+  new_case "readiness-$stage"
+  WT="$CASE/worker"
+  fm_git_worktree "$H/projects/proj" "$WT" fm/ready
+  git -C "$WT" commit -q --allow-empty -m 'published PR head'
+  published=$(git -C "$WT" rev-parse HEAD)
+  git -C "$WT" push -q origin HEAD
+  git -C "$WT" commit -q --allow-empty -m 'unpublished worker change'
+  unpublished=$(git -C "$WT" rev-parse HEAD)
+  ship s1 on "done [at=100]: PR $URL checks green"
+  printf 'mode=direct-PR\nworktree=%s\npr=%s\npr_head=%s\n' \
+    "$WT" "$URL" "$published" >> "$H/state/s1.meta"
+  if [ "$stage" = review ]; then
+    printf '%s\n' 'review proj touch "$FM_HOME/review-started"' > "$H/config/auto-handover"
+    dispatched="$H/review-started"
+  else
+    printf '%s\n' 'merge proj' > "$H/config/auto-handover"
+    dispatched="$FAKE/merge.log"
+  fi
+  pr_json 7 "$published" MERGEABLE
+  printf 'bot\tGATE: pass @ %s\n' "$published" > "$FAKE/comments-7.tsv"
+  run tick || fail "$stage readiness tick failed"
+  [ ! -e "$dispatched" ] || fail "$stage accepted an unpublished worker head"
+  [ ! -e "$H/state/s1.pr-ready-ack" ] || fail "$stage acknowledged an unpublished worker head"
+  git -C "$WT" push -q origin HEAD
+  pr_json 7 "$unpublished" MERGEABLE
+  printf 'bot\tGATE: pass @ %s\n' "$unpublished" > "$FAKE/comments-7.tsv"
+  run tick || fail "$stage published readiness tick failed"
+  [ -e "$dispatched" ] || fail "$stage refused the published worker head"
+  pass "$stage waits until the direct-PR worker's named head is published"
+
+  new_case "pipeline-readiness-$stage"
+  git -C "$WT" commit -q --allow-empty -m 'worker head differs from pipeline publication'
+  ship s1 on "done [at=100]: PR $URL checks green"
+  printf 'mode=no-mistakes\nworktree=%s\n' "$WT" >> "$H/state/s1.meta"
+  if [ "$stage" = review ]; then
+    printf '%s\n' 'review proj touch "$FM_HOME/review-started"' > "$H/config/auto-handover"
+    dispatched="$H/review-started"
+  else
+    printf '%s\n' 'merge proj' > "$H/config/auto-handover"
+    dispatched="$FAKE/merge.log"
+  fi
+  pr_json 7 "$HEAD_A" MERGEABLE
+  printf 'bot\tGATE: pass @ %s\n' "$HEAD_A" > "$FAKE/comments-7.tsv"
+  git -C "$WT" cat-file -e "$HEAD_A" 2>/dev/null && fail "pipeline head unexpectedly exists in worker copy"
+  run tick || fail "$stage pipeline readiness tick failed"
+  [ -e "$dispatched" ] || fail "$stage refused the no-mistakes pipeline head"
+  pass "$stage accepts a no-mistakes forge head absent from the worker copy"
+done
 
 # --- review start ------------------------------------------------------------
 

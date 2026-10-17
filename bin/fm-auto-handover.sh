@@ -81,6 +81,8 @@ esac
 . "$SCRIPT_DIR/fm-pr-lib.sh"
 # shellcheck source=bin/fm-pr-ready-lib.sh
 . "$SCRIPT_DIR/fm-pr-ready-lib.sh"
+# shellcheck source=bin/fm-dod-lib.sh
+. "$SCRIPT_DIR/fm-dod-lib.sh"
 # shellcheck source=bin/fm-timeout-lib.sh
 . "$SCRIPT_DIR/fm-timeout-lib.sh"
 
@@ -307,11 +309,27 @@ registered_yolo_on() {  # <project>
 
 # --- tick -------------------------------------------------------------------
 
+task_ready() {
+  local id=$1 url=$2 meta="$STATE/$1.meta" mode kind reason
+  mode=$(meta_get "$meta" mode)
+  kind=$(meta_get "$meta" kind)
+  if fm_pr_head_valid "$PR_HEAD" && fm_dod_forge_head_is_named_head "$mode"; then
+    return 0
+  fi
+  if ! reason=$(fm_dod_accept_ship_done "${kind:-ship}" "$mode" \
+    "$(meta_get "$meta" worktree)" "$(meta_get "$meta" project)" \
+    "done: PR $url checks green" "$STATE" "$id" "$meta"); then
+    log "readiness: task=$id PR=$url: $reason"
+    return 1
+  fi
+}
+
 review_stage() {  # <id> <project> <url>
   local id=$1 project=$2 url=$3 rec="$STATE/$1.auto-review" checks token rc
   handoff_handled "$id" "$url" && return 0
   pr_read "$url" || { log "review: could not read $url"; return 0; }
   [ "$PR_STATE" = OPEN ] && [ "$PR_DRAFT" = false ] || return 0
+  task_ready "$id" "$url" || return 0
   attempt_due "$rec" "$url" "$PR_HEAD" started || return 0
   checks=$(pr_checks) || return 0
   [ "$checks" = green ] || return 0
@@ -342,6 +360,7 @@ merge_stage() {  # <id> <project> <url>
   registered_yolo_on "$project" || return 0
   pr_read "$url" || { log "merge: could not read $url"; return 0; }
   [ "$PR_STATE" = OPEN ] && [ "$PR_DRAFT" = false ] || return 0
+  task_ready "$id" "$url" || return 0
   slug="$FM_PR_OWNER/$FM_PR_REPO"
   verdict=$(receipt_for_head "$slug" "$FM_PR_NUMBER" "$PR_HEAD") || return 0
   [ "$verdict" = pass ] || return 0
