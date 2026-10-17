@@ -137,6 +137,7 @@ case "$cmd" in
     RUN_LOCK="$STATE/.local-stack-$ID.run.lock"
     fm_lock_try_acquire "$RUN_LOCK" || die "task $ID already has a running stack command"
     RUN_PID='' RUN_STOP=0 RUN_ASSIGNMENTS=''
+    # shellcheck disable=SC2329 # Invoked indirectly by the EXIT trap below.
     cleanup_run() {
       FM_HOME="$FM_HOME" FM_STATE_OVERRIDE="$STATE" bash "$SCRIPT_DIR/fm-local-stack.sh" release "$ID" >/dev/null
       [ -z "$RUN_ASSIGNMENTS" ] || rm -f -- "$RUN_ASSIGNMENTS"
