@@ -138,9 +138,21 @@ case "$cmd" in
     eval "$assignments"
     export FM_LOCAL_STACK_SLOT FM_LOCAL_STACK_PORT_OFFSET
     trap 'FM_HOME="$FM_HOME" FM_STATE_OVERRIDE="$STATE" bash "$SCRIPT_DIR/fm-local-stack.sh" release "$ID" >/dev/null; fm_lock_release "$RUN_LOCK" || true' EXIT
-    trap 'exit 130' INT
-    trap 'exit 143' TERM
-    "$@"
+    RUN_PID= RUN_STOP=0
+    stop_run() {
+      RUN_STOP=$1
+      [ -n "$RUN_PID" ] || return 0
+      trap '' INT TERM
+      kill -TERM "$RUN_PID" 2>/dev/null || true
+      wait "$RUN_PID" || true
+      exit "$RUN_STOP"
+    }
+    trap 'stop_run 130' INT
+    trap 'stop_run 143' TERM
+    "$@" <&0 &
+    RUN_PID=$!
+    [ "$RUN_STOP" -eq 0 ] || stop_run "$RUN_STOP"
+    wait "$RUN_PID"
     exit "$?"
     ;;
   status)

@@ -27,6 +27,7 @@ printf '%s\n' "$*" >> "$FAKE/gh.log"
 case "$1 $2" in
   "pr view") n=${3##*/}; cat "$FAKE/pr-$n.json" ;;
   "api user") echo bot ;;
+  "api graphql") if [ -e "$FAKE/queued" ]; then echo true; else echo false; fi ;;
   api\ repos/*/comments) n=${2%/comments}; n=${n##*/}; cat "$FAKE/comments-$n.tsv" 2>/dev/null; [ ! -e "$FAKE/comments-fail" ] ;;
   "api repos/o/r") echo main ;;
   *) exit 1 ;;
@@ -35,7 +36,17 @@ SH
   cat > "$FAKE/merge" <<'SH'
 #!/usr/bin/env bash
 printf '%s\n' "$*" >> "$FAKE/merge.log"
-exit "$(cat "$FAKE/merge-rc" 2>/dev/null || echo 0)"
+rc=$(cat "$FAKE/merge-rc" 2>/dev/null || echo 0)
+if [ "$rc" = 0 ]; then
+  if [ -e "$FAKE/merge-queued" ]; then
+    touch "$FAKE/queued"
+  else
+    n=${2##*/}
+    jq '.state = "MERGED"' "$FAKE/pr-$n.json" > "$FAKE/merged.json"
+    mv "$FAKE/merged.json" "$FAKE/pr-$n.json"
+  fi
+fi
+exit "$rc"
 SH
   cat > "$FAKE/send" <<'SH'
 #!/usr/bin/env bash
@@ -137,6 +148,34 @@ run tick || fail "repeat merge tick failed"
 assert_equals 1 "$(wc -l < "$FAKE/merge.log" | tr -d ' ')" "one merge per head"
 pass "merge runs only on the newest trusted passing receipt for the live head"
 
+new_case merge-queue-recovery
+ship s1 on "done [at=100]: PR $URL checks green"
+printf '%s\n' 'merge proj' > "$H/config/auto-handover"
+printf 'bot\tGATE: pass @ %s\n' "$HEAD_A" > "$FAKE/comments-7.tsv"
+pr_json 7 "$HEAD_A" MERGEABLE
+touch "$FAKE/merge-queued"
+for attempt in 1 2 3 4; do
+  FM_AUTO_HANDOVER_RETRY_SECS=1 run tick || fail "queue entry failed"
+  assert_equals "$attempt" "$(wc -l < "$FAKE/merge.log" | tr -d ' ')" "same head may reenter after ejection"
+  assert_equals accepted "$(sed -n 3p "$H/state/s1.auto-merge")" "queue acceptance is not merge completion"
+  sleep 1.1
+  FM_AUTO_HANDOVER_RETRY_SECS=1 run tick || fail "queued tick failed"
+  assert_equals "$attempt" "$(wc -l < "$FAKE/merge.log" | tr -d ' ')" "queued PR does not submit another request"
+  rm "$FAKE/queued"
+  pr_json 7 "$HEAD_A" MERGEABLE '[{"__typename":"CheckRun","name":"ci","status":"COMPLETED","conclusion":"FAILURE"}]'
+  FM_AUTO_HANDOVER_RETRY_SECS=1 run tick || fail "ejected red tick failed"
+  assert_equals "$attempt" "$(wc -l < "$FAKE/merge.log" | tr -d ' ')" "ejected PR waits for green checks"
+  pr_json 7 "$HEAD_A" MERGEABLE
+done
+rm "$FAKE/merge-queued"
+FM_AUTO_HANDOVER_RETRY_SECS=1 run tick || fail "recovered queue merge failed"
+assert_equals 5 "$(wc -l < "$FAKE/merge.log" | tr -d ' ')" "same-head recovery eventually merges"
+assert_equals MERGED "$(jq -r .state "$FAKE/pr-7.json")" "recovered PR is confirmed merged"
+sleep 1.1
+FM_AUTO_HANDOVER_RETRY_SECS=1 run tick || fail "merged tick failed"
+assert_equals 5 "$(wc -l < "$FAKE/merge.log" | tr -d ' ')" "confirmed merge is not retried"
+pass "queue ejection remains retryable at the same head without exhausting refusal attempts"
+
 new_case merge-yolo-off
 ship s1 off "done [at=100]: PR $URL checks green"
 printf '%s\n' 'merge proj' > "$H/config/auto-handover"
@@ -169,6 +208,7 @@ pr_json 7 "$HEAD_A" MERGEABLE
 run tick || fail "recovered checks tick failed"
 assert_equals "s1 $URL --expected-head $HEAD_A" "$(cat "$FAKE/merge.log")" "same-head recovery merges without resetting state"
 rm -f "$H/state/s1.auto-merge" "$H/state/.auto-handover-wake" "$FAKE/merge.log"
+pr_json 7 "$HEAD_A" MERGEABLE
 printf '1\n' > "$FAKE/merge-rc"
 for _ in 1 2 3; do
   FM_AUTO_HANDOVER_RETRY_SECS=1 run tick || fail "tick failed"

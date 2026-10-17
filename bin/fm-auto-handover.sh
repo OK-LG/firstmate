@@ -233,11 +233,11 @@ record_write() {  # <file> <url> <head> <state> <attempts>
 }
 
 # Same URL and head: may this attempt run now? Sets NEXT_ATTEMPTS.
-attempt_due() {  # <file> <url> <head> <done-state>
+attempt_due() {  # <file> <url> <head> [done-state]
   record_read "$1"
   NEXT_ATTEMPTS=1
   [ "$REC_URL" = "$2" ] && [ "$REC_HEAD" = "$3" ] || return 0
-  [ "$REC_STATE" != "$4" ] || return 1
+  [ -z "${4:-}" ] || [ "$REC_STATE" != "$4" ] || return 1
   [ "$REC_ATTEMPTS" -lt 3 ] || return 1
   [ "$((NOW - REC_LAST))" -ge "$RETRY" ] || return 1
   NEXT_ATTEMPTS=$((REC_ATTEMPTS + 1))
@@ -337,7 +337,7 @@ review_stage() {  # <id> <project> <url>
 
 merge_stage() {  # <id> <project> <url>
   local id=$1 project=$2 url=$3 rec="$STATE/$1.auto-merge" verdict checks label out rc
-  local slug notice="$STATE/$1.auto-merge-notice"
+  local slug queued notice="$STATE/$1.auto-merge-notice"
   [ "$(meta_get "$STATE/$id.meta" yolo)" = on ] || return 0
   registered_yolo_on "$project" || return 0
   pr_read "$url" || { log "merge: could not read $url"; return 0; }
@@ -345,7 +345,7 @@ merge_stage() {  # <id> <project> <url>
   slug="$FM_PR_OWNER/$FM_PR_REPO"
   verdict=$(receipt_for_head "$slug" "$FM_PR_NUMBER" "$PR_HEAD") || return 0
   [ "$verdict" = pass ] || return 0
-  attempt_due "$rec" "$url" "$PR_HEAD" merged || return 0
+  attempt_due "$rec" "$url" "$PR_HEAD" || return 0
   checks=$(pr_checks) || return 0
   case "$checks" in
     pending) return 0 ;;
@@ -365,12 +365,17 @@ merge_stage() {  # <id> <project> <url>
     fi
     return 0
   fi
+  queued=$(gh api graphql \
+    -f query="query(\$owner:String!,\$repo:String!,\$number:Int!){repository(owner:\$owner,name:\$repo){pullRequest(number:\$number){isInMergeQueue}}}" \
+    -F "owner=$FM_PR_OWNER" -F "repo=$FM_PR_REPO" -F "number=$FM_PR_NUMBER" \
+    --jq '.data.repository.pullRequest.isInMergeQueue' 2>/dev/null) || return 0
+  [ "$queued" = false ] || return 0
   rc=0
   out=$(FM_HOME="$FM_HOME" FM_STATE_OVERRIDE="$STATE" "$PR_MERGE" "$id" "$url" --expected-head "$PR_HEAD" 2>&1 </dev/null) || rc=$?
   printf '%s\n' "$out" >> "$STATE/$id.auto-merge.log" 2>/dev/null || true
   if [ "$rc" -eq 0 ]; then
-    record_write "$rec" "$url" "$PR_HEAD" merged "$NEXT_ATTEMPTS" || return 1
-    log "merge: $url merged for $id at $PR_HEAD"
+    record_write "$rec" "$url" "$PR_HEAD" accepted 0 || return 1
+    log "merge: request accepted for $id $url at $PR_HEAD; completion follows the confirmed-merge outcome"
     return 0
   fi
   record_write "$rec" "$url" "$PR_HEAD" refused "$NEXT_ATTEMPTS" || return 1
