@@ -379,6 +379,7 @@ for origin in self poll; do
   mv "$FAKE/merged.json" "$FAKE/pr-1.json"
   pr_json 2 "$HEAD_A" CONFLICTING
   (
+    # shellcheck source=/dev/null
     . "$ROOT/bin/fm-wake-lib.sh"
     fm_lock_try_acquire "$H/state/.conflict-steer.lock" || exit 1
     touch "$FAKE/locked"
@@ -390,6 +391,7 @@ for origin in self poll; do
   [ -e "$FAKE/locked" ] || fail "conflict lock holder did not start"
   (
     export FAKE FM_AUTO_HANDOVER_SEND_BIN="$FAKE/send"
+    # shellcheck source=/dev/null
     . "$ROOT/bin/fm-merge-outcome-lib.sh"
     PATH="$FAKE/bin:$PATH" fm_merge_outcome_report "$H" "$H/state" merged https://github.com/o/r/pull/1 "$origin"
   ) || fail "merge outcome failed"
