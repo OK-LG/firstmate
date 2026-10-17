@@ -1,0 +1,41 @@
+$ fm-local-stack.sh run a -- python3 live-stack-driver.py server a
+$ fm-local-stack.sh run b -- python3 live-stack-driver.py server b
+HTTP GET 127.0.0.1:24000: {"task": "a", "slot": "0", "offset": "0", "port": 24000}
+HTTP GET 127.0.0.1:24010: {"task": "b", "slot": "1", "offset": "10", "port": 24010}
+$ fm-local-stack.sh status
+limit=2 slot 0=a slot 1=b
+exit=0
+$ fm-local-stack.sh acquire c
+busy: all 2 local stack slots are held (slot 0=a slot 1=b)
+exit=3
+$ fm-local-stack.sh run a -- true
+error: task a already has a running stack command
+exit=1
+$ fm-local-stack.sh run c -- python3 live-stack-driver.py server c
+Third stack c is queued while both HTTP endpoints remain available.
+SIGTERM wrapper pid=3991654: exit=143; stdout=''; stderr=''
+SIGTERM wrapper pid=3990490: exit=143; stdout=''; stderr=''
+$ fm-local-stack.sh status
+limit=2 slot 0=a slot 1=free
+exit=0
+Cancelled waiting stack c did not acquire the newly freed slot.
+$ fm-local-stack.sh run b -- python3 live-stack-driver.py server b
+$ fm-local-stack.sh run d -- python3 live-stack-driver.py server d
+SIGTERM wrapper pid=3989870: exit=143; stdout=''; stderr=''
+HTTP GET 127.0.0.1:24000 after release: {"task": "d", "slot": "0", "offset": "0", "port": 24000}
+$ fm-local-stack.sh status
+limit=2 slot 0=d slot 1=b
+exit=0
+SIGTERM wrapper pid=3997734: exit=143; stdout=''; stderr=''
+SIGTERM wrapper pid=3997045: exit=143; stdout=''; stderr=''
+$ fm-local-stack.sh status
+limit=2 slot 0=free slot 1=free
+exit=0
+Both stopped HTTP ports refuse connections; both leases are free.
+$ fm-local-stack.sh run a -- bash -c exit 7
+exit=7
+$ fm-local-stack.sh status
+limit=2 slot 0=free slot 1=free
+exit=0
+LIVE STACK SCENARIOS PASSED
+Disposable lab removed.

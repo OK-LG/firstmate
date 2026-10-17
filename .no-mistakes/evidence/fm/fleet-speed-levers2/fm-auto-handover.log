@@ -1,0 +1,23 @@
+ok - without config/auto-handover nothing runs
+ok - both stages reject mismatched, missing, or unreadable project origins
+ok - both stages accept matching HTTPS and SSH project origins
+warning: re-init: ignored --initial-branch=main
+ok - review waits until the direct-PR worker's named head is published
+ok - review accepts a no-mistakes forge head absent from the worker copy
+warning: re-init: ignored --initial-branch=main
+ok - merge waits until the direct-PR worker's named head is published
+ok - merge accepts a no-mistakes forge head absent from the worker copy
+ok - review starts once checks are green, once per head, and acknowledges the handoff
+ok - a review that cannot start retries, then escalates without acknowledging
+ok - merge runs only on the newest trusted passing receipt for the live head
+ok - away deferral notifies once per head without exhausting merge attempts
+ok - queue ejection remains retryable at the same head without exhausting refusal attempts
+ok - merge needs yolo in both the task record and the registered posture
+ok - hold labels, red checks, and repeated refusals escalate instead of merging
+ok - after a merge, only newly conflicting PRs in the same repository are steered, once per head
+ok - conflict recovery only follows default-branch merges
+ok - self merge outcome dispatches detached conflict recovery with captured routing
+ok - poll merge outcome dispatches detached conflict recovery with captured routing
+ok - conflict steers are opt-in per project
+ok - an invalid config changes nothing and wakes once
+ok - the watcher runs the detached pass and announces what it queued

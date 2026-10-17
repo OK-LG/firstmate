@@ -1,0 +1,7 @@
+ok - default limit of two stacks, each with its own port offset
+ok - a third stack is refused while both slots are held
+ok - a waiting acquire queues behind a running stack
+ok - a cleaned-up task frees its slot
+ok - run exports distinct port variables and releases leases on success or failure
+ok - termination reaches the stack server and its lease remains held until shutdown
+ok - cancellation reaps waiting and publishing allocators before releasing leases

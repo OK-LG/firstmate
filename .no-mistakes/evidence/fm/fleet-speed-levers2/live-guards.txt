@@ -1,0 +1,23 @@
+$ bash bin/fm-lab-home.sh create /root/.no-mistakes/worktrees/7f0ec18181b6/01M55F5QY1NZG1PDPE7KWW7E9J/.test-phase-tmp/fm-lab.cqql573n
+/root/.no-mistakes/worktrees/7f0ec18181b6/01M55F5QY1NZG1PDPE7KWW7E9J/.test-phase-tmp/fm-lab.cqql573n
+exit=0
+$ bash bin/fm-auto-handover.sh tick
+exit=0
+Without opt-in, tick creates no runtime state.
+$ bash bin/fm-auto-handover.sh tick
+exit=0
+$ bash bin/fm-auto-handover.sh tick
+exit=0
+Operator wake, emitted once over two ticks:
+config/auto-handover is invalid (line 1: unknown directive 'invalid-directive'); automatic review, merge, and conflict steers are off until it is fixed
+
+Spawn is alive and queued under the held task-set lock; no task metadata was published.
+Removed disposable home state during wait.
+Spawn stdout:
+Spawn stderr:
+fm-gate-refuse: gate agent lifecycle permitted only against lab home /root/.no-mistakes/worktrees/7f0ec18181b6/01M55F5QY1NZG1PDPE7KWW7E9J/.test-phase-tmp/fm-lab.cqql573n
+waiting: this home's task set is locked; queueing task queued-check
+error: spawn refused: home state was removed or replaced while waiting
+exit=1
+Removed state was not recreated. LIVE GUARD SCENARIOS PASSED
+Disposable lab removed.

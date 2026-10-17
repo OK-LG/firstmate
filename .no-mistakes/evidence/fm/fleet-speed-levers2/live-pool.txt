@@ -1,0 +1,65 @@
+$ bash bin/fm-lab-home.sh create /root/.no-mistakes/worktrees/7f0ec18181b6/01M55F5QY1NZG1PDPE7KWW7E9J/.q
+/root/.no-mistakes/worktrees/7f0ec18181b6/01M55F5QY1NZG1PDPE7KWW7E9J/.q
+exit=0
+$ git init -q -b main /root/.no-mistakes/worktrees/7f0ec18181b6/01M55F5QY1NZG1PDPE7KWW7E9J/.q/projects/p
+exit=0
+$ git -C /root/.no-mistakes/worktrees/7f0ec18181b6/01M55F5QY1NZG1PDPE7KWW7E9J/.q/projects/p add .
+exit=0
+$ git -C /root/.no-mistakes/worktrees/7f0ec18181b6/01M55F5QY1NZG1PDPE7KWW7E9J/.q/projects/p -c user.name=Lab -c user.email=lab@example.invalid commit -qm disposable lab
+exit=0
+$ treehouse get --lease --no-fetch
+/root/.no-mistakes/worktrees/7f0ec18181b6/01M55F5QY1NZG1PDPE7KWW7E9J/.q/pool/.treehouse/p-1ff26d/1/p
+A new version of treehouse is available: v2.3.0 → v3.1.4
+Run "treehouse update" to update
+
+🌳 Setting up worktree...
+🌳 Leased worktree at ~/.no-mistakes/worktrees/7f0ec18181b6/01M55F5QY1NZG1PDPE7KWW7E9J/.q/pool/.treehouse/p-1ff26d/1/p. Run 'treehouse return ~/.no-mistakes/worktrees/7f0ec18181b6/01M55F5QY1NZG1PDPE7KWW7E9J/.q/pool/.treehouse/p-1ff26d/1/p' to release it.
+exit=0
+$ tmux -L fm-lab -f /dev/null new-session -d -s pool-lab -n control -c /root/.no-mistakes/worktrees/7f0ec18181b6/01M55F5QY1NZG1PDPE7KWW7E9J/.q
+exit=0
+$ tmux -L fm-lab new-window -d -t pool-lab: -n fm-cleanup -c /root/.no-mistakes/worktrees/7f0ec18181b6/01M55F5QY1NZG1PDPE7KWW7E9J/.q/pool/.treehouse/p-1ff26d/1/p
+exit=0
+Concurrent allocator holds the real project lock.
+Cleanup remains queued with task metadata preserved after 2 seconds.
+A new version of treehouse is available: v2.3.0 → v3.1.4
+Run "treehouse update" to update
+
+🌳 Worktree returned to pool.
+teardown cleanup complete (window pool-lab:fm-cleanup, worktree /root/.no-mistakes/worktrees/7f0ec18181b6/01M55F5QY1NZG1PDPE7KWW7E9J/.q/pool/.treehouse/p-1ff26d/1/p)
+Backlog: cleanup just finished (this home keeps no markdown backlog at /root/.no-mistakes/worktrees/7f0ec18181b6/01M55F5QY1NZG1PDPE7KWW7E9J/.q/data/backlog.md). Update /root/.no-mistakes/worktrees/7f0ec18181b6/01M55F5QY1NZG1PDPE7KWW7E9J/.q/data/backlog.md - move cleanup to Done, keep Done to the 10 most recent, then re-scan Queued and dispatch only work whose blockers are gone and date is due.
+fm-gate-refuse: gate agent lifecycle permitted only against lab home /root/.no-mistakes/worktrees/7f0ec18181b6/01M55F5QY1NZG1PDPE7KWW7E9J/.q
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+●  WATCHER DOWN - SUPERVISION IS OFF
+●  1 task(s) in flight, but no watcher has a fresh beacon (last beat: never, grace 300s).
+●  Trust the emitted supervision protocol for this harness; do not use shell & for watcher repair.
+●  This is a supervision warning only; the guarded operation WILL still run.
+●  repair missing watcher supervision according to the session-start block for this harness; do not use shell &.
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+teardown: reaping leaked worktree process(es) for cleanup: 4151331
+teardown: force-killing leaked worktree process(es) for cleanup: 4151331
+
+$ tmux -L fm-lab list-windows -t pool-lab -F #{window_name}
+control
+exit=0
+$ treehouse status
+1     available    ~/.no-mistakes/worktrees/7f0ec18181b6/01M55F5QY1NZG1PDPE7KWW7E9J/.q/pool/.treehouse/p-1ff26d/1/p
+A new version of treehouse is available: v2.3.0 → v3.1.4
+Run "treehouse update" to update
+
+exit=0
+$ treehouse get --lease --no-fetch
+/root/.no-mistakes/worktrees/7f0ec18181b6/01M55F5QY1NZG1PDPE7KWW7E9J/.q/pool/.treehouse/p-1ff26d/1/p
+A new version of treehouse is available: v2.3.0 → v3.1.4
+Run "treehouse update" to update
+
+🌳 Setting up worktree...
+🌳 Leased worktree at ~/.no-mistakes/worktrees/7f0ec18181b6/01M55F5QY1NZG1PDPE7KWW7E9J/.q/pool/.treehouse/p-1ff26d/1/p. Run 'treehouse return ~/.no-mistakes/worktrees/7f0ec18181b6/01M55F5QY1NZG1PDPE7KWW7E9J/.q/pool/.treehouse/p-1ff26d/1/p' to release it.
+exit=0
+$ treehouse return /root/.no-mistakes/worktrees/7f0ec18181b6/01M55F5QY1NZG1PDPE7KWW7E9J/.q/pool/.treehouse/p-1ff26d/1/p --force
+A new version of treehouse is available: v2.3.0 → v3.1.4
+Run "treehouse update" to update
+
+🌳 Worktree returned to pool.
+exit=0
+Same Treehouse slot reacquired after queued cleanup; unrelated control pane survived. LIVE POOL QUEUE PASSED
+Private tmux server stopped and disposable lab removed.
