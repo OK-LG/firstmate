@@ -151,3 +151,92 @@ finally:
             process.wait()
 PYTEST
 pass "termination reaches the stack server and its lease remains held until shutdown"
+
+python3 - "$ROOT/bin/fm-local-stack.sh" "$HOME_DIR" "$TMP_ROOT" <<'PYTEST'
+import os
+from pathlib import Path
+import shutil
+import signal
+import subprocess
+import sys
+import time
+
+wrapper, home, temporary = sys.argv[1:]
+state = Path(home) / "state"
+base_env = dict(os.environ, FM_HOME=home, FM_LOCAL_STACK_POLL_SECS="1")
+
+def stack(*args):
+    return subprocess.run(["bash", wrapper, *args], env=base_env, check=True, capture_output=True, text=True)
+
+def await_file(path):
+    deadline = time.monotonic() + 5
+    while not path.exists() or not path.read_text().strip():
+        if time.monotonic() >= deadline:
+            raise AssertionError("allocator did not reach " + path.name)
+        time.sleep(0.02)
+
+for phase in ("waiting", "publishing"):
+    case = Path(temporary) / phase
+    fakebin = case / "bin"
+    fakebin.mkdir(parents=True)
+    ready = case / "ready"
+    resume = case / "resume"
+    launched = case / "launched"
+    shim = fakebin / ("sleep" if phase == "waiting" else "mv")
+    if phase == "waiting":
+        stack("acquire", "b")
+        stack("acquire", "c")
+        shim.write_text('#!/usr/bin/env bash\nif [ "$1" = 1 ]; then printf \'%s\\n\' "$PPID" > "$CANCEL_READY"; fi\nexec "$REAL_SLEEP" "$@"\n')
+    else:
+        shim.write_text('#!/usr/bin/env bash\n"$REAL_MV" "$@" || exit "$?"\nprintf \'%s\\n\' "$PPID" > "$CANCEL_READY"\nwhile [ ! -e "$CANCEL_RESUME" ]; do "$REAL_SLEEP" 0.02; done\n')
+    shim.chmod(0o755)
+    env = dict(base_env, PATH=str(fakebin) + os.pathsep + os.environ["PATH"],
+               REAL_SLEEP=shutil.which("sleep"), REAL_MV=shutil.which("mv"),
+               CANCEL_READY=str(ready), CANCEL_RESUME=str(resume))
+    process = subprocess.Popen(["bash", wrapper, "run", "d", "--", "touch", str(launched)], env=env)
+    allocator = None
+    try:
+        await_file(ready)
+        allocator = int(ready.read_text())
+        if phase == "publishing":
+            assert (state / "local-stack/0").read_text().strip() == "d", "allocator did not publish its lease"
+        process.terminate()
+        if phase == "publishing":
+            time.sleep(0.1)
+            assert process.poll() is None, "wrapper did not wait for allocator's active write"
+            assert (state / "local-stack/0").read_text().strip() == "d", "lease was released before allocator stopped"
+            resume.touch()
+        assert process.wait(timeout=5) == 143, "acquisition cancellation did not report termination"
+        try:
+            os.kill(allocator, 0)
+        except ProcessLookupError:
+            pass
+        else:
+            raise AssertionError("allocator survived wrapper cancellation")
+        assert not launched.exists(), "cancelled run launched a server"
+        assert not (state / ".local-stack-d.run.lock").exists(), "cancelled run kept its command lock"
+        if phase == "waiting":
+            assert (state / "local-stack/0").read_text().strip() == "b", "cancellation released another task's lease"
+            assert (state / "local-stack/1").read_text().strip() == "c", "cancellation released another task's lease"
+            stack("release", "b")
+            stack("release", "c")
+        assert "slot 0=free slot 1=free" in stack("status").stdout, "cancelled allocator left a lease"
+    finally:
+        resume.touch()
+        if allocator is not None:
+            try:
+                os.kill(allocator, signal.SIGTERM)
+            except ProcessLookupError:
+                pass
+        if process.poll() is None:
+            process.terminate()
+            try:
+                process.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                process.kill()
+                process.wait()
+        stack("release", "b")
+        stack("release", "c")
+        stack("release", "d")
+PYTEST
+pass "cancellation reaps waiting and publishing allocators before releasing leases"

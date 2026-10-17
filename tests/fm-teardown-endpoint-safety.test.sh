@@ -1009,6 +1009,14 @@ test_pool_lock_holder_is_waited_for_then_cleanup_proceeds() {
   assert_contains "$(cat "$dir/stderr")" "FM_TREEHOUSE_LOCK_WAIT_SECS must be whole seconds" \
     "the refusal should name the invalid wait setting"
 
+  set +e
+  FM_TREEHOUSE_LOCK_WAIT_SECS=0 run_case "$dir" "$id" > "$dir/stdout" 2> "$dir/stderr"
+  rc=$?
+  set -e
+  [ "$rc" -ne 0 ] || fail "zero wait still enables immediate acquisition"
+  assert_contains "$(cat "$dir/stderr")" "must be positive whole seconds" \
+    "zero wait must be rejected as an invalid bound"
+
   pass "fm-teardown: cleanup waits for a live pool-lock holder instead of refusing"
 }
 
@@ -1092,9 +1100,8 @@ test_remote_layout_homes_serialize_on_one_project_lock() {
   done
   [ -e "$dir/lock-held" ] || fail "the local child never took the shared project lock"
 
-  # No wait: this case proves exclusion, so the refusal must come at once.
   set +e
-  FM_TREEHOUSE_LOCK_WAIT_SECS=0 run_case "$dir" "$id" > "$dir/stdout" 2> "$dir/stderr"
+  FM_TREEHOUSE_LOCK_WAIT_SECS=1 run_case "$dir" "$id" > "$dir/stdout" 2> "$dir/stderr"
   rc=$?
   set -e
   kill "$holder" 2>/dev/null || true

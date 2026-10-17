@@ -1486,7 +1486,7 @@ fm_treehouse_project_lock_path() {  # <project-dir>
 # Take that lock, waiting for a live holder instead of refusing at once, so a
 # spawn, a review launch, and a cleanup that start together run one after
 # another. FM_TREEHOUSE_LOCK_WAIT_SECS bounds the wait in whole seconds
-# (default 300); 0 restores the immediate refusal. An invalid value refuses
+# (default 300), with a positive bound required. An invalid value refuses
 # rather than waiting without a bound. Sets FM_TREEHOUSE_LOCK_WAITED to the
 # effective bound so a refusal can name it.
 fm_treehouse_project_lock_acquire() {  # <lock-path>
@@ -1497,13 +1497,10 @@ fm_treehouse_project_lock_acquire() {  # <lock-path>
   esac
   [ "${#wait}" -le 6 ] || { echo "error: FM_TREEHOUSE_LOCK_WAIT_SECS is too large: $wait" >&2; return 1; }
   wait=$((10#$wait))
+  [ "$wait" -gt 0 ] || { echo "error: FM_TREEHOUSE_LOCK_WAIT_SECS must be positive whole seconds" >&2; return 1; }
   # shellcheck disable=SC2034 # Read by sourcing callers' refusal messages.
   FM_TREEHOUSE_LOCK_WAITED=$wait
-  if [ "$wait" -eq 0 ]; then
-    fm_lock_try_acquire "$1"
-  else
-    fm_lock_acquire_wait_max "$1" "$wait"
-  fi
+  fm_lock_acquire_wait_max "$1" "$wait"
 }
 
 # Resolve pool membership without changing its evidence: Treehouse v2.0.1's

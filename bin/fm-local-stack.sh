@@ -133,12 +133,12 @@ case "$cmd" in
     [ -f "$STATE/$ID.meta" ] || die "task $ID has no metadata"
     RUN_LOCK="$STATE/.local-stack-$ID.run.lock"
     fm_lock_try_acquire "$RUN_LOCK" || die "task $ID already has a running stack command"
-    trap 'fm_lock_release "$RUN_LOCK" || true' EXIT
-    assignments=$(FM_HOME="$FM_HOME" FM_STATE_OVERRIDE="$STATE" bash "$SCRIPT_DIR/fm-local-stack.sh" acquire "$ID" --wait 300) || exit "$?"
-    eval "$assignments"
-    export FM_LOCAL_STACK_SLOT FM_LOCAL_STACK_PORT_OFFSET
-    trap 'FM_HOME="$FM_HOME" FM_STATE_OVERRIDE="$STATE" bash "$SCRIPT_DIR/fm-local-stack.sh" release "$ID" >/dev/null; fm_lock_release "$RUN_LOCK" || true' EXIT
-    RUN_PID= RUN_STOP=0
+    RUN_PID= RUN_STOP=0 RUN_ASSIGNMENTS=
+    cleanup_run() {
+      FM_HOME="$FM_HOME" FM_STATE_OVERRIDE="$STATE" bash "$SCRIPT_DIR/fm-local-stack.sh" release "$ID" >/dev/null
+      [ -z "$RUN_ASSIGNMENTS" ] || rm -f -- "$RUN_ASSIGNMENTS"
+      fm_lock_release "$RUN_LOCK" || true
+    }
     stop_run() {
       RUN_STOP=$1
       [ -n "$RUN_PID" ] || return 0
@@ -147,12 +147,25 @@ case "$cmd" in
       wait "$RUN_PID" || true
       exit "$RUN_STOP"
     }
+    run_child() {
+      local child_rc=0
+      [ "$RUN_STOP" -eq 0 ] || exit "$RUN_STOP"
+      "$@" <&0 &
+      RUN_PID=$!
+      [ "$RUN_STOP" -eq 0 ] || stop_run "$RUN_STOP"
+      wait "$RUN_PID" || child_rc=$?
+      RUN_PID=
+      return "$child_rc"
+    }
+    trap cleanup_run EXIT
     trap 'stop_run 130' INT
     trap 'stop_run 143' TERM
-    "$@" <&0 &
-    RUN_PID=$!
-    [ "$RUN_STOP" -eq 0 ] || stop_run "$RUN_STOP"
-    wait "$RUN_PID"
+    RUN_ASSIGNMENTS=$(mktemp "$STATE/.local-stack-$ID.XXXXXX") || exit 1
+    FM_HOME="$FM_HOME" FM_STATE_OVERRIDE="$STATE" run_child bash "$SCRIPT_DIR/fm-local-stack.sh" acquire "$ID" --wait 300 > "$RUN_ASSIGNMENTS" || exit "$?"
+    assignments=$(cat "$RUN_ASSIGNMENTS") || exit 1
+    eval "$assignments"
+    export FM_LOCAL_STACK_SLOT FM_LOCAL_STACK_PORT_OFFSET
+    run_child "$@"
     exit "$?"
     ;;
   status)
@@ -180,6 +193,9 @@ case "$cmd" in
       if [ "$#" -ne 2 ] || [ "$1" != --wait ] || ! whole "$2"; then usage >&2; exit 2; fi
       WAIT=$((10#$2))
     fi
+    trap lock_drop EXIT
+    trap 'exit 130' INT
+    trap 'exit 143' TERM
     deadline=$((SECONDS + WAIT))
     while :; do
       lock_take
