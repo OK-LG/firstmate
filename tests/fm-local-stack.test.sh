@@ -53,10 +53,12 @@ pass "a cleaned-up task frees its slot"
 assert_contains "$(stack status)" "limit=2 slot 0=d slot 1=c" "capacity remains two"
 stack release d >/dev/null
 stack release c >/dev/null
+# shellcheck disable=SC2016 # The child shell expands its assigned slot and offset.
 stack run c -- bash -c 'printf "%s:%s\n" "$FM_LOCAL_STACK_SLOT" "$FM_LOCAL_STACK_PORT_OFFSET" > "$1"; while [ ! -f "$2" ]; do sleep 0.05; done' stack "$TMP_ROOT/ports-c" "$TMP_ROOT/stop-c" &
 runner=$!
 for _ in {1..100}; do [ ! -f "$TMP_ROOT/ports-c" ] || break; sleep 0.05; done
 assert_equals '0:0' "$(cat "$TMP_ROOT/ports-c")" "first running command receives slot and offset"
+# shellcheck disable=SC2016 # The child shell expands its assigned slot and offset.
 out=$(stack run b -- bash -c 'printf "%s:%s" "$FM_LOCAL_STACK_SLOT" "$FM_LOCAL_STACK_PORT_OFFSET"') || fail "second command failed"
 assert_equals '1:10' "$out" "second running command receives distinct ports"
 assert_contains "$(stack status)" "slot 0=c slot 1=free" "completed command releases only its lease"

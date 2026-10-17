@@ -73,7 +73,7 @@ pr_json() {
 }
 
 run() {
-  FAKE="$FAKE" PATH="$FAKE/bin:$PATH" FM_HOME="$H" \
+  env FAKE="$FAKE" PATH="$FAKE/bin:$PATH" FM_HOME="$H" \
     FM_AUTO_HANDOVER_MERGE_BIN="$FAKE/merge" FM_AUTO_HANDOVER_SEND_BIN="$FAKE/send" \
     FM_CONFLICT_STEER_WAIT_SECS=1 FM_CONFLICT_STEER_ATTEMPTS=2 \
     bash "$ROOT/bin/fm-auto-handover.sh" "$@"
@@ -95,6 +95,7 @@ for remote in https://github.com/other/r.git https://github.com/o/other.git \
   new_case "repository-binding-${remote//[^a-zA-Z0-9]/_}"
   ship s1 on "done [at=100]: PR $URL checks green"
   printf 'mode=no-mistakes\n' >> "$H/state/s1.meta"
+  # shellcheck disable=SC2016 # The review command expands FM_HOME when dispatched.
   printf '%s\n' 'review proj touch "$FM_HOME/review-started"' 'merge proj' > "$H/config/auto-handover"
   pr_json 7 "$HEAD_A" MERGEABLE
   printf 'bot\tGATE: pass @ %s\n' "$HEAD_A" > "$FAKE/comments-7.tsv"
@@ -117,6 +118,7 @@ for remote in https://github.com/o/r.git git@github.com:o/r.git ssh://git@github
   ship s1 on "done [at=100]: PR $URL checks green"
   printf 'mode=no-mistakes\n' >> "$H/state/s1.meta"
   git -C "$H/projects/proj" remote set-url origin "$remote"
+  # shellcheck disable=SC2016 # The review command expands FM_HOME when dispatched.
   printf '%s\n' 'review proj touch "$FM_HOME/review-started"' 'merge proj' > "$H/config/auto-handover"
   pr_json 7 "$HEAD_A" MERGEABLE
   printf 'bot\tGATE: pass @ %s\n' "$HEAD_A" > "$FAKE/comments-7.tsv"
@@ -142,6 +144,7 @@ for stage in review merge; do
   printf 'mode=direct-PR\nworktree=%s\npr=%s\npr_head=%s\n' \
     "$WT" "$URL" "$published" >> "$H/state/s1.meta"
   if [ "$stage" = review ]; then
+    # shellcheck disable=SC2016 # The review command expands FM_HOME when dispatched.
     printf '%s\n' 'review proj touch "$FM_HOME/review-started"' > "$H/config/auto-handover"
     dispatched="$H/review-started"
   else
@@ -165,6 +168,7 @@ for stage in review merge; do
   ship s1 on "done [at=100]: PR $URL checks green"
   printf 'mode=no-mistakes\nworktree=%s\n' "$WT" >> "$H/state/s1.meta"
   if [ "$stage" = review ]; then
+    # shellcheck disable=SC2016 # The review command expands FM_HOME when dispatched.
     printf '%s\n' 'review proj touch "$FM_HOME/review-started"' > "$H/config/auto-handover"
     dispatched="$H/review-started"
   else
@@ -308,7 +312,7 @@ ship s1 on "done [at=100]: PR $URL checks green"
 printf '%s\n' 'merge proj' > "$H/config/auto-handover"
 printf 'bot\tGATE: pass @ %s\n' "$HEAD_A" > "$FAKE/comments-7.tsv"
 pr_json 7 "$HEAD_A" MERGEABLE '[]' '[{"name":"security"}]'
-FM_AUTO_MERGE_HOLD_LABELS= run tick || fail "tick failed"
+FM_AUTO_MERGE_HOLD_LABELS='' run tick || fail "tick failed"
 [ ! -e "$FAKE/merge.log" ] || fail "merged a PR carrying a hold label"
 assert_contains "$(cat "$H/state/.auto-handover-wake")" "carries label 'security'" "a hold label asks for the captain's call"
 rm -f "$H/state/s1.auto-merge" "$H/state/.auto-handover-wake"
@@ -385,9 +389,9 @@ for origin in self poll; do
   for _ in {1..100}; do [ ! -e "$FAKE/locked" ] || break; sleep 0.05; done
   [ -e "$FAKE/locked" ] || fail "conflict lock holder did not start"
   (
-    export FAKE PATH="$FAKE/bin:$PATH" FM_AUTO_HANDOVER_SEND_BIN="$FAKE/send"
+    export FAKE FM_AUTO_HANDOVER_SEND_BIN="$FAKE/send"
     . "$ROOT/bin/fm-merge-outcome-lib.sh"
-    fm_merge_outcome_report "$H" "$H/state" merged https://github.com/o/r/pull/1 "$origin"
+    PATH="$FAKE/bin:$PATH" fm_merge_outcome_report "$H" "$H/state" merged https://github.com/o/r/pull/1 "$origin"
   ) || fail "merge outcome failed"
   rm "$H/state/merged.meta"
   touch "$FAKE/release"

@@ -211,7 +211,10 @@ while [ "$#" -gt 0 ]; do
       shift
       ;;
     --expected-head)
-      [ -z "$EXPECTED_HEAD" ] && fm_pr_head_valid "${2:-}" || { echo "error: --expected-head requires one full commit SHA" >&2; exit 2; }
+      if [ -n "$EXPECTED_HEAD" ] || ! fm_pr_head_valid "${2:-}"; then
+        echo "error: --expected-head requires one full commit SHA" >&2
+        exit 2
+      fi
       EXPECTED_HEAD=$2
       shift 2
       ;;

@@ -136,7 +136,7 @@ case "$cmd" in
     [ -f "$STATE/$ID.meta" ] || die "task $ID has no metadata"
     RUN_LOCK="$STATE/.local-stack-$ID.run.lock"
     fm_lock_try_acquire "$RUN_LOCK" || die "task $ID already has a running stack command"
-    RUN_PID= RUN_STOP=0 RUN_ASSIGNMENTS=
+    RUN_PID='' RUN_STOP=0 RUN_ASSIGNMENTS=''
     cleanup_run() {
       FM_HOME="$FM_HOME" FM_STATE_OVERRIDE="$STATE" bash "$SCRIPT_DIR/fm-local-stack.sh" release "$ID" >/dev/null
       [ -z "$RUN_ASSIGNMENTS" ] || rm -f -- "$RUN_ASSIGNMENTS"
