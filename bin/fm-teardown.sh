@@ -3282,7 +3282,7 @@ endpoint_close_refusal() {  # <subject> <backend> <target> <honors-force>
 }
 
 cleanup_firstmate_home_children() {
-  local home=$1 dest=${2:-$DATA/$ID} child_retire_mode= sub_state child_meta child_id child_t child_wt child_proj child_kind child_home child_backend child_orca_worktree_id child_return_rc child_busy_gen child_owner_rc
+  local home=$1 dest=${2:-$DATA/$ID} child_retire_mode='' sub_state child_meta child_id child_t child_wt child_proj child_kind child_home child_backend child_orca_worktree_id child_return_rc child_busy_gen child_owner_rc
   [ "$TASK_RECORDS_LOCAL" -ne 1 ] || child_retire_mode=keep-status
   sub_state="$home/state"
   [ -d "$sub_state" ] || return 0
