@@ -13,7 +13,7 @@
 #   fm-remote-secondmate-control.sh sync <id> [<parent-commit>]
 #   fm-remote-secondmate-control.sh update <id>
 #   fm-remote-secondmate-control.sh archive <id>
-#   fm-remote-secondmate-control.sh retire <id> [--force] [--keep-records]
+#   fm-remote-secondmate-control.sh retire <id> --prepare|--commit [--force]
 #
 # Remote placement ends here, but the second-mate agent always runs on the
 # Herdr backend in the dedicated fm-remote session, so launch refuses any other
@@ -447,36 +447,51 @@ cmd_archive() {
 }
 
 cmd_retire() {
-  local id=$1 force= rc keep_records=0
+  local id=$1 force= rc phase= prepare=0 receipt meta tmp
   shift
   while [ "$#" -gt 0 ]; do
     case "$1" in
       --force) force=--force ;;
-      --keep-records) keep_records=1 ;;
+      --prepare|--commit) [ -z "$phase" ] || usage; phase=$1 ;;
       *) usage ;;
     esac
     shift
   done
+  [ -n "$phase" ] || usage
   validate_id "$id"
   validate_home "$id" yes || rc=$?
   if [ "${rc:-0}" -eq 2 ]; then
     printf 'already-retired: %s\n' "$id"
     return 0
   fi
-  [ -z "$force" ] || [ "$force" = --force ] || usage
   remote_endpoint_require "$id"
+  meta=$(meta_path "$id")
+  [ "$(fm_meta_get "$meta" kind)" = secondmate ] || die "retirement requires a secondmate endpoint"
+  receipt="$CONTROL_STATE/.$id.retirement-prepared"
+  if [ "$phase" = --prepare ]; then
+    prepare=1
+    rm -f -- "$receipt"
+  else
+    [ -f "$receipt" ] && [ ! -L "$receipt" ] && cmp -s "$meta" "$receipt" \
+      || die "retirement was not prepared for the current endpoint; prepare and archive it before committing"
+  fi
   FM_HOME="$TARGET_HOME" FM_ROOT_OVERRIDE="$FM_ROOT" FM_STATE_OVERRIDE="$TARGET_HOME/state" \
     FM_CONFIG_OVERRIDE="$TARGET_HOME/config" "$SCRIPT_DIR/fm-guard.sh" || true
-  if [ -n "$force" ]; then
-    FM_HOME="$FM_ROOT" FM_ROOT_OVERRIDE="$FM_ROOT" \
-      FM_STATE_OVERRIDE="$CONTROL_STATE" FM_DATA_OVERRIDE="$CONTROL_DATA" \
-      FM_CONFIG_OVERRIDE="$TARGET_HOME/config" FM_TEARDOWN_GUARD_DONE=1 FM_TEARDOWN_KEEP_RECORDS="$keep_records" \
-      "$SCRIPT_DIR/fm-teardown.sh" "$id" --force
+  local -a args
+  args=("$id")
+  [ -z "$force" ] || args+=(--force)
+  FM_HOME="$FM_ROOT" FM_ROOT_OVERRIDE="$FM_ROOT" \
+    FM_STATE_OVERRIDE="$CONTROL_STATE" FM_DATA_OVERRIDE="$CONTROL_DATA" \
+    FM_CONFIG_OVERRIDE="$TARGET_HOME/config" FM_TEARDOWN_GUARD_DONE=1 FM_TEARDOWN_REMOTE_PREPARE="$prepare" \
+    "$SCRIPT_DIR/fm-teardown.sh" "${args[@]}" || return $?
+  if [ "$prepare" -eq 1 ]; then
+    tmp=$(umask 077 && mktemp "$CONTROL_STATE/.retirement-prepared.XXXXXX") || return 1
+    if ! cp -- "$meta" "$tmp" || ! mv -f -- "$tmp" "$receipt"; then
+      rm -f -- "$tmp"
+      return 1
+    fi
   else
-    FM_HOME="$FM_ROOT" FM_ROOT_OVERRIDE="$FM_ROOT" \
-      FM_STATE_OVERRIDE="$CONTROL_STATE" FM_DATA_OVERRIDE="$CONTROL_DATA" \
-      FM_CONFIG_OVERRIDE="$TARGET_HOME/config" FM_TEARDOWN_GUARD_DONE=1 FM_TEARDOWN_KEEP_RECORDS="$keep_records" \
-      "$SCRIPT_DIR/fm-teardown.sh" "$id"
+    rm -f -- "$receipt"
   fi
 }
 

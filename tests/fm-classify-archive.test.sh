@@ -163,8 +163,56 @@ test_remote_archive_round_trip() {
   pass "remote archives transfer exact records and reject unsafe or truncated payloads"
 }
 
+test_remote_retirement_requires_preparation_for_current_endpoint() {
+  local d="$TMP_ROOT/retirement-phases" control home
+  home="$d/home"
+  mkdir -p "$d/code" "$home/state/parent-route" "$home/bin"
+  cp -R "$ROOT/bin" "$d/code/bin"
+  control="$d/code/bin/fm-remote-secondmate-control.sh"
+  printf 't1\n' > "$home/.fm-secondmate-home"
+  : > "$home/AGENTS.md"
+  fm_write_meta "$home/state/parent-route/t1.meta" \
+    'window=fm-remote:w1:p1' 'backend=herdr' 'kind=secondmate' 'endpoint_task_id=t1' \
+    "worktree=$home" "home=$home" "project=$d/code" 'spawn_gen=first' \
+    'herdr_session=fm-remote' 'herdr_workspace_id=w1' 'herdr_tab_id=w1:t1' 'herdr_pane_id=w1:p1'
+  cat > "$d/code/bin/fm-guard.sh" <<'SH'
+#!/usr/bin/env bash
+exit 0
+SH
+  cat > "$d/code/bin/fm-teardown.sh" <<'SH'
+#!/usr/bin/env bash
+set -eu
+home=${FM_STATE_OVERRIDE%/state/parent-route}
+if [ "$FM_TEARDOWN_REMOTE_PREPARE" = 1 ]; then
+  printf 'done: stopped\n' >> "$FM_STATE_OVERRIDE/$1.status"
+else
+  rm -rf "$home"
+fi
+SH
+  if FM_HOME="$home" FM_ROOT_OVERRIDE="$d/code" bash "$control" retire t1 --commit 2>/dev/null; then
+    fail "remote retirement committed without preparation"
+  fi
+  assert_present "$home" "unprepared commit deleted the home"
+  FM_HOME="$home" FM_ROOT_OVERRIDE="$d/code" bash "$control" retire t1 --prepare \
+    || fail "remote preparation failed"
+  assert_present "$home/state/parent-route/t1.meta" "preparation lost the endpoint metadata"
+  assert_grep 'done: stopped' "$home/state/parent-route/t1.status" "preparation did not stop the writer"
+  cp "$home/state/parent-route/t1.meta" "$d/prepared.meta"
+  printf 'spawn_gen=replacement\n' >> "$home/state/parent-route/t1.meta"
+  if FM_HOME="$home" FM_ROOT_OVERRIDE="$d/code" bash "$control" retire t1 --commit 2>/dev/null; then
+    fail "remote retirement committed a replacement endpoint"
+  fi
+  assert_present "$home" "stale preparation deleted a replacement home"
+  cp "$d/prepared.meta" "$home/state/parent-route/t1.meta"
+  FM_HOME="$home" FM_ROOT_OVERRIDE="$d/code" bash "$control" retire t1 --commit \
+    || fail "prepared endpoint could not be committed"
+  assert_absent "$home" "committed retirement left the home"
+  pass "remote retirement only commits the endpoint whose preparation completed"
+}
+
 test_archives_status_log_and_inbox_records_without_touching_live_state
 test_retry_after_retirement_keeps_the_archive
 test_task_without_records_creates_nothing
 test_symlinks_are_never_followed
 test_remote_archive_round_trip
+test_remote_retirement_requires_preparation_for_current_endpoint
