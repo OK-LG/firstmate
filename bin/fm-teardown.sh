@@ -323,6 +323,7 @@ teardown_require_source() {  # <path>
   fi
 }
 
+RETAINED_RECORD_HOMES=()
 TASK_RECORDS_ARCHIVE_ATTEMPTED=0
 TASK_RECORDS_RETIRE_MODE=
 teardown_archive_task_records() {
@@ -2714,25 +2715,44 @@ EOF
   printf '%s\n' "$abs_home_path"
 }
 
+teardown_home_archive_destination() {
+  case "$DATA/" in
+    "$1/"*) printf '%s/data/%s\n' "$FM_HOME" "$ID" ;;
+    *) printf '%s/%s\n' "$DATA" "$ID" ;;
+  esac
+}
+
 remove_firstmate_home() {
-  local home=$1 label=$2 expected_id=${3:-} abs_home_path process_event_backup
+  local home=$1 label=$2 expected_id=${3:-} dest=${4:-} abs_home_path process_event_backup keep_home=0 retained
   [ -n "$home" ] || return 0
   [ -e "$home" ] || return 0
   abs_home_path=$(validate_firstmate_home_for_removal "$home" "$label" "$expected_id") || return 1
   [ -n "$abs_home_path" ] || return 0
+  [ -n "$dest" ] || dest=$(teardown_home_archive_destination "$abs_home_path")
+  if ! status_archive_home_records "$abs_home_path" "$dest"; then
+    echo "warning: could not fully archive child records into $dest/children; keeping originals" >&2
+    keep_home=1
+  fi
+  [ "${FM_TEARDOWN_KEEP_RECORDS:-0}" != 1 ] || keep_home=1
+  for retained in "${RETAINED_RECORD_HOMES[@]+"${RETAINED_RECORD_HOMES[@]}"}"; do
+    case "$retained/" in "$abs_home_path/"*) keep_home=1 ;; esac
+  done
   case "$STATE/" in
     "$abs_home_path/"*)
-      teardown_archive_task_records "$FM_HOME/data/$ID"
-      if [ "$TASK_RECORDS_RETIRE_MODE" = keep-status ]; then
-        echo "warning: retaining $abs_home_path because it contains unarchived task records" >&2
-        return 0
-      fi
+      teardown_archive_task_records "$dest"
+      [ "$TASK_RECORDS_RETIRE_MODE" != keep-status ] || keep_home=1
       ;;
   esac
   process_event_backup=$(snapshot_firstmate_home_process_events "$abs_home_path" "$label") || return 1
   if ! cleanup_firstmate_home_process_events "$abs_home_path" "$label"; then
     restore_firstmate_home_process_events "$abs_home_path" "$label" "$process_event_backup" || return $?
     return 1
+  fi
+  if [ "$keep_home" -eq 1 ]; then
+    [ -z "$process_event_backup" ] || rm -rf -- "$process_event_backup"
+    RETAINED_RECORD_HOMES+=("$abs_home_path")
+    echo "warning: retaining $abs_home_path because it contains unarchived task records" >&2
+    return 0
   fi
   # Read-only strip dirs sit at state/<id>.git-hooks, and a remote secondmate's
   # own one under state/parent-route/, so search the whole state tree.
@@ -3273,7 +3293,8 @@ endpoint_close_refusal() {  # <subject> <backend> <target> <honors-force>
 }
 
 cleanup_firstmate_home_children() {
-  local home=$1 sub_state child_meta child_id child_t child_wt child_proj child_kind child_home child_backend child_orca_worktree_id child_return_rc child_busy_gen child_owner_rc
+  local home=$1 dest=${2:-} sub_state child_meta child_id child_t child_wt child_proj child_kind child_home child_backend child_orca_worktree_id child_return_rc child_busy_gen child_owner_rc
+  [ -n "$dest" ] || dest=$(teardown_home_archive_destination "$home")
   sub_state="$home/state"
   [ -d "$sub_state" ] || return 0
   for child_meta in "$sub_state"/*.meta; do
@@ -3321,8 +3342,8 @@ cleanup_firstmate_home_children() {
       child_home=$(meta_value "$child_meta" home)
       [ -n "$child_home" ] || child_home=$child_wt
       if [ -n "$child_home" ] && [ -d "$child_home" ]; then
-        cleanup_firstmate_home_children "$child_home" || return $?
-        remove_firstmate_home "$child_home" "child firstmate home" "$child_id" || return $?
+        cleanup_firstmate_home_children "$child_home" "$dest/children/$child_id" || return $?
+        remove_firstmate_home "$child_home" "child firstmate home" "$child_id" "$dest/children/$child_id" || return $?
       fi
     elif [ "$child_backend" = orca ]; then
       if [ -n "$child_wt" ] && [ -d "$child_wt" ]; then
@@ -3373,7 +3394,7 @@ cleanup_firstmate_home_children() {
       child_busy_gen=$(cat "$sub_state/$child_id.busy-gen" 2>/dev/null || true)
     fi
     retire_busy_state "$sub_state" "$child_id" "$child_busy_gen" || return 1
-    status_retire_presentation_task "$sub_state" "$child_id" || return 1
+    status_retire_presentation_task "$sub_state" "$child_id" keep-status || return 1
     fm_wake_queue_prune_task "$sub_state" "$child_id" "$child_t" 2>/dev/null || true
     fm_backlog_atomic_transition remove "$sub_state/$child_id.meta" "task record" "$sub_state" || return 1
     rm -f "$sub_state/$child_id.turn-ended" "$sub_state/$child_id.progress" \

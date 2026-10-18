@@ -411,24 +411,39 @@ cmd_update() {
 }
 
 cmd_archive() {
-  local id=$1 rc=0
+  local id=$1 rc=0 archive
   validate_id "$id"
   validate_home "$id" yes || rc=$?
   if [ "$rc" -eq 2 ]; then printf '{}\n'; return 0; fi
   status_archive_task_records "$CONTROL_STATE" "$id" "$FM_ROOT/data/$id" || return 1
-  if [ -z "$STATUS_ARCHIVE_DIR" ]; then printf '{}\n'; return 0; fi
-  perl -MJSON::PP -MMIME::Base64=encode_base64 -e '
-    my $root = shift;
-    chdir $root or die "$root: $!";
+  archive=$STATUS_ARCHIVE_DIR
+  status_archive_home_records "$TARGET_HOME" "$FM_ROOT/data/$id" || return 1
+  perl -MJSON::PP -MMIME::Base64=encode_base64 -MFile::Find=find -e '
+    my ($root, $children) = @ARGV;
     my %records;
-    for my $path (glob("status.log"), glob("inbox/*.msg"), glob("inbox/handled/*.msg")) {
-      next unless -f $path;
+    sub add_record {
+      my ($path, $name) = @_;
+      -l $path and die "symlinked archive source";
+      return if -d $path;
+      -f $path or die "invalid archive source";
       open my $input, "<", $path or die "$path: $!";
       local $/;
-      $records{$path} = encode_base64(<$input> // "", "");
+      $records{$name} = encode_base64(<$input> // "", "");
+    }
+    if (length $root) {
+      chdir $root or die "$root: $!";
+      for my $path (glob("status.log"), glob("inbox/*.msg"), glob("inbox/handled/*.msg")) {
+        next unless -e $path || -l $path;
+        add_record($path, $path);
+      }
+    }
+    if (-d $children) {
+      find({no_chdir => 1, wanted => sub {
+        add_record($File::Find::name, "children/" . substr($File::Find::name, length($children) + 1));
+      }}, $children);
     }
     print encode_json(\%records), "\n";
-  ' "$STATUS_ARCHIVE_DIR"
+  ' "$archive" "$FM_ROOT/data/$id/children"
 }
 
 cmd_retire() {

@@ -119,6 +119,13 @@ test_remote_archive_round_trip() {
   printf 't1\n' > "$d/home/.fm-secondmate-home"
   : > "$d/home/AGENTS.md"
   cp -R "$d/state/." "$d/home/state/parent-route/"
+  mkdir -p "$d/home/state/child.inbox/handled" "$d/home/data/child/runs/old/inbox/handled"
+  printf 'done: child current run\n' > "$d/home/state/child.status"
+  printf 'child current steer\n' > "$d/home/state/child.inbox/handled/001.msg"
+  printf 'done: child earlier run\n' > "$d/home/data/child/runs/old/status.log"
+  printf 'child earlier steer\n' > "$d/home/data/child/runs/old/inbox/handled/001.msg"
+  mkdir -p "$d/home/data/oldmate/children/grandchild/runs/old"
+  printf 'done: archived grandchild\n' > "$d/home/data/oldmate/children/grandchild/runs/old/status.log"
   FM_HOME="$d/home" FM_ROOT_OVERRIDE="$d/root" bash "$ROOT/bin/fm-remote-secondmate-control.sh" archive t1 \
     > "$d/payload.json" || fail "remote archive export failed"
   status_archive_import "$d/data/t1" "$d/payload.json" || fail "remote archive import failed"
@@ -128,6 +135,22 @@ test_remote_archive_round_trip() {
     || fail "remote handled inbox changed during transfer"
   cmp -s "$d/state/t1.inbox/002.msg" "$archive/inbox/002.msg" \
     || fail "remote pending inbox changed during transfer"
+  [ "$(find "$d/data/t1/children/child/runs" -name status.log | wc -l | tr -d ' ')" = 2 ] \
+    || fail "remote transfer lost a child run"
+  grep -l 'child current run' "$d/data/t1/children/child/runs/"*/status.log >/dev/null \
+    || fail "remote transfer lost current child status"
+  grep -l 'child earlier run' "$d/data/t1/children/child/runs/"*/status.log >/dev/null \
+    || fail "remote transfer lost previous child status"
+  grep -l 'child current steer' "$d/data/t1/children/child/runs/"*/inbox/handled/001.msg >/dev/null \
+    || fail "remote transfer lost current child inbox"
+  grep -l 'child earlier steer' "$d/data/t1/children/child/runs/"*/inbox/handled/001.msg >/dev/null \
+    || fail "remote transfer lost previous child inbox"
+  grep -l 'archived grandchild' "$d/data/t1/children/oldmate/children/grandchild/runs/"*/status.log >/dev/null \
+    || fail "remote transfer lost a nested archived history"
+  printf '{"children/../runs/old/status.log":"eA=="}\n' > "$d/unsafe-child.json"
+  if status_archive_import "$d/data/t1" "$d/unsafe-child.json" 2>/dev/null; then
+    fail "import accepted a child traversal path"
+  fi
   printf '{"../escape":"eA=="}\n' > "$d/unsafe.json"
   if status_archive_import "$d/data/t1" "$d/unsafe.json" 2>/dev/null; then
     fail "import accepted a traversal path"

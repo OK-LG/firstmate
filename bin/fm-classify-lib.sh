@@ -1722,24 +1722,108 @@ status_archive_run_create() {
   STATUS_ARCHIVE_DIR=$(umask 077 && mktemp -d "$dest/runs/$stamp.XXXXXX")
 }
 
+_status_archive_copy_tree() {
+  local src=$1 dest=$2 entry name rc=0
+  [ -d "$src" ] && [ ! -L "$src" ] && [ ! -L "$dest" ] || return 1
+  (umask 077 && mkdir -p -- "$dest") || return 1
+  for entry in "$src"/* "$src"/.[!.]* "$src"/..?*; do
+    [ -e "$entry" ] || [ -L "$entry" ] || continue
+    name=${entry##*/}
+    if [ -d "$entry" ]; then
+      _status_archive_copy_tree "$entry" "$dest/$name" || rc=1
+    else
+      _status_archive_copy "$entry" "$dest/$name" || rc=1
+    fi
+  done
+  return "$rc"
+}
+
+status_archive_task_history() {
+  local src=$1 dest=$2 run child rc=0
+  [ ! -L "$src" ] && [ ! -L "$src/runs" ] && [ ! -L "$src/children" ] \
+    && [ ! -L "$dest" ] && [ ! -L "$dest/children" ] || return 1
+  for run in "$src/runs"/*; do
+    [ -e "$run" ] || [ -L "$run" ] || continue
+    if status_archive_run_create "$dest"; then
+      _status_archive_copy_tree "$run" "$STATUS_ARCHIVE_DIR" || rc=1
+    else
+      rc=1
+    fi
+  done
+  for child in "$src/children"/*; do
+    [ -e "$child" ] || [ -L "$child" ] || continue
+    status_archive_task_history "$child" "$dest/children/${child##*/}" || rc=1
+  done
+  return "$rc"
+}
+
+status_archive_home_records() {
+  local home=$1 dest=$2 visited=${3:-} src task child_home rc=0 seen=$'\n'
+  home=$(cd "$home" && pwd -P) || return 1
+  case "$visited" in *$'\n'"$home"$'\n'*) return 1 ;; esac
+  visited="$visited"$'\n'"$home"$'\n'
+  [ ! -L "$home/state" ] && [ ! -L "$home/data" ] \
+    && [ ! -L "$dest" ] && [ ! -L "$dest/children" ] || return 1
+  for src in "$home/state"/*.status "$home/state"/*.inbox "$home/state"/*.meta "$home/data"/*; do
+    [ -e "$src" ] || [ -L "$src" ] || continue
+    task=${src##*/}
+    case "$src" in
+      "$home/state/"*) task=${task%.*} ;;
+      *) [ -d "$src" ] || [ -L "$src" ] || continue ;;
+    esac
+    case "$task" in ''|.|..|*[!A-Za-z0-9._-]*) rc=1; continue ;; esac
+    case "$seen" in *$'\n'"$task"$'\n'*) continue ;; esac
+    seen="$seen$task"$'\n'
+    status_archive_task_records "$home/state" "$task" "$dest/children/$task" || rc=1
+    status_archive_task_history "$home/data/$task" "$dest/children/$task" || rc=1
+    if [ -f "$home/state/$task.meta" ] \
+      && [ "$(fm_meta_get "$home/state/$task.meta" kind)" = secondmate ]; then
+      child_home=$(fm_meta_get "$home/state/$task.meta" home)
+      [ -n "$child_home" ] || child_home=$(fm_meta_get "$home/state/$task.meta" worktree)
+      if [ -d "$child_home" ]; then
+        status_archive_home_records "$child_home" "$dest/children/$task" "$visited" || rc=1
+      fi
+    fi
+  done
+  return "$rc"
+}
+
 status_archive_import() {
   local dest=$1 payload=$2
   status_archive_run_create "$dest" || return 1
-  perl -MJSON::PP -MMIME::Base64=decode_base64 -MFile::Path=make_path -MFcntl=:DEFAULT -e '
-    my ($dest, $payload) = @ARGV;
+  perl -MJSON::PP -MMIME::Base64=decode_base64 -MFile::Path=make_path -MFile::Temp=tempdir -MPOSIX=strftime -MFcntl=:DEFAULT -e '
+    my ($dest, $payload, $task_dest) = @ARGV;
+    my %runs;
     open my $input, "<", $payload or die "$payload: $!";
     local $/;
     my $records = decode_json(<$input>);
     ref($records) eq "HASH" or die "invalid archive";
     umask 0077;
     for my $name (sort keys %$records) {
-      $name =~ /\A(?:status\.log|inbox\/(?:handled\/)?[0-9]+\.msg)\z/
+      my $component = qr/(?!\.\.?\/)[A-Za-z0-9._-]+/;
+      $name =~ /\A((?:children\/$component\/)+runs\/$component\/)?(status\.log|inbox\/(?:handled\/)?[0-9]+\.msg)\z/
         or die "invalid archive path";
+      my ($run, $record) = ($1, $2);
       my $encoded = $records->{$name};
       !ref($encoded) && defined($encoded)
         && $encoded =~ /\A(?:[A-Za-z0-9+\/]{4})*(?:[A-Za-z0-9+\/]{2}==|[A-Za-z0-9+\/]{3}=)?\z/
         or die "invalid archive content";
-      my $path = "$dest/$name";
+      my $record_dest = $dest;
+      if (defined $run) {
+        if (!exists $runs{$run}) {
+          my $parent = $run;
+          $parent =~ s{/[^/]+/$}{};
+          my $dir = $task_dest;
+          for my $part (split m{/}, $parent) {
+            $dir .= "/$part";
+            -l $dir and die "symlinked archive destination";
+            make_path($dir);
+          }
+          $runs{$run} = tempdir(strftime("%Y%m%dT%H%M%SZ", gmtime) . ".XXXXXX", DIR => $dir);
+        }
+        $record_dest = $runs{$run};
+      }
+      my $path = "$record_dest/$record";
       my $parent = $path;
       $parent =~ s{/[^/]+$}{};
       make_path($parent);
@@ -1747,7 +1831,7 @@ status_archive_import() {
       print {$output} decode_base64($encoded) or die "$path: $!";
       close $output or die "$path: $!";
     }
-  ' "$STATUS_ARCHIVE_DIR" "$payload"
+  ' "$STATUS_ARCHIVE_DIR" "$payload" "$dest"
 }
 
 status_archive_task_records() {  # <state> <task-id> <dest-dir>

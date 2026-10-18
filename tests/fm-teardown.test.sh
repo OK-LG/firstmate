@@ -914,7 +914,7 @@ test_teardown_archive_failure_warns_and_still_cleans_up() {
 
 test_teardown_nested_control_records_survive_home_removal() {
   local case_dir home archive rc failure
-  for failure in no yes; do
+  for failure in no yes sweep; do
     case_dir=$(make_case "nested-records-$failure")
     write_meta "$case_dir" local-only secondmate
     home="$case_dir/secondmate-home"
@@ -925,14 +925,46 @@ test_teardown_nested_control_records_survive_home_removal() {
     printf 'done: remote complete\n' > "$home/state/parent-route/task-x1.status"
     mkdir -p "$home/state/parent-route/task-x1.inbox/handled"
     printf 'remote steer\n' > "$home/state/parent-route/task-x1.inbox/handled/001.msg"
-    if [ "$failure" = yes ]; then printf 'blocked\n' > "$case_dir/parent/data/task-x1"; fi
+    if [ "$failure" != no ]; then printf 'blocked\n' > "$case_dir/parent/data/task-x1"; fi
+    mkdir -p "$home/bin" "$home/state/procevent" "$case_dir/claims"
+    printf 'registration\n' > "$home/state/procevent/listener.source"
+    printf 'runner\n' > "$home/state/procevent/listener.runner"
+    printf '%s\n' "$home" > "$case_dir/claims/listener.claim"
+    cat > "$home/bin/fm-procevent.sh" <<'SH'
+#!/usr/bin/env bash
+case "$1:${2:-}" in
+  sweep-home:--preflight) exit 0 ;;
+  sweep-home:)
+    printf 'swept\n' >> "$FM_TEST_SWEEP_LOG"
+    [ "$FM_TEST_SWEEP_FAILURE" != sweep ] || exit 1
+    rm -f "$FM_HOME/state/procevent/listener.source" "$FM_HOME/state/procevent/listener.runner" \
+      "$FM_PROCEVENT_CLAIM_ROOT/listener.claim"
+    ;;
+  reconcile:) printf 'restored\n' >> "$FM_TEST_SWEEP_LOG" ;;
+  *) exit 2 ;;
+esac
+SH
+    chmod +x "$home/bin/fm-procevent.sh"
     rc=0
-    FM_HOME="$case_dir/parent" FM_ROOT_OVERRIDE="$ROOT" \
+    FM_TEST_SWEEP_LOG="$case_dir/sweep.log" FM_TEST_SWEEP_FAILURE="$failure" \
+      FM_PROCEVENT_CLAIM_ROOT="$case_dir/claims" FM_HOME="$case_dir/parent" FM_ROOT_OVERRIDE="$ROOT" \
       FM_STATE_OVERRIDE="$home/state/parent-route" FM_DATA_OVERRIDE="$home/data/.parent-route" \
       FM_CONFIG_OVERRIDE="$home/config" FM_TEARDOWN_GUARD_DONE=1 \
       PATH="$case_dir/fakebin:$PATH" "$TEARDOWN" task-x1 \
       > "$case_dir/stdout" 2> "$case_dir/stderr" || rc=$?
+    assert_grep 'swept' "$case_dir/sweep.log" "archive failure skipped listener cleanup"
+    if [ "$failure" = sweep ]; then
+      [ "$rc" -ne 0 ] || fail "listener cleanup failure was reported as successful retirement"
+      assert_present "$home/state/parent-route/task-x1.meta" "listener failure lost retirement metadata"
+      assert_present "$home/state/procevent/listener.source" "listener failure lost registration"
+      assert_present "$case_dir/claims/listener.claim" "listener failure lost claim"
+      assert_grep 'done: remote complete' "$home/state/parent-route/task-x1.status" "listener failure lost status"
+      continue
+    fi
     expect_code 0 "$rc" "nested control cleanup failed: $(cat "$case_dir/stderr")"
+    assert_absent "$home/state/procevent/listener.source" "retirement left listener registration"
+    assert_absent "$home/state/procevent/listener.runner" "retirement left listener runner"
+    assert_absent "$case_dir/claims/listener.claim" "retirement left listener claim"
     if [ "$failure" = no ]; then
       assert_absent "$home" "nested cleanup left the retired home"
       archive=$(find "$case_dir/parent/data/task-x1/runs" -mindepth 1 -maxdepth 1 -type d)
@@ -1014,6 +1046,79 @@ SH
     fi
   done
   pass "remote teardown saves records in the parent before deletion and retains originals on transfer failure"
+}
+
+test_secondmate_retirement_keeps_child_history() {
+  local case_dir home mode rc child nested_home
+  for mode in forced completed failure nested; do
+    case_dir=$(make_case "child-history-$mode")
+    write_meta "$case_dir" local-only secondmate
+    configure_secondmate_with_tmux_children "$case_dir"
+    home="$case_dir/secondmate-home"
+    for child in child-a child-b; do
+      printf 'done: current %s\n' "$child" > "$home/state/$child.status"
+      mkdir -p "$home/state/$child.inbox/handled" "$home/data/$child/runs/earlier/inbox/handled"
+      printf 'current steer %s\n' "$child" > "$home/state/$child.inbox/handled/001.msg"
+      printf 'done: earlier %s\n' "$child" > "$home/data/$child/runs/earlier/status.log"
+      printf 'earlier steer %s\n' "$child" > "$home/data/$child/runs/earlier/inbox/handled/001.msg"
+    done
+    if [ "$mode" = nested ]; then
+      nested_home="$case_dir/nested-home"
+      mkdir -p "$nested_home/state" "$nested_home/data/grandchild/runs/old" "$nested_home/config" "$nested_home/projects"
+      printf 'child-a\n' > "$nested_home/.fm-secondmate-home"
+      printf 'done: nested current\n' > "$nested_home/state/grandchild.status"
+      printf 'done: nested earlier\n' > "$nested_home/data/grandchild/runs/old/status.log"
+      fm_write_meta "$home/state/child-a.meta" \
+        "window=firstmate:fm-child-a" "endpoint_task_id=child-a" \
+        "worktree=$nested_home" "home=$nested_home" "project=$case_dir/project" "kind=secondmate" "mode=local-only"
+    fi
+    mkdir -p "$home/data/finished/runs/old"
+    printf 'done: already retired\n' > "$home/data/finished/runs/old/status.log"
+    if [ "$mode" = completed ]; then rm -f "$home/state/"*.meta; fi
+    if [ "$mode" = failure ]; then
+      mkdir -p "$case_dir/data/task-x1"
+      printf 'blocked\n' > "$case_dir/data/task-x1/children"
+    fi
+    rc=0
+    if [ "$mode" = completed ]; then
+      run_teardown "$case_dir" > "$case_dir/stdout" 2> "$case_dir/stderr" || rc=$?
+    else
+      run_teardown "$case_dir" --force > "$case_dir/stdout" 2> "$case_dir/stderr" || rc=$?
+    fi
+    expect_code 0 "$rc" "child history cleanup failed: $(cat "$case_dir/stderr")"
+    assert_absent "$case_dir/state/task-x1.meta" "child archive failure blocked parent metadata cleanup"
+    if [ "$mode" = failure ]; then
+      for child in child-a child-b; do
+        assert_grep "current $child" "$home/state/$child.status" "failed archive lost child status"
+        assert_grep "current steer $child" "$home/state/$child.inbox/handled/001.msg" "failed archive lost child inbox"
+        assert_grep "earlier $child" "$home/data/$child/runs/earlier/status.log" "failed archive lost previous run"
+        assert_absent "$home/state/$child.meta" "failed archive blocked child metadata cleanup"
+      done
+      assert_grep 'keeping originals' "$case_dir/stderr" "failed child archive did not warn"
+      continue
+    fi
+    assert_absent "$home" "successful child archive left secondmate home"
+    if [ "$mode" = nested ]; then
+      assert_absent "$nested_home" "successful grandchild archive left nested home"
+      grep -l 'nested current' "$case_dir/data/task-x1/children/child-a/children/grandchild/runs/"*/status.log >/dev/null \
+        || fail "nested home retirement lost grandchild status"
+      grep -l 'nested earlier' "$case_dir/data/task-x1/children/child-a/children/grandchild/runs/"*/status.log >/dev/null \
+        || fail "nested home retirement lost previous grandchild run"
+    fi
+    for child in child-a child-b; do
+      grep -l "done: current $child" "$case_dir/data/task-x1/children/$child/runs/"*/status.log >/dev/null \
+        || fail "home retirement lost current child status"
+      grep -l "done: earlier $child" "$case_dir/data/task-x1/children/$child/runs/"*/status.log >/dev/null \
+        || fail "home retirement lost previous child status"
+      grep -l "current steer $child" "$case_dir/data/task-x1/children/$child/runs/"*/inbox/handled/001.msg >/dev/null \
+        || fail "home retirement lost current child inbox"
+      grep -l "earlier steer $child" "$case_dir/data/task-x1/children/$child/runs/"*/inbox/handled/001.msg >/dev/null \
+        || fail "home retirement lost previous child inbox"
+    done
+    grep -l 'already retired' "$case_dir/data/task-x1/children/finished/runs/"*/status.log >/dev/null \
+      || fail "home retirement lost an already retired task history"
+  done
+  pass "secondmate retirement preserves current and completed child histories, including on copy failure"
 }
 
 test_no_mistakes_truly_unpushed_refuses() {
@@ -4459,12 +4564,6 @@ test_retained_sources_still_reach_the_ordinary_refusal() {
   pass "present required sources still reach the ordinary teardown refusal"
 }
 
-if [ "$#" -gt 0 ]; then
-  for selected_test in "$@"; do
-    case "$selected_test" in test_*) "$selected_test" ;; *) fail "invalid test: $selected_test" ;; esac
-  done
-  exit 0
-fi
 
 test_missing_startup_source_refuses_before_cleanup
 test_unreadable_startup_source_refuses_before_cleanup
@@ -4481,6 +4580,7 @@ test_local_only_merged_to_local_main_allows
 test_no_mistakes_origin_remote_allows
 test_teardown_archives_status_log_and_inbox
 test_teardown_nested_control_records_survive_home_removal
+test_secondmate_retirement_keeps_child_history
 test_teardown_remote_records_reach_parent_before_retirement
 test_teardown_archive_failure_warns_and_still_cleans_up
 test_no_mistakes_truly_unpushed_refuses
