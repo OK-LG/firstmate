@@ -1758,13 +1758,11 @@ status_archive_task_history() {
 }
 
 status_archive_home_records() {
-  local home=$1 dest=$2 visited=${3:-} src task child_home rc=0 seen=$'\n'
+  local home=$1 dest=$2 src task rc=0 seen=$'\n'
   home=$(cd "$home" && pwd -P) || return 1
-  case "$visited" in *$'\n'"$home"$'\n'*) return 1 ;; esac
-  visited="$visited"$'\n'"$home"$'\n'
   [ ! -L "$home/state" ] && [ ! -L "$home/data" ] \
     && [ ! -L "$dest" ] && [ ! -L "$dest/children" ] || return 1
-  for src in "$home/state"/*.status "$home/state"/*.inbox "$home/state"/*.meta "$home/data"/*; do
+  for src in "$home/state"/*.status "$home/state"/*.inbox "$home/data"/*; do
     [ -e "$src" ] || [ -L "$src" ] || continue
     task=${src##*/}
     case "$src" in
@@ -1776,14 +1774,6 @@ status_archive_home_records() {
     seen="$seen$task"$'\n'
     status_archive_task_records "$home/state" "$task" "$dest/children/$task" || rc=1
     status_archive_task_history "$home/data/$task" "$dest/children/$task" || rc=1
-    if [ -f "$home/state/$task.meta" ] \
-      && [ "$(fm_meta_get "$home/state/$task.meta" kind)" = secondmate ]; then
-      child_home=$(fm_meta_get "$home/state/$task.meta" home)
-      [ -n "$child_home" ] || child_home=$(fm_meta_get "$home/state/$task.meta" worktree)
-      if [ -d "$child_home" ]; then
-        status_archive_home_records "$child_home" "$dest/children/$task" "$visited" || rc=1
-      fi
-    fi
   done
   return "$rc"
 }
