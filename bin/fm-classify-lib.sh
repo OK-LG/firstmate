@@ -1760,7 +1760,7 @@ status_archive_task_history() {
 status_archive_home_records() {
   local home=$1 dest=$2 src task rc=0 seen=$'\n'
   home=$(cd "$home" && pwd -P) || return 1
-  [ ! -L "$home/state" ] && [ ! -L "$home/data" ] \
+  [ ! -L "$home/state" ] \
     && [ ! -L "$dest" ] && [ ! -L "$dest/children" ] || return 1
   for src in "$home/state"/*.status "$home/state"/*.inbox "$home/data"/*; do
     [ -e "$src" ] || [ -L "$src" ] || continue
