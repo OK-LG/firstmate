@@ -12,8 +12,7 @@
 #   fm-remote-secondmate-control.sh observe <id>
 #   fm-remote-secondmate-control.sh sync <id> [<parent-commit>]
 #   fm-remote-secondmate-control.sh update <id>
-#   fm-remote-secondmate-control.sh archive <id>
-#   fm-remote-secondmate-control.sh retire <id> --prepare|--commit [--force]
+#   fm-remote-secondmate-control.sh retire <id> [--force]
 #
 # Remote placement ends here, but the second-mate agent always runs on the
 # Herdr backend in the dedicated fm-remote session, so launch refuses any other
@@ -410,88 +409,28 @@ cmd_update() {
   cmd_sync "$id"
 }
 
-cmd_archive() {
-  local id=$1 rc=0 archive
-  validate_id "$id"
-  validate_home "$id" yes || rc=$?
-  if [ "$rc" -eq 2 ]; then printf '{}\n'; return 0; fi
-  status_archive_task_records "$CONTROL_STATE" "$id" "$FM_ROOT/data/$id" || return 1
-  archive=$STATUS_ARCHIVE_DIR
-  status_archive_home_records "$TARGET_HOME" "$FM_ROOT/data/$id" || return 1
-  perl -MJSON::PP -MMIME::Base64=encode_base64 -MFile::Find=find -e '
-    my ($root, $children) = @ARGV;
-    my %records;
-    sub add_record {
-      my ($path, $name) = @_;
-      -l $path and die "symlinked archive source";
-      return if -d $path;
-      -f $path or die "invalid archive source";
-      open my $input, "<", $path or die "$path: $!";
-      local $/;
-      $records{$name} = encode_base64(<$input> // "", "");
-    }
-    if (length $root) {
-      chdir $root or die "$root: $!";
-      for my $path (glob("status.log"), glob("inbox/*.msg"), glob("inbox/handled/*.msg")) {
-        next unless -e $path || -l $path;
-        add_record($path, $path);
-      }
-    }
-    if (-d $children) {
-      find({no_chdir => 1, wanted => sub {
-        add_record($File::Find::name, "children/" . substr($File::Find::name, length($children) + 1));
-      }}, $children);
-    }
-    print encode_json(\%records), "\n";
-  ' "$archive" "$FM_ROOT/data/$id/children"
-}
-
 cmd_retire() {
-  local id=$1 force= rc phase= prepare=0 receipt meta tmp
-  shift
-  while [ "$#" -gt 0 ]; do
-    case "$1" in
-      --force) force=--force ;;
-      --prepare|--commit) [ -z "$phase" ] || usage; phase=$1 ;;
-      *) usage ;;
-    esac
-    shift
-  done
-  [ -n "$phase" ] || usage
+  local id=$1 force=${2:-} rc
   validate_id "$id"
   validate_home "$id" yes || rc=$?
   if [ "${rc:-0}" -eq 2 ]; then
     printf 'already-retired: %s\n' "$id"
     return 0
   fi
+  [ -z "$force" ] || [ "$force" = --force ] || usage
   remote_endpoint_require "$id"
-  meta=$(meta_path "$id")
-  [ "$(fm_meta_get "$meta" kind)" = secondmate ] || die "retirement requires a secondmate endpoint"
-  receipt="$CONTROL_STATE/.$id.retirement-prepared"
-  if [ "$phase" = --prepare ]; then
-    prepare=1
-    rm -f -- "$receipt"
-  else
-    [ -f "$receipt" ] && [ ! -L "$receipt" ] && cmp -s "$meta" "$receipt" \
-      || die "retirement was not prepared for the current endpoint; prepare and archive it before committing"
-  fi
   FM_HOME="$TARGET_HOME" FM_ROOT_OVERRIDE="$FM_ROOT" FM_STATE_OVERRIDE="$TARGET_HOME/state" \
     FM_CONFIG_OVERRIDE="$TARGET_HOME/config" "$SCRIPT_DIR/fm-guard.sh" || true
-  local -a args
-  args=("$id")
-  [ -z "$force" ] || args+=(--force)
-  FM_HOME="$FM_ROOT" FM_ROOT_OVERRIDE="$FM_ROOT" \
-    FM_STATE_OVERRIDE="$CONTROL_STATE" FM_DATA_OVERRIDE="$CONTROL_DATA" \
-    FM_CONFIG_OVERRIDE="$TARGET_HOME/config" FM_TEARDOWN_GUARD_DONE=1 FM_TEARDOWN_REMOTE_PREPARE="$prepare" \
-    "$SCRIPT_DIR/fm-teardown.sh" "${args[@]}" || return $?
-  if [ "$prepare" -eq 1 ]; then
-    tmp=$(umask 077 && mktemp "$CONTROL_STATE/.retirement-prepared.XXXXXX") || return 1
-    if ! cp -- "$meta" "$tmp" || ! mv -f -- "$tmp" "$receipt"; then
-      rm -f -- "$tmp"
-      return 1
-    fi
+  if [ -n "$force" ]; then
+    FM_HOME="$FM_ROOT" FM_ROOT_OVERRIDE="$FM_ROOT" \
+      FM_STATE_OVERRIDE="$CONTROL_STATE" FM_DATA_OVERRIDE="$CONTROL_DATA" \
+      FM_CONFIG_OVERRIDE="$TARGET_HOME/config" FM_TEARDOWN_GUARD_DONE=1 \
+      "$SCRIPT_DIR/fm-teardown.sh" "$id" --force
   else
-    rm -f -- "$receipt"
+    FM_HOME="$FM_ROOT" FM_ROOT_OVERRIDE="$FM_ROOT" \
+      FM_STATE_OVERRIDE="$CONTROL_STATE" FM_DATA_OVERRIDE="$CONTROL_DATA" \
+      FM_CONFIG_OVERRIDE="$TARGET_HOME/config" FM_TEARDOWN_GUARD_DONE=1 \
+      "$SCRIPT_DIR/fm-teardown.sh" "$id"
   fi
 }
 
@@ -506,8 +445,7 @@ case "${1:-}" in
   observe) shift; [ "$#" -eq 1 ] || usage; cmd_observe "$@" ;;
   sync) shift; [ "$#" -ge 1 ] && [ "$#" -le 2 ] || usage; cmd_sync "$@" ;;
   update) shift; [ "$#" -eq 1 ] || usage; cmd_update "$@" ;;
-  archive) shift; [ "$#" -eq 1 ] || usage; cmd_archive "$1" ;;
-  retire) shift; [ "$#" -ge 1 ] && [ "$#" -le 3 ] || usage; cmd_retire "$@" ;;
+  retire) shift; [ "$#" -ge 1 ] && [ "$#" -le 2 ] || usage; cmd_retire "$@" ;;
   ''|-h|--help|help) usage ;;
   *) die "unknown command: $1" ;;
 esac

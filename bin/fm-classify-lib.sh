@@ -1788,52 +1788,6 @@ status_archive_home_records() {
   return "$rc"
 }
 
-status_archive_import() {
-  local dest=$1 payload=$2
-  status_archive_run_create "$dest" || return 1
-  perl -MJSON::PP -MMIME::Base64=decode_base64 -MFile::Path=make_path -MFile::Temp=tempdir -MPOSIX=strftime -MFcntl=:DEFAULT -e '
-    my ($dest, $payload, $task_dest) = @ARGV;
-    my %runs;
-    open my $input, "<", $payload or die "$payload: $!";
-    local $/;
-    my $records = decode_json(<$input>);
-    ref($records) eq "HASH" or die "invalid archive";
-    umask 0077;
-    for my $name (sort keys %$records) {
-      my $component = qr/(?!\.\.?\/)[A-Za-z0-9._-]+/;
-      $name =~ /\A((?:children\/$component\/)+runs\/$component\/)?(status\.log|inbox\/(?:handled\/)?[0-9]+\.msg)\z/
-        or die "invalid archive path";
-      my ($run, $record) = ($1, $2);
-      my $encoded = $records->{$name};
-      !ref($encoded) && defined($encoded)
-        && $encoded =~ /\A(?:[A-Za-z0-9+\/]{4})*(?:[A-Za-z0-9+\/]{2}==|[A-Za-z0-9+\/]{3}=)?\z/
-        or die "invalid archive content";
-      my $record_dest = $dest;
-      if (defined $run) {
-        if (!exists $runs{$run}) {
-          my $parent = $run;
-          $parent =~ s{/[^/]+/$}{};
-          my $dir = $task_dest;
-          for my $part (split m{/}, $parent) {
-            $dir .= "/$part";
-            -l $dir and die "symlinked archive destination";
-            make_path($dir);
-          }
-          $runs{$run} = tempdir(strftime("%Y%m%dT%H%M%SZ", gmtime) . ".XXXXXX", DIR => $dir);
-        }
-        $record_dest = $runs{$run};
-      }
-      my $path = "$record_dest/$record";
-      my $parent = $path;
-      $parent =~ s{/[^/]+$}{};
-      make_path($parent);
-      sysopen my $output, $path, O_WRONLY | O_CREAT | O_EXCL, 0600 or die "$path: $!";
-      print {$output} decode_base64($encoded) or die "$path: $!";
-      close $output or die "$path: $!";
-    }
-  ' "$STATUS_ARCHIVE_DIR" "$payload" "$dest"
-}
-
 status_archive_task_records() {  # <state> <task-id> <dest-dir>
   local state=$1 task=$2 dest=$3 inbox sub src name rc=0
   STATUS_ARCHIVE_DIR=

@@ -324,14 +324,12 @@ teardown_require_source() {  # <path>
 }
 
 RETAINED_RECORD_HOMES=()
-TASK_RECORDS_ARCHIVE_ATTEMPTED=0
+TASK_RECORDS_LOCAL=1
 TASK_RECORDS_RETIRE_MODE=
 teardown_archive_task_records() {
-  local dest=${1:-$DATA/$ID}
-  [ "$TASK_RECORDS_ARCHIVE_ATTEMPTED" -eq 0 ] || return 0
-  TASK_RECORDS_ARCHIVE_ATTEMPTED=1
-  if [ "${FM_TEARDOWN_KEEP_RECORDS:-0}" = 1 ] \
-    || ! status_archive_task_records "$STATE" "$ID" "$dest"; then
+  local dest=$DATA/$ID
+  [ "$TASK_RECORDS_LOCAL" -eq 1 ] || return 0
+  if ! status_archive_task_records "$STATE" "$ID" "$dest"; then
     TASK_RECORDS_RETIRE_MODE=keep-status
     echo "warning: could not fully archive the status log and inbox of $ID into $dest; keeping originals" >&2
   fi
@@ -1038,8 +1036,7 @@ remote_outbox_cleanup() {
 }
 
 remote_secondmate_teardown() {
-  local remote_host remote_root remote_home kind route_host route_root route_home out rc tmp payload
-  local -a retire_args
+  local remote_host remote_root remote_home kind route_host route_root route_home out rc tmp
   remote_host=$(fm_meta_get "$META" remote_host)
   [ -n "$remote_host" ] || return 3
   kind=$(fm_meta_get "$META" kind)
@@ -1068,24 +1065,11 @@ remote_secondmate_teardown() {
     return 1
   }
   "$FM_ROOT/bin/fm-guard.sh" || true
-  retire_args=(retire "$ID")
-  [ "$FORCE" != --force ] || retire_args+=(--force)
-  if out=$("$SCRIPT_DIR/fm-on.sh" "$ID" fm-remote-secondmate-control.sh "${retire_args[@]}" --prepare < /dev/null 2>&1); then rc=0; else rc=$?; fi
-  if [ "$rc" -ne 0 ]; then
-    [ -z "$out" ] || printf '%s\n' "$out" >&2
-    echo "error: remote writers could not be confirmed stopped; preserving the home and route for retry" >&2
-    return "$rc"
+  if [ "$FORCE" = --force ]; then
+    if out=$("$SCRIPT_DIR/fm-on.sh" "$ID" fm-remote-secondmate-control.sh retire "$ID" --force < /dev/null 2>&1); then rc=0; else rc=$?; fi
+  else
+    if out=$("$SCRIPT_DIR/fm-on.sh" "$ID" fm-remote-secondmate-control.sh retire "$ID" < /dev/null 2>&1); then rc=0; else rc=$?; fi
   fi
-  payload=$(umask 077 && mktemp "$STATE/.task-records.XXXXXX") || payload=
-  if [ -z "$payload" ] \
-    || ! "$SCRIPT_DIR/fm-on.sh" "$ID" fm-remote-secondmate-control.sh archive "$ID" > "$payload" \
-    || ! status_archive_import "$DATA/$ID" "$payload"; then
-    [ -z "$payload" ] || rm -f -- "$payload"
-    echo "warning: could not archive final remote records for $ID into $DATA/$ID; keeping the stopped home and route for retry" >&2
-    return 1
-  fi
-  rm -f -- "$payload"
-  if out=$("$SCRIPT_DIR/fm-on.sh" "$ID" fm-remote-secondmate-control.sh "${retire_args[@]}" --commit < /dev/null 2>&1); then rc=0; else rc=$?; fi
   if [ "$rc" -ne 0 ]; then
     [ -z "$out" ] || printf '%s\n' "$out" >&2
     if [ "$rc" -eq 255 ]; then
@@ -1095,7 +1079,6 @@ remote_secondmate_teardown() {
     fi
     return "$rc"
   fi
-  [ -z "$out" ] || printf '%s\n' "$out"
   remote_recovery_paths_validate recheck || {
     echo "error: remote home retired but local recovery paths changed; preserving the local route for retry" >&2
     return 1
@@ -1115,9 +1098,7 @@ remote_secondmate_teardown() {
   grep -vE "^- $ID( |$)" "$SECONDMATE_REG" > "$tmp" || true
   mv -f -- "$tmp" "$SECONDMATE_REG"
   [ ! -e "$CONFIG/fleet-ledger" ] || FM_HOME=$FM_HOME FM_STATE_OVERRIDE=$STATE FM_CONFIG_OVERRIDE=$CONFIG "$SCRIPT_DIR/fm-fleet-ledger.sh" cleaned_up "$ID" || true
-  teardown_archive_task_records
-  status_retire_presentation_task "$STATE" "$ID" "$TASK_RECORDS_RETIRE_MODE" || return 1
-  [ "$TASK_RECORDS_RETIRE_MODE" = keep-status ] || rm -rf -- "$STATE/$ID.inbox"
+  status_retire_presentation_task "$STATE" "$ID" || return 1
   fm_backlog_atomic_transition remove "$STATE/$ID.meta" "task record" "$STATE" || return 1
   rm -f -- "$STATE/$ID.turn-ended" "$STATE/$ID.progress" \
     "$(fm_wake_signal_seen_path "$STATE" "$STATE/$ID.turn-ended")" \
@@ -2721,34 +2702,22 @@ EOF
   printf '%s\n' "$abs_home_path"
 }
 
-teardown_home_archive_destination() {
-  case "$DATA/" in
-    "$1/"*) printf '%s/data/%s\n' "$FM_HOME" "$ID" ;;
-    *) printf '%s/%s\n' "$DATA" "$ID" ;;
-  esac
-}
-
 remove_firstmate_home() {
   local home=$1 label=$2 expected_id=${3:-} dest=${4:-} abs_home_path process_event_backup keep_home=0 retained
   [ -n "$home" ] || return 0
   [ -e "$home" ] || return 0
   abs_home_path=$(validate_firstmate_home_for_removal "$home" "$label" "$expected_id") || return 1
   [ -n "$abs_home_path" ] || return 0
-  [ -n "$dest" ] || dest=$(teardown_home_archive_destination "$abs_home_path")
-  if ! status_archive_home_records "$abs_home_path" "$dest"; then
-    echo "warning: could not fully archive child records into $dest/children; keeping originals" >&2
-    keep_home=1
+  if [ "$TASK_RECORDS_LOCAL" -eq 1 ]; then
+    [ -n "$dest" ] || dest="$DATA/$ID"
+    if ! status_archive_home_records "$abs_home_path" "$dest"; then
+      echo "warning: could not fully archive child records into $dest/children; keeping originals" >&2
+      keep_home=1
+    fi
+    for retained in "${RETAINED_RECORD_HOMES[@]+"${RETAINED_RECORD_HOMES[@]}"}"; do
+      case "$retained/" in "$abs_home_path/"*) keep_home=1 ;; esac
+    done
   fi
-  [ "${FM_TEARDOWN_KEEP_RECORDS:-0}" != 1 ] || keep_home=1
-  for retained in "${RETAINED_RECORD_HOMES[@]+"${RETAINED_RECORD_HOMES[@]}"}"; do
-    case "$retained/" in "$abs_home_path/"*) keep_home=1 ;; esac
-  done
-  case "$STATE/" in
-    "$abs_home_path/"*)
-      teardown_archive_task_records "$dest"
-      [ "$TASK_RECORDS_RETIRE_MODE" != keep-status ] || keep_home=1
-      ;;
-  esac
   process_event_backup=$(snapshot_firstmate_home_process_events "$abs_home_path" "$label") || return 1
   if ! cleanup_firstmate_home_process_events "$abs_home_path" "$label"; then
     restore_firstmate_home_process_events "$abs_home_path" "$label" "$process_event_backup" || return $?
@@ -3299,8 +3268,8 @@ endpoint_close_refusal() {  # <subject> <backend> <target> <honors-force>
 }
 
 cleanup_firstmate_home_children() {
-  local home=$1 dest=${2:-} sub_state child_meta child_id child_t child_wt child_proj child_kind child_home child_backend child_orca_worktree_id child_return_rc child_busy_gen child_owner_rc
-  [ -n "$dest" ] || dest=$(teardown_home_archive_destination "$home")
+  local home=$1 dest=${2:-$DATA/$ID} child_retire_mode= sub_state child_meta child_id child_t child_wt child_proj child_kind child_home child_backend child_orca_worktree_id child_return_rc child_busy_gen child_owner_rc
+  [ "$TASK_RECORDS_LOCAL" -ne 1 ] || child_retire_mode=keep-status
   sub_state="$home/state"
   [ -d "$sub_state" ] || return 0
   for child_meta in "$sub_state"/*.meta; do
@@ -3321,12 +3290,6 @@ cleanup_firstmate_home_children() {
       if [ -n "$child_wt" ] && [ -e "$child_wt" ]; then
         validate_child_worktree_for_removal "$child_wt" "$child_proj" >/dev/null || return 1
       fi
-    fi
-    if [ "${FM_TEARDOWN_REMOTE_PREPARE:-0}" = 1 ] && [ "$child_kind" != secondmate ]; then
-      (
-        ID=$child_id BACKEND=$child_backend T=$child_t
-        reap_task_worktree_processes worktree "$child_wt" "$(meta_value "$child_meta" tasktmp)"
-      ) || return 1
     fi
     if [ -n "$child_t" ]; then
       if [ "$child_backend" = herdr ]; then
@@ -3349,17 +3312,6 @@ cleanup_firstmate_home_children() {
         fm_backend_kill "$child_backend" "$child_t" "$(meta_value "$child_meta" zellij_tab_id)" "fm-$child_id" \
           || { endpoint_close_refusal "child $child_id" "$child_backend" "$child_t" 0; return 1; }
       fi
-    fi
-    if [ "${FM_TEARDOWN_REMOTE_PREPARE:-0}" = 1 ]; then
-      if [ "$child_kind" = secondmate ]; then
-        child_home=$(meta_value "$child_meta" home)
-        [ -n "$child_home" ] || child_home=$child_wt
-        if [ -n "$child_home" ] && [ -d "$child_home" ]; then
-          cleanup_firstmate_home_children "$child_home" "$dest/children/$child_id" || return $?
-          cleanup_firstmate_home_process_events "$child_home" "child firstmate home" || return 1
-        fi
-      fi
-      continue
     fi
     if [ "$child_kind" = secondmate ]; then
       child_home=$(meta_value "$child_meta" home)
@@ -3417,7 +3369,7 @@ cleanup_firstmate_home_children() {
       child_busy_gen=$(cat "$sub_state/$child_id.busy-gen" 2>/dev/null || true)
     fi
     retire_busy_state "$sub_state" "$child_id" "$child_busy_gen" || return 1
-    status_retire_presentation_task "$sub_state" "$child_id" keep-status || return 1
+    status_retire_presentation_task "$sub_state" "$child_id" "$child_retire_mode" || return 1
     fm_wake_queue_prune_task "$sub_state" "$child_id" "$child_t" 2>/dev/null || true
     fm_backlog_atomic_transition remove "$sub_state/$child_id.meta" "task record" "$sub_state" || return 1
     rm -f "$sub_state/$child_id.turn-ended" "$sub_state/$child_id.progress" \
@@ -3459,6 +3411,7 @@ if [ "$KIND" = secondmate ]; then
   LOCAL_HANDOFF_LOCK="$STATE/.backlog-handoff-$ID.lock"
   fm_lock_acquire_wait "$LOCAL_HANDOFF_LOCK" || exit 1
   [ -n "$HOME_PATH" ] || HOME_PATH=$WT
+  case "$STATE/" in "$HOME_PATH/"*) TASK_RECORDS_LOCAL=0 ;; esac
   handoff_wake_retire_stage_recover "$HOME_PATH" || exit 1
   handoff_wake_retire_validate || exit 1
   pending_replies_recovery_validate initial || exit 1
@@ -3492,7 +3445,7 @@ if [ "$KIND" = secondmate ]; then
   preflight_firstmate_home_process_event_tree "$HOME_PATH" "secondmate home" || exit 1
 fi
 
-if [ "$KIND" = secondmate ] && [ "$FORCE" = "--force" ] && [ "${FM_TEARDOWN_REMOTE_PREPARE:-0}" != 1 ]; then
+if [ "$KIND" = secondmate ] && [ "$FORCE" = "--force" ]; then
   cleanup_firstmate_home_children "$HOME_PATH" || exit $?
 fi
 
@@ -3828,14 +3781,6 @@ if [ "$BACKEND" = herdr ]; then
     echo "error: herdr pane $T for $ID is not confirmed gone after its close was refused, skipped, or failed; retaining every durable task record - rerun teardown once the close can run under the session lock" >&2
     exit 1
   fi
-fi
-if [ "$KIND" = secondmate ] && [ "${FM_TEARDOWN_REMOTE_PREPARE:-0}" = 1 ]; then
-  if [ "$FORCE" = --force ]; then
-    cleanup_firstmate_home_children "$HOME_PATH" || exit $?
-  fi
-  cleanup_firstmate_home_process_events "$HOME_PATH" "secondmate home" || exit 1
-  printf 'retirement prepared: %s; writers stopped, home and records retained\n' "$ID"
-  exit 0
 fi
 if [ "$KIND" != secondmate ]; then
   if ! FM_HOME="$FM_HOME" FM_STATE_OVERRIDE="$STATE" FM_DATA_OVERRIDE="$DATA" \
