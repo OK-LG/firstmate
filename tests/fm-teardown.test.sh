@@ -849,6 +849,58 @@ test_no_mistakes_origin_remote_allows() {
   pass "no-mistakes worktree with HEAD on origin is torn down (no regression)"
 }
 
+test_teardown_archives_status_log_and_inbox() {
+  local case_dir rc
+  case_dir=$(make_case archive-records)
+  write_meta "$case_dir" no-mistakes ship
+  wt_commit "$case_dir" "shippable work"
+  git -C "$case_dir/wt" push -q origin fm/task-x1
+  git -C "$case_dir/project" fetch -q origin
+  printf 'working: setup done\ndone: finished\n' > "$case_dir/state/task-x1.status"
+  mkdir -p "$case_dir/state/task-x1.inbox/handled"
+  printf 'schema=fm-task-inbox.v1\n--\nsteer one\n' > "$case_dir/state/task-x1.inbox/handled/001.msg"
+  printf 'schema=fm-task-inbox.v1\n--\nsteer two\n' > "$case_dir/state/task-x1.inbox/002.msg"
+
+  set +e
+  run_teardown "$case_dir" > "$case_dir/stdout" 2> "$case_dir/stderr"
+  rc=$?
+  set -e
+
+  expect_code 0 "$rc" "archive-records: teardown should succeed when HEAD is on origin"
+  assert_absent "$case_dir/state/task-x1.status" "archive-records: live status log was not retired"
+  assert_absent "$case_dir/state/task-x1.inbox" "archive-records: live inbox was not retired"
+  assert_grep 'done: finished' "$case_dir/data/task-x1/status.log" \
+    "archive-records: teardown did not keep the status log"
+  assert_grep 'steer one' "$case_dir/data/task-x1/inbox/handled/001.msg" \
+    "archive-records: teardown did not keep the handled inbox record"
+  assert_grep 'steer two' "$case_dir/data/task-x1/inbox/002.msg" \
+    "archive-records: teardown did not keep the pending inbox record"
+  pass "teardown keeps the status log and inbox records in the task's data folder"
+}
+
+test_teardown_archive_failure_warns_and_still_cleans_up() {
+  local case_dir rc
+  case_dir=$(make_case archive-failure)
+  write_meta "$case_dir" no-mistakes ship
+  wt_commit "$case_dir" "shippable work"
+  git -C "$case_dir/wt" push -q origin fm/task-x1
+  git -C "$case_dir/project" fetch -q origin
+  printf 'done: finished\n' > "$case_dir/state/task-x1.status"
+  # A regular file where the task's data folder belongs makes the copy fail.
+  printf 'not a folder\n' > "$case_dir/data/task-x1"
+
+  set +e
+  run_teardown "$case_dir" > "$case_dir/stdout" 2> "$case_dir/stderr"
+  rc=$?
+  set -e
+
+  expect_code 0 "$rc" "archive-failure: a failed archive must not stop teardown"
+  assert_grep 'warning: could not fully archive' "$case_dir/stderr" \
+    "archive-failure: a failed archive did not warn"
+  assert_absent "$case_dir/state/task-x1.status" "archive-failure: live status log was not retired"
+  pass "a failed status-log archive warns and teardown still completes"
+}
+
 test_no_mistakes_truly_unpushed_refuses() {
   local case_dir rc
   case_dir=$(make_case nm-unpushed)
@@ -4305,6 +4357,8 @@ test_teardown_manual_backend_leaves_the_backlog_to_the_operator
 test_local_only_truly_unpushed_refuses
 test_local_only_merged_to_local_main_allows
 test_no_mistakes_origin_remote_allows
+test_teardown_archives_status_log_and_inbox
+test_teardown_archive_failure_warns_and_still_cleans_up
 test_no_mistakes_truly_unpushed_refuses
 test_local_only_force_overrides_unpushed
 test_secondmate_pr_registration_publishes_ready_line

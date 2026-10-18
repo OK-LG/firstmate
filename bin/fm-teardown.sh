@@ -89,7 +89,8 @@
 # - or a version 1 attempt whose workspace is still present or unreadable - may
 # name a live quarantined space and is retained for that sweep.
 # data/<id>/ is deliberately left in place: a successor spawn reads brief.md
-# from it.
+# from it. Before the status log and steering inbox are retired, teardown keeps
+# copies of them there as status.log and inbox/ (teardown_archive_task_records).
 # Pool membership is resolved through bin/fm-wake-lib.sh's fm_treehouse_pool_path
 # before slot mutation; uncertainty refuses cleanup even with --force and even
 # when a claim names another task. Repair the configuration or pool-state evidence
@@ -320,6 +321,16 @@ teardown_require_source() {  # <path>
     echo "error: teardown refused: required source $(basename "$1") is missing or unreadable; nothing was changed" >&2
     exit 1
   fi
+}
+
+# Keep the task's status log and steering-inbox records in its private data
+# folder before the live copies are retired (status_archive_task_records in
+# bin/fm-classify-lib.sh owns what is copied). Best effort: a failed copy warns
+# and never stops cleanup.
+teardown_archive_task_records() {
+  status_archive_task_records "$STATE" "$ID" "$DATA/$ID" \
+    || echo "warning: could not fully archive the status log and inbox of $ID into $DATA/$ID" >&2
+  return 0
 }
 
 teardown_require_backend_prerequisites() {  # <backend> <task-id>
@@ -1085,6 +1096,7 @@ remote_secondmate_teardown() {
   grep -vE "^- $ID( |$)" "$SECONDMATE_REG" > "$tmp" || true
   mv -f -- "$tmp" "$SECONDMATE_REG"
   [ ! -e "$CONFIG/fleet-ledger" ] || FM_HOME=$FM_HOME FM_STATE_OVERRIDE=$STATE FM_CONFIG_OVERRIDE=$CONFIG "$SCRIPT_DIR/fm-fleet-ledger.sh" cleaned_up "$ID" || true
+  teardown_archive_task_records
   status_retire_presentation_task "$STATE" "$ID" || return 1
   fm_backlog_atomic_transition remove "$STATE/$ID.meta" "task record" "$STATE" || return 1
   rm -f -- "$STATE/$ID.turn-ended" "$STATE/$ID.progress" \
@@ -3812,6 +3824,7 @@ retire_busy_state "$STATE" "$ID" "$BUSY_GEN" || exit 1
 # Opt-in fleet activity ledger (docs/fleet-ledger.md), before the status log is
 # retired so its last lines are captured; off costs one file test.
 [ ! -e "$CONFIG/fleet-ledger" ] || FM_HOME=$FM_HOME FM_STATE_OVERRIDE=$STATE FM_CONFIG_OVERRIDE=$CONFIG "$SCRIPT_DIR/fm-fleet-ledger.sh" cleaned_up "$ID" || true
+teardown_archive_task_records
 status_retire_presentation_task "$STATE" "$ID" || exit 1
 fm_wake_queue_prune_task "$STATE" "$ID" "$T" 2>/dev/null || true
 rm -f "$STATE/$ID.turn-ended" "$STATE/$ID.progress" \

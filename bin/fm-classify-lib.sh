@@ -1699,6 +1699,60 @@ status_presentation_marker_commit() {
   printf 'v2\t%s\t%s' "$reported" "$classified" > "$marker"
 }
 
+# Copy one regular, non-symlink file into place through a same-directory
+# temporary name, so a reader never sees a partial copy and a retry converges.
+_status_archive_copy() {  # <src> <dest>
+  local src=$1 dest=$2 tmp
+  [ -f "$src" ] && [ ! -L "$src" ] && [ -r "$src" ] || return 1
+  [ ! -L "$dest" ] && { [ ! -e "$dest" ] || [ -f "$dest" ]; } || return 1
+  tmp="$dest.tmp.$$"
+  if (umask 077 && command cp -- "$src" "$tmp") && mv -f -- "$tmp" "$dest"; then
+    return 0
+  fi
+  rm -f -- "$tmp"
+  return 1
+}
+
+# Keep a task's operational timeline after cleanup: copy its status log to
+# <dest>/status.log and its steering-inbox records (bin/fm-task-inbox-lib.sh
+# owns that layout) to <dest>/inbox/ and <dest>/inbox/handled/. Only those
+# records are copied, never inbox bookkeeping or any other state file, and only
+# regular files, never through a symlink. A missing source keeps the existing
+# archive copy, so a retried cleanup after retirement never erases it. This
+# reads live state and changes none of it; the caller retires state afterwards
+# and treats a nonzero return as a warning, never as a reason to stop.
+status_archive_task_records() {  # <state> <task-id> <dest-dir>
+  local state=$1 task=$2 dest=$3 inbox sub src name rc=0
+  [ -n "$task" ] && [ -n "$dest" ] || return 1
+  inbox="$state/$task.inbox"
+  if { [ ! -e "$state/$task.status" ] && [ ! -L "$state/$task.status" ]; } \
+    && [ ! -d "$inbox" ]; then
+    return 0
+  fi
+  if [ -L "$dest" ] || ! (umask 077 && mkdir -p -- "$dest"); then return 1; fi
+  if [ -e "$state/$task.status" ] || [ -L "$state/$task.status" ]; then
+    _status_archive_copy "$state/$task.status" "$dest/status.log" || rc=1
+  fi
+  if [ -d "$inbox" ] && [ ! -L "$inbox" ]; then
+    for sub in "" /handled; do
+      [ -d "$inbox$sub" ] && [ ! -L "$inbox$sub" ] || continue
+      for src in "$inbox$sub"/*.msg; do
+        [ -e "$src" ] || [ -L "$src" ] || continue
+        name=${src##*/}
+        case "${name%.msg}" in ''|*[!0-9]*) continue ;; esac
+        if [ -L "$dest/inbox" ] || [ -L "$dest/inbox$sub" ] \
+          || ! (umask 077 && mkdir -p -- "$dest/inbox$sub"); then
+          rc=1; continue
+        fi
+        _status_archive_copy "$src" "$dest/inbox$sub/$name" || rc=1
+      done
+    done
+  elif [ -e "$inbox" ] || [ -L "$inbox" ]; then
+    rc=1
+  fi
+  return "$rc"
+}
+
 status_retire_presentation_task() {  # <state> <task-id>
   local state=$1 task=$2 lock manifest tmp data row_task ident offset backstop extra rc=0 found=0
   local signal_marker heartbeat_marker daemon_marker home_appends home_appends_lock
