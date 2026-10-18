@@ -1,0 +1,155 @@
+$ /root/.no-mistakes/worktrees/7f0ec18181b6/01M58DRP4QJ8CZFPZC263T2RRJ/bin/fm-lab-home.sh create /root/.no-mistakes/worktrees/7f0ec18181b6/01M58DRP4QJ8CZFPZC263T2RRJ/.retention-lab
+/root/.no-mistakes/worktrees/7f0ec18181b6/01M58DRP4QJ8CZFPZC263T2RRJ/.retention-lab
+[exit 0]
+$ tmux -S /root/.no-mistakes/worktrees/7f0ec18181b6/01M58DRP4QJ8CZFPZC263T2RRJ/.retention-socket -f /dev/null new-session -d -s fm-lab-retention -n anchor -c /root/.no-mistakes/worktrees/7f0ec18181b6/01M58DRP4QJ8CZFPZC263T2RRJ sleep 600
+[exit 0]
+$ tmux -S /root/.no-mistakes/worktrees/7f0ec18181b6/01M58DRP4QJ8CZFPZC263T2RRJ/.retention-socket display-message -p -t fm-lab-retention:anchor #{socket_path},#{pid},0
+/root/.no-mistakes/worktrees/7f0ec18181b6/01M58DRP4QJ8CZFPZC263T2RRJ/.retention-socket,4001284,0
+[exit 0]
+$ tmux -S /root/.no-mistakes/worktrees/7f0ec18181b6/01M58DRP4QJ8CZFPZC263T2RRJ/.retention-socket new-window -d -t fm-lab-retention: -n fm-repeat -c /root/.no-mistakes/worktrees/7f0ec18181b6/01M58DRP4QJ8CZFPZC263T2RRJ sleep 600
+[exit 0]
+$ /root/.no-mistakes/worktrees/7f0ec18181b6/01M58DRP4QJ8CZFPZC263T2RRJ/.retention-code/bin/fm-teardown.sh repeat
+fm-gate-refuse: gate agent lifecycle permitted only against lab home /root/.no-mistakes/worktrees/7f0ec18181b6/01M58DRP4QJ8CZFPZC263T2RRJ/.retention-lab
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+●  WATCHER DOWN - SUPERVISION IS OFF
+●  1 task(s) in flight, but no watcher has a fresh beacon (last beat: never, grace 300s).
+●  Trust the emitted supervision protocol for this harness; do not use shell & for watcher repair.
+●  This is a supervision warning only; the guarded operation WILL still run.
+●  repair missing watcher supervision with a foreground checkpoint: bin/fm-watch-checkpoint.sh --seconds 180.
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+teardown repeat complete (window fm-lab-retention:fm-repeat, worktree /root/.no-mistakes/worktrees/7f0ec18181b6/01M58DRP4QJ8CZFPZC263T2RRJ/.retention-lab/already-returned/repeat)
+Backlog: repeat just finished (config/backlog-backend selects manual editing). Update /root/.no-mistakes/worktrees/7f0ec18181b6/01M58DRP4QJ8CZFPZC263T2RRJ/.retention-lab/data/backlog.md - move repeat to Done, keep Done to the 10 most recent, then re-scan Queued and dispatch only work whose blockers are gone and date is due.
+[exit 0]
+$ tmux -S /root/.no-mistakes/worktrees/7f0ec18181b6/01M58DRP4QJ8CZFPZC263T2RRJ/.retention-socket list-windows -t fm-lab-retention -F #{window_name}
+anchor
+[exit 0]
+OBSERVED: Local cleanup closes the actual tmux endpoint and archives status plus pending/handled inbox bytes
+$ tmux -S /root/.no-mistakes/worktrees/7f0ec18181b6/01M58DRP4QJ8CZFPZC263T2RRJ/.retention-socket new-window -d -t fm-lab-retention: -n fm-repeat -c /root/.no-mistakes/worktrees/7f0ec18181b6/01M58DRP4QJ8CZFPZC263T2RRJ sleep 600
+[exit 0]
+$ /root/.no-mistakes/worktrees/7f0ec18181b6/01M58DRP4QJ8CZFPZC263T2RRJ/.retention-code/bin/fm-teardown.sh repeat
+fm-gate-refuse: gate agent lifecycle permitted only against lab home /root/.no-mistakes/worktrees/7f0ec18181b6/01M58DRP4QJ8CZFPZC263T2RRJ/.retention-lab
+WARNING: watcher still down (same stale episode; last beat: never, grace 300s) - full banner already printed this episode.
+teardown repeat complete (window fm-lab-retention:fm-repeat, worktree /root/.no-mistakes/worktrees/7f0ec18181b6/01M58DRP4QJ8CZFPZC263T2RRJ/.retention-lab/already-returned/repeat)
+Backlog: repeat just finished (config/backlog-backend selects manual editing). Update /root/.no-mistakes/worktrees/7f0ec18181b6/01M58DRP4QJ8CZFPZC263T2RRJ/.retention-lab/data/backlog.md - move repeat to Done, keep Done to the 10 most recent, then re-scan Queued and dispatch only work whose blockers are gone and date is due.
+[exit 0]
+$ tmux -S /root/.no-mistakes/worktrees/7f0ec18181b6/01M58DRP4QJ8CZFPZC263T2RRJ/.retention-socket list-windows -t fm-lab-retention -F #{window_name}
+anchor
+[exit 0]
+OBSERVED: Reusing a task ID and message numbers retains both runs separately
+$ tmux -S /root/.no-mistakes/worktrees/7f0ec18181b6/01M58DRP4QJ8CZFPZC263T2RRJ/.retention-socket new-window -d -t fm-lab-retention: -n fm-blocked -c /root/.no-mistakes/worktrees/7f0ec18181b6/01M58DRP4QJ8CZFPZC263T2RRJ sleep 600
+[exit 0]
+$ /root/.no-mistakes/worktrees/7f0ec18181b6/01M58DRP4QJ8CZFPZC263T2RRJ/.retention-code/bin/fm-teardown.sh blocked
+fm-gate-refuse: gate agent lifecycle permitted only against lab home /root/.no-mistakes/worktrees/7f0ec18181b6/01M58DRP4QJ8CZFPZC263T2RRJ/.retention-lab
+WARNING: watcher still down (same stale episode; last beat: never, grace 300s) - full banner already printed this episode.
+mkdir: cannot create directory ‘/root/.no-mistakes/worktrees/7f0ec18181b6/01M58DRP4QJ8CZFPZC263T2RRJ/.retention-lab/data/blocked’: Not a directory
+warning: could not fully archive the status log and inbox of blocked into /root/.no-mistakes/worktrees/7f0ec18181b6/01M58DRP4QJ8CZFPZC263T2RRJ/.retention-lab/data/blocked; keeping originals
+teardown blocked complete (window fm-lab-retention:fm-blocked, worktree /root/.no-mistakes/worktrees/7f0ec18181b6/01M58DRP4QJ8CZFPZC263T2RRJ/.retention-lab/already-returned/blocked)
+Backlog: blocked just finished (config/backlog-backend selects manual editing). Update /root/.no-mistakes/worktrees/7f0ec18181b6/01M58DRP4QJ8CZFPZC263T2RRJ/.retention-lab/data/backlog.md - move blocked to Done, keep Done to the 10 most recent, then re-scan Queued and dispatch only work whose blockers are gone and date is due.
+[exit 0]
+$ tmux -S /root/.no-mistakes/worktrees/7f0ec18181b6/01M58DRP4QJ8CZFPZC263T2RRJ/.retention-socket list-windows -t fm-lab-retention -F #{window_name}
+anchor
+[exit 0]
+OBSERVED: A blocked archive destination warns, retains original records, and completes other cleanup
+$ tmux -S /root/.no-mistakes/worktrees/7f0ec18181b6/01M58DRP4QJ8CZFPZC263T2RRJ/.retention-socket new-window -d -t fm-lab-retention: -n fm-linked -c /root/.no-mistakes/worktrees/7f0ec18181b6/01M58DRP4QJ8CZFPZC263T2RRJ sleep 600
+[exit 0]
+$ /root/.no-mistakes/worktrees/7f0ec18181b6/01M58DRP4QJ8CZFPZC263T2RRJ/.retention-code/bin/fm-teardown.sh linked
+fm-gate-refuse: gate agent lifecycle permitted only against lab home /root/.no-mistakes/worktrees/7f0ec18181b6/01M58DRP4QJ8CZFPZC263T2RRJ/.retention-lab
+WARNING: watcher still down (same stale episode; last beat: never, grace 300s) - full banner already printed this episode.
+warning: could not fully archive the status log and inbox of linked into /root/.no-mistakes/worktrees/7f0ec18181b6/01M58DRP4QJ8CZFPZC263T2RRJ/.retention-lab/data/linked; keeping originals
+teardown linked complete (window fm-lab-retention:fm-linked, worktree /root/.no-mistakes/worktrees/7f0ec18181b6/01M58DRP4QJ8CZFPZC263T2RRJ/.retention-lab/already-returned/linked)
+Backlog: linked just finished (config/backlog-backend selects manual editing). Update /root/.no-mistakes/worktrees/7f0ec18181b6/01M58DRP4QJ8CZFPZC263T2RRJ/.retention-lab/data/backlog.md - move linked to Done, keep Done to the 10 most recent, then re-scan Queued and dispatch only work whose blockers are gone and date is due.
+[exit 0]
+$ tmux -S /root/.no-mistakes/worktrees/7f0ec18181b6/01M58DRP4QJ8CZFPZC263T2RRJ/.retention-socket list-windows -t fm-lab-retention -F #{window_name}
+anchor
+[exit 0]
+OBSERVED: A symlinked inbox record is not followed; partial archival retains originals
+$ /root/.no-mistakes/worktrees/7f0ec18181b6/01M58DRP4QJ8CZFPZC263T2RRJ/bin/fm-lab-home.sh create /root/.no-mistakes/worktrees/7f0ec18181b6/01M58DRP4QJ8CZFPZC263T2RRJ/.retention-mate-completed
+/root/.no-mistakes/worktrees/7f0ec18181b6/01M58DRP4QJ8CZFPZC263T2RRJ/.retention-mate-completed
+[exit 0]
+$ tmux -S /root/.no-mistakes/worktrees/7f0ec18181b6/01M58DRP4QJ8CZFPZC263T2RRJ/.retention-socket new-window -d -t fm-lab-retention: -n fm-mate-completed -c /root/.no-mistakes/worktrees/7f0ec18181b6/01M58DRP4QJ8CZFPZC263T2RRJ sleep 600
+[exit 0]
+$ tmux -S /root/.no-mistakes/worktrees/7f0ec18181b6/01M58DRP4QJ8CZFPZC263T2RRJ/.retention-socket new-window -d -t fm-lab-retention: -n fm-child-completed -c /root/.no-mistakes/worktrees/7f0ec18181b6/01M58DRP4QJ8CZFPZC263T2RRJ sleep 600
+[exit 0]
+$ tmux -S /root/.no-mistakes/worktrees/7f0ec18181b6/01M58DRP4QJ8CZFPZC263T2RRJ/.retention-socket kill-window -t fm-lab-retention:fm-child-completed
+[exit 0]
+$ /root/.no-mistakes/worktrees/7f0ec18181b6/01M58DRP4QJ8CZFPZC263T2RRJ/.retention-code/bin/fm-teardown.sh mate-completed
+fm-gate-refuse: gate agent lifecycle permitted only against lab home /root/.no-mistakes/worktrees/7f0ec18181b6/01M58DRP4QJ8CZFPZC263T2RRJ/.retention-lab
+WARNING: watcher still down (same stale episode; last beat: never, grace 300s) - full banner already printed this episode.
+teardown mate-completed complete (window fm-lab-retention:fm-mate-completed, worktree /root/.no-mistakes/worktrees/7f0ec18181b6/01M58DRP4QJ8CZFPZC263T2RRJ/.retention-mate-completed)
+[exit 0]
+$ tmux -S /root/.no-mistakes/worktrees/7f0ec18181b6/01M58DRP4QJ8CZFPZC263T2RRJ/.retention-socket list-windows -t fm-lab-retention -F #{window_name}
+anchor
+[exit 0]
+OBSERVED: Local secondmate retirement: completed child records and earlier archives preserved
+$ /root/.no-mistakes/worktrees/7f0ec18181b6/01M58DRP4QJ8CZFPZC263T2RRJ/bin/fm-lab-home.sh create /root/.no-mistakes/worktrees/7f0ec18181b6/01M58DRP4QJ8CZFPZC263T2RRJ/.retention-mate-forced
+/root/.no-mistakes/worktrees/7f0ec18181b6/01M58DRP4QJ8CZFPZC263T2RRJ/.retention-mate-forced
+[exit 0]
+$ tmux -S /root/.no-mistakes/worktrees/7f0ec18181b6/01M58DRP4QJ8CZFPZC263T2RRJ/.retention-socket new-window -d -t fm-lab-retention: -n fm-mate-forced -c /root/.no-mistakes/worktrees/7f0ec18181b6/01M58DRP4QJ8CZFPZC263T2RRJ sleep 600
+[exit 0]
+$ tmux -S /root/.no-mistakes/worktrees/7f0ec18181b6/01M58DRP4QJ8CZFPZC263T2RRJ/.retention-socket new-window -d -t fm-lab-retention: -n fm-child-forced -c /root/.no-mistakes/worktrees/7f0ec18181b6/01M58DRP4QJ8CZFPZC263T2RRJ sleep 600
+[exit 0]
+$ /root/.no-mistakes/worktrees/7f0ec18181b6/01M58DRP4QJ8CZFPZC263T2RRJ/.retention-code/bin/fm-teardown.sh mate-forced --force
+fm-gate-refuse: gate agent lifecycle permitted only against lab home /root/.no-mistakes/worktrees/7f0ec18181b6/01M58DRP4QJ8CZFPZC263T2RRJ/.retention-lab
+WARNING: watcher still down (same stale episode; last beat: never, grace 300s) - full banner already printed this episode.
+teardown mate-forced complete (window fm-lab-retention:fm-mate-forced, worktree /root/.no-mistakes/worktrees/7f0ec18181b6/01M58DRP4QJ8CZFPZC263T2RRJ/.retention-mate-forced)
+[exit 0]
+$ tmux -S /root/.no-mistakes/worktrees/7f0ec18181b6/01M58DRP4QJ8CZFPZC263T2RRJ/.retention-socket list-windows -t fm-lab-retention -F #{window_name}
+anchor
+[exit 0]
+OBSERVED: Local secondmate retirement: forced child records and earlier archives preserved
+$ /root/.no-mistakes/worktrees/7f0ec18181b6/01M58DRP4QJ8CZFPZC263T2RRJ/bin/fm-lab-home.sh create /root/.no-mistakes/worktrees/7f0ec18181b6/01M58DRP4QJ8CZFPZC263T2RRJ/.retention-mate-nested
+/root/.no-mistakes/worktrees/7f0ec18181b6/01M58DRP4QJ8CZFPZC263T2RRJ/.retention-mate-nested
+[exit 0]
+$ tmux -S /root/.no-mistakes/worktrees/7f0ec18181b6/01M58DRP4QJ8CZFPZC263T2RRJ/.retention-socket new-window -d -t fm-lab-retention: -n fm-mate-nested -c /root/.no-mistakes/worktrees/7f0ec18181b6/01M58DRP4QJ8CZFPZC263T2RRJ sleep 600
+[exit 0]
+$ tmux -S /root/.no-mistakes/worktrees/7f0ec18181b6/01M58DRP4QJ8CZFPZC263T2RRJ/.retention-socket new-window -d -t fm-lab-retention: -n fm-child-nested -c /root/.no-mistakes/worktrees/7f0ec18181b6/01M58DRP4QJ8CZFPZC263T2RRJ sleep 600
+[exit 0]
+$ /root/.no-mistakes/worktrees/7f0ec18181b6/01M58DRP4QJ8CZFPZC263T2RRJ/bin/fm-lab-home.sh create /root/.no-mistakes/worktrees/7f0ec18181b6/01M58DRP4QJ8CZFPZC263T2RRJ/.retention-nested
+/root/.no-mistakes/worktrees/7f0ec18181b6/01M58DRP4QJ8CZFPZC263T2RRJ/.retention-nested
+[exit 0]
+$ tmux -S /root/.no-mistakes/worktrees/7f0ec18181b6/01M58DRP4QJ8CZFPZC263T2RRJ/.retention-socket new-window -d -t fm-lab-retention: -n fm-inner -c /root/.no-mistakes/worktrees/7f0ec18181b6/01M58DRP4QJ8CZFPZC263T2RRJ sleep 600
+[exit 0]
+$ tmux -S /root/.no-mistakes/worktrees/7f0ec18181b6/01M58DRP4QJ8CZFPZC263T2RRJ/.retention-socket new-window -d -t fm-lab-retention: -n fm-grandchild -c /root/.no-mistakes/worktrees/7f0ec18181b6/01M58DRP4QJ8CZFPZC263T2RRJ sleep 600
+[exit 0]
+$ /root/.no-mistakes/worktrees/7f0ec18181b6/01M58DRP4QJ8CZFPZC263T2RRJ/.retention-code/bin/fm-teardown.sh mate-nested --force
+fm-gate-refuse: gate agent lifecycle permitted only against lab home /root/.no-mistakes/worktrees/7f0ec18181b6/01M58DRP4QJ8CZFPZC263T2RRJ/.retention-lab
+WARNING: watcher still down (same stale episode; last beat: never, grace 300s) - full banner already printed this episode.
+teardown mate-nested complete (window fm-lab-retention:fm-mate-nested, worktree /root/.no-mistakes/worktrees/7f0ec18181b6/01M58DRP4QJ8CZFPZC263T2RRJ/.retention-mate-nested)
+[exit 0]
+$ tmux -S /root/.no-mistakes/worktrees/7f0ec18181b6/01M58DRP4QJ8CZFPZC263T2RRJ/.retention-socket list-windows -t fm-lab-retention -F #{window_name}
+anchor
+[exit 0]
+OBSERVED: Local secondmate retirement: nested child records and earlier archives preserved
+$ /root/.no-mistakes/worktrees/7f0ec18181b6/01M58DRP4QJ8CZFPZC263T2RRJ/bin/fm-lab-home.sh create /root/.no-mistakes/worktrees/7f0ec18181b6/01M58DRP4QJ8CZFPZC263T2RRJ/.retention-mate-failure
+/root/.no-mistakes/worktrees/7f0ec18181b6/01M58DRP4QJ8CZFPZC263T2RRJ/.retention-mate-failure
+[exit 0]
+$ tmux -S /root/.no-mistakes/worktrees/7f0ec18181b6/01M58DRP4QJ8CZFPZC263T2RRJ/.retention-socket new-window -d -t fm-lab-retention: -n fm-mate-failure -c /root/.no-mistakes/worktrees/7f0ec18181b6/01M58DRP4QJ8CZFPZC263T2RRJ sleep 600
+[exit 0]
+$ tmux -S /root/.no-mistakes/worktrees/7f0ec18181b6/01M58DRP4QJ8CZFPZC263T2RRJ/.retention-socket new-window -d -t fm-lab-retention: -n fm-child-failure -c /root/.no-mistakes/worktrees/7f0ec18181b6/01M58DRP4QJ8CZFPZC263T2RRJ sleep 600
+[exit 0]
+$ /root/.no-mistakes/worktrees/7f0ec18181b6/01M58DRP4QJ8CZFPZC263T2RRJ/.retention-code/bin/fm-teardown.sh mate-failure --force
+fm-gate-refuse: gate agent lifecycle permitted only against lab home /root/.no-mistakes/worktrees/7f0ec18181b6/01M58DRP4QJ8CZFPZC263T2RRJ/.retention-lab
+WARNING: watcher still down (same stale episode; last beat: never, grace 300s) - full banner already printed this episode.
+mkdir: cannot create directory ‘/root/.no-mistakes/worktrees/7f0ec18181b6/01M58DRP4QJ8CZFPZC263T2RRJ/.retention-lab/data/mate-failure/children’: Not a directory
+mkdir: cannot create directory ‘/root/.no-mistakes/worktrees/7f0ec18181b6/01M58DRP4QJ8CZFPZC263T2RRJ/.retention-lab/data/mate-failure/children’: Not a directory
+mkdir: cannot create directory ‘/root/.no-mistakes/worktrees/7f0ec18181b6/01M58DRP4QJ8CZFPZC263T2RRJ/.retention-lab/data/mate-failure/children’: Not a directory
+warning: could not fully archive child records into /root/.no-mistakes/worktrees/7f0ec18181b6/01M58DRP4QJ8CZFPZC263T2RRJ/.retention-lab/data/mate-failure/children; keeping originals
+warning: retaining /root/.no-mistakes/worktrees/7f0ec18181b6/01M58DRP4QJ8CZFPZC263T2RRJ/.retention-mate-failure because it contains unarchived task records
+teardown mate-failure complete (window fm-lab-retention:fm-mate-failure, worktree /root/.no-mistakes/worktrees/7f0ec18181b6/01M58DRP4QJ8CZFPZC263T2RRJ/.retention-mate-failure)
+[exit 0]
+$ tmux -S /root/.no-mistakes/worktrees/7f0ec18181b6/01M58DRP4QJ8CZFPZC263T2RRJ/.retention-socket list-windows -t fm-lab-retention -F #{window_name}
+anchor
+[exit 0]
+OBSERVED: Local secondmate retirement: failure child records and earlier archives preserved
+[
+  "Local cleanup closes the actual tmux endpoint and archives status plus pending/handled inbox bytes",
+  "Reusing a task ID and message numbers retains both runs separately",
+  "A blocked archive destination warns, retains original records, and completes other cleanup",
+  "A symlinked inbox record is not followed; partial archival retains originals",
+  "Local secondmate retirement: completed child records and earlier archives preserved",
+  "Local secondmate retirement: forced child records and earlier archives preserved",
+  "Local secondmate retirement: nested child records and earlier archives preserved",
+  "Local secondmate retirement: failure child records and earlier archives preserved"
+]
+$ tmux -S /root/.no-mistakes/worktrees/7f0ec18181b6/01M58DRP4QJ8CZFPZC263T2RRJ/.retention-socket kill-server
+[exit 0]

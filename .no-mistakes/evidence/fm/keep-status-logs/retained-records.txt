@@ -1,0 +1,176 @@
+
+.retention-mate-failure/data/child-failure/runs/earlier/inbox/001.msg
+earlier inbox
+
+.retention-mate-failure/data/child-failure/runs/earlier/status.log
+earlier status
+
+.retention-mate-failure/data/finished/runs/earlier/status.log
+already retired
+
+.retention-mate-failure/state/child-failure.inbox/001.msg
+pending child failure
+
+.retention-mate-failure/state/child-failure.inbox/handled/000.msg
+handled child failure
+
+blocked-original.status
+working: archive failure
+done: archive failure
+
+data/linked/runs/20261018T230101Z.byhCJH/inbox/handled/000.msg
+handled symlink failure
+
+data/linked/runs/20261018T230101Z.byhCJH/status.log
+working: symlink failure
+done: symlink failure
+
+data/mate-completed/children/child-completed/runs/20261018T230104Z.0nomSJ/inbox/001.msg
+pending child completed
+
+data/mate-completed/children/child-completed/runs/20261018T230104Z.0nomSJ/inbox/handled/000.msg
+handled child completed
+
+data/mate-completed/children/child-completed/runs/20261018T230104Z.0nomSJ/status.log
+working: child completed
+done: child completed
+
+data/mate-completed/children/child-completed/runs/20261018T230104Z.JPLSsK/inbox/001.msg
+earlier inbox
+
+data/mate-completed/children/child-completed/runs/20261018T230104Z.JPLSsK/status.log
+earlier status
+
+data/mate-completed/children/finished/runs/20261018T230104Z.wEWPf2/status.log
+already retired
+
+data/mate-completed/runs/20261018T230104Z.l1Zrsg/inbox/001.msg
+pending completed
+
+data/mate-completed/runs/20261018T230104Z.l1Zrsg/inbox/handled/000.msg
+handled completed
+
+data/mate-completed/runs/20261018T230104Z.l1Zrsg/status.log
+working: completed
+done: completed
+
+data/mate-failure/runs/20261018T230117Z.8wYCiF/inbox/001.msg
+pending failure
+
+data/mate-failure/runs/20261018T230117Z.8wYCiF/inbox/handled/000.msg
+handled failure
+
+data/mate-failure/runs/20261018T230117Z.8wYCiF/status.log
+working: failure
+done: failure
+
+data/mate-forced/children/child-forced/runs/20261018T230108Z.eOsepN/inbox/001.msg
+earlier inbox
+
+data/mate-forced/children/child-forced/runs/20261018T230108Z.eOsepN/status.log
+earlier status
+
+data/mate-forced/children/child-forced/runs/20261018T230108Z.ogvAoc/inbox/001.msg
+pending child forced
+
+data/mate-forced/children/child-forced/runs/20261018T230108Z.ogvAoc/inbox/handled/000.msg
+handled child forced
+
+data/mate-forced/children/child-forced/runs/20261018T230108Z.ogvAoc/status.log
+working: child forced
+done: child forced
+
+data/mate-forced/children/finished/runs/20261018T230108Z.GNDoOn/status.log
+already retired
+
+data/mate-forced/runs/20261018T230108Z.y451u5/inbox/001.msg
+pending forced
+
+data/mate-forced/runs/20261018T230108Z.y451u5/inbox/handled/000.msg
+handled forced
+
+data/mate-forced/runs/20261018T230108Z.y451u5/status.log
+working: forced
+done: forced
+
+data/mate-nested/children/child-nested/runs/20261018T230113Z.pjhcye/inbox/001.msg
+pending child nested
+
+data/mate-nested/children/child-nested/runs/20261018T230113Z.pjhcye/inbox/handled/000.msg
+handled child nested
+
+data/mate-nested/children/child-nested/runs/20261018T230113Z.pjhcye/status.log
+working: child nested
+done: child nested
+
+data/mate-nested/children/child-nested/runs/20261018T230113Z.wSoQSG/inbox/001.msg
+earlier inbox
+
+data/mate-nested/children/child-nested/runs/20261018T230113Z.wSoQSG/status.log
+earlier status
+
+data/mate-nested/children/finished/runs/20261018T230114Z.PiDutM/status.log
+already retired
+
+data/mate-nested/children/inner/children/grandchild/runs/20261018T230113Z.VeQigu/inbox/001.msg
+pending grandchild
+
+data/mate-nested/children/inner/children/grandchild/runs/20261018T230113Z.VeQigu/inbox/handled/000.msg
+handled grandchild
+
+data/mate-nested/children/inner/children/grandchild/runs/20261018T230113Z.VeQigu/status.log
+working: grandchild
+done: grandchild
+
+data/mate-nested/children/inner/children/retired-grandchild/runs/20261018T230113Z.O8WR7d/status.log
+old grandchild
+
+data/mate-nested/children/inner/runs/20261018T230114Z.fYdvxf/inbox/001.msg
+pending inner
+
+data/mate-nested/children/inner/runs/20261018T230114Z.fYdvxf/inbox/handled/000.msg
+handled inner
+
+data/mate-nested/children/inner/runs/20261018T230114Z.fYdvxf/status.log
+working: inner
+done: inner
+
+data/mate-nested/runs/20261018T230114Z.JuQ2PG/inbox/001.msg
+pending nested
+
+data/mate-nested/runs/20261018T230114Z.JuQ2PG/inbox/handled/000.msg
+handled nested
+
+data/mate-nested/runs/20261018T230114Z.JuQ2PG/status.log
+working: nested
+done: nested
+
+data/repeat/runs/20261018T230052Z.EbHWJG/inbox/001.msg
+pending first run
+
+data/repeat/runs/20261018T230052Z.EbHWJG/inbox/handled/000.msg
+handled first run
+
+data/repeat/runs/20261018T230052Z.EbHWJG/status.log
+working: first run
+done: first run
+
+data/repeat/runs/20261018T230055Z.ETCcV5/inbox/001.msg
+pending second run
+
+data/repeat/runs/20261018T230055Z.ETCcV5/inbox/handled/000.msg
+handled second run
+
+data/repeat/runs/20261018T230055Z.ETCcV5/status.log
+working: second run
+done: second run
+
+state/blocked.inbox/001.msg
+pending archive failure
+
+state/blocked.inbox/handled/000.msg
+handled archive failure
+state/linked.inbox/001.msg [symlink retained in original state; not followed]
+
+state/linked.inbox/handled/000.msg
+handled symlink failure

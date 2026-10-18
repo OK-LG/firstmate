@@ -1,0 +1,52 @@
+$ /root/.no-mistakes/worktrees/7f0ec18181b6/01M58DRP4QJ8CZFPZC263T2RRJ/bin/fm-lab-home.sh create /root/.no-mistakes/worktrees/7f0ec18181b6/01M58DRP4QJ8CZFPZC263T2RRJ/.listener-lab
+/root/.no-mistakes/worktrees/7f0ec18181b6/01M58DRP4QJ8CZFPZC263T2RRJ/.listener-lab
+[exit 0]
+$ tmux -S /root/.no-mistakes/worktrees/7f0ec18181b6/01M58DRP4QJ8CZFPZC263T2RRJ/.listener-socket -f /dev/null new-session -d -s fm-lab-listener -n anchor -c /root/.no-mistakes/worktrees/7f0ec18181b6/01M58DRP4QJ8CZFPZC263T2RRJ sleep 600
+[exit 0]
+$ tmux -S /root/.no-mistakes/worktrees/7f0ec18181b6/01M58DRP4QJ8CZFPZC263T2RRJ/.listener-socket display-message -p -t fm-lab-listener:anchor #{socket_path},#{pid},0
+/root/.no-mistakes/worktrees/7f0ec18181b6/01M58DRP4QJ8CZFPZC263T2RRJ/.listener-socket,4025712,0
+[exit 0]
+$ /root/.no-mistakes/worktrees/7f0ec18181b6/01M58DRP4QJ8CZFPZC263T2RRJ/bin/fm-lab-home.sh create /root/.no-mistakes/worktrees/7f0ec18181b6/01M58DRP4QJ8CZFPZC263T2RRJ/.listener-mate
+/root/.no-mistakes/worktrees/7f0ec18181b6/01M58DRP4QJ8CZFPZC263T2RRJ/.listener-mate
+[exit 0]
+$ tmux -S /root/.no-mistakes/worktrees/7f0ec18181b6/01M58DRP4QJ8CZFPZC263T2RRJ/.listener-socket new-window -d -t fm-lab-listener: -n fm-listener-mate -c /root/.no-mistakes/worktrees/7f0ec18181b6/01M58DRP4QJ8CZFPZC263T2RRJ sleep 600
+[exit 0]
+$ /root/.no-mistakes/worktrees/7f0ec18181b6/01M58DRP4QJ8CZFPZC263T2RRJ/.listener-mate/bin/fm-procevent.sh register lavish retention-blocking-source -- /usr/bin/sleep 600
+registered: retention-blocking-source (lavish)
+[exit 0]
+$ /root/.no-mistakes/worktrees/7f0ec18181b6/01M58DRP4QJ8CZFPZC263T2RRJ/.listener-mate/bin/fm-procevent.sh ensure-listening retention-blocking-source
+[exit 0]
+$ /root/.no-mistakes/worktrees/7f0ec18181b6/01M58DRP4QJ8CZFPZC263T2RRJ/.listener-mate/bin/fm-procevent.sh list
+SOURCE                       ADAPTER      OWNER      PENDING
+retention-blocking-source    lavish       live       0
+[exit 0]
+$ /root/.no-mistakes/worktrees/7f0ec18181b6/01M58DRP4QJ8CZFPZC263T2RRJ/.listener-code/bin/fm-teardown.sh listener-mate
+fm-gate-refuse: gate agent lifecycle permitted only against lab home /root/.no-mistakes/worktrees/7f0ec18181b6/01M58DRP4QJ8CZFPZC263T2RRJ/.listener-lab
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+●  WATCHER DOWN - SUPERVISION IS OFF
+●  1 task(s) in flight, but no watcher has a fresh beacon (last beat: never, grace 300s).
+●  Trust the emitted supervision protocol for this harness; do not use shell & for watcher repair.
+●  This is a supervision warning only; the guarded operation WILL still run.
+●  repair missing watcher supervision with a foreground checkpoint: bin/fm-watch-checkpoint.sh --seconds 180.
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+mkdir: cannot create directory ‘/root/.no-mistakes/worktrees/7f0ec18181b6/01M58DRP4QJ8CZFPZC263T2RRJ/.listener-lab/data/listener-mate/children’: Not a directory
+warning: could not fully archive child records into /root/.no-mistakes/worktrees/7f0ec18181b6/01M58DRP4QJ8CZFPZC263T2RRJ/.listener-lab/data/listener-mate/children; keeping originals
+retired: retention-blocking-source
+swept: attempted=1
+warning: retaining /root/.no-mistakes/worktrees/7f0ec18181b6/01M58DRP4QJ8CZFPZC263T2RRJ/.listener-mate because it contains unarchived task records
+teardown listener-mate complete (window fm-lab-listener:fm-listener-mate, worktree /root/.no-mistakes/worktrees/7f0ec18181b6/01M58DRP4QJ8CZFPZC263T2RRJ/.listener-mate)
+[exit 0]
+$ tmux -S /root/.no-mistakes/worktrees/7f0ec18181b6/01M58DRP4QJ8CZFPZC263T2RRJ/.listener-socket list-windows -t fm-lab-listener -F #{window_name}
+anchor
+[exit 0]
+$ /root/.no-mistakes/worktrees/7f0ec18181b6/01M58DRP4QJ8CZFPZC263T2RRJ/.listener-mate/bin/fm-procevent.sh list
+no sources registered
+[exit 0]
+OBSERVED: Archive failure retains the secondmate home and original child records while sweeping the real live listener and its claim
+RETAINED STATUS: done: listener child history
+RETAINED INBOX: retain this child steer
+$ /root/.no-mistakes/worktrees/7f0ec18181b6/01M58DRP4QJ8CZFPZC263T2RRJ/.listener-mate/bin/fm-procevent.sh sweep-home
+swept: attempted=0
+[exit 0]
+$ tmux -S /root/.no-mistakes/worktrees/7f0ec18181b6/01M58DRP4QJ8CZFPZC263T2RRJ/.listener-socket kill-server
+[exit 0]
