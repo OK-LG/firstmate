@@ -1713,29 +1713,61 @@ _status_archive_copy() {  # <src> <dest>
   return 1
 }
 
-# Keep a task's operational timeline after cleanup: copy its status log to
-# <dest>/status.log and its steering-inbox records (bin/fm-task-inbox-lib.sh
-# owns that layout) to <dest>/inbox/ and <dest>/inbox/handled/. Only those
-# records are copied, never inbox bookkeeping or any other state file, and only
-# regular files, never through a symlink. A missing source keeps the existing
-# archive copy, so a retried cleanup after retirement never erases it. This
-# reads live state and changes none of it; the caller retires state afterwards
-# and treats a nonzero return as a warning, never as a reason to stop.
+status_archive_run_create() {
+  local dest=$1 stamp
+  STATUS_ARCHIVE_DIR=
+  [ ! -L "$dest" ] && [ ! -L "$dest/runs" ] || return 1
+  (umask 077 && mkdir -p -- "$dest/runs") || return 1
+  stamp=$(date -u +%Y%m%dT%H%M%SZ) || return 1
+  STATUS_ARCHIVE_DIR=$(umask 077 && mktemp -d "$dest/runs/$stamp.XXXXXX")
+}
+
+status_archive_import() {
+  local dest=$1 payload=$2
+  status_archive_run_create "$dest" || return 1
+  perl -MJSON::PP -MMIME::Base64=decode_base64 -MFile::Path=make_path -MFcntl=:DEFAULT -e '
+    my ($dest, $payload) = @ARGV;
+    open my $input, "<", $payload or die "$payload: $!";
+    local $/;
+    my $records = decode_json(<$input>);
+    ref($records) eq "HASH" or die "invalid archive";
+    umask 0077;
+    for my $name (sort keys %$records) {
+      $name =~ /\A(?:status\.log|inbox\/(?:handled\/)?[0-9]+\.msg)\z/
+        or die "invalid archive path";
+      my $encoded = $records->{$name};
+      !ref($encoded) && defined($encoded)
+        && $encoded =~ /\A(?:[A-Za-z0-9+\/]{4})*(?:[A-Za-z0-9+\/]{2}==|[A-Za-z0-9+\/]{3}=)?\z/
+        or die "invalid archive content";
+      my $path = "$dest/$name";
+      my $parent = $path;
+      $parent =~ s{/[^/]+$}{};
+      make_path($parent);
+      sysopen my $output, $path, O_WRONLY | O_CREAT | O_EXCL, 0600 or die "$path: $!";
+      print {$output} decode_base64($encoded) or die "$path: $!";
+      close $output or die "$path: $!";
+    }
+  ' "$STATUS_ARCHIVE_DIR" "$payload"
+}
+
 status_archive_task_records() {  # <state> <task-id> <dest-dir>
   local state=$1 task=$2 dest=$3 inbox sub src name rc=0
+  STATUS_ARCHIVE_DIR=
   [ -n "$task" ] && [ -n "$dest" ] || return 1
   inbox="$state/$task.inbox"
   if { [ ! -e "$state/$task.status" ] && [ ! -L "$state/$task.status" ]; } \
-    && [ ! -d "$inbox" ]; then
+    && [ ! -e "$inbox" ] && [ ! -L "$inbox" ]; then
     return 0
   fi
-  if [ -L "$dest" ] || ! (umask 077 && mkdir -p -- "$dest"); then return 1; fi
+  status_archive_run_create "$dest" || return 1
+  dest=$STATUS_ARCHIVE_DIR
   if [ -e "$state/$task.status" ] || [ -L "$state/$task.status" ]; then
     _status_archive_copy "$state/$task.status" "$dest/status.log" || rc=1
   fi
   if [ -d "$inbox" ] && [ ! -L "$inbox" ]; then
     for sub in "" /handled; do
-      [ -d "$inbox$sub" ] && [ ! -L "$inbox$sub" ] || continue
+      if [ -L "$inbox$sub" ]; then rc=1; continue; fi
+      [ -d "$inbox$sub" ] || continue
       for src in "$inbox$sub"/*.msg; do
         [ -e "$src" ] || [ -L "$src" ] || continue
         name=${src##*/}
@@ -1753,7 +1785,7 @@ status_archive_task_records() {  # <state> <task-id> <dest-dir>
   return "$rc"
 }
 
-status_retire_presentation_task() {  # <state> <task-id>
+status_retire_presentation_task() {  # <state> <task-id> [keep-status]
   local state=$1 task=$2 lock manifest tmp data row_task ident offset backstop extra rc=0 found=0
   local signal_marker heartbeat_marker daemon_marker home_appends home_appends_lock
   lock="$state/.status-presentation-lock"
@@ -1823,7 +1855,10 @@ EOF
     fi
   fi
   if [ "$rc" -eq 0 ]; then
-    rm -f -- "$state/$task.status" "$state/.$task.open-decisions-cursor" \
+    if [ "${3:-}" != keep-status ]; then
+      rm -f -- "$state/$task.status" || rc=1
+    fi
+    rm -f -- "$state/.$task.open-decisions-cursor" \
       "$home_appends" "$signal_marker" "$heartbeat_marker" "$daemon_marker" || rc=1
     fm_lock_remove_path "$home_appends_lock" 2>/dev/null || true
   fi

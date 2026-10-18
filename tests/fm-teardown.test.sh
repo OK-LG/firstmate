@@ -850,7 +850,7 @@ test_no_mistakes_origin_remote_allows() {
 }
 
 test_teardown_archives_status_log_and_inbox() {
-  local case_dir rc
+  local case_dir rc archive
   case_dir=$(make_case archive-records)
   write_meta "$case_dir" no-mistakes ship
   wt_commit "$case_dir" "shippable work"
@@ -869,11 +869,12 @@ test_teardown_archives_status_log_and_inbox() {
   expect_code 0 "$rc" "archive-records: teardown should succeed when HEAD is on origin"
   assert_absent "$case_dir/state/task-x1.status" "archive-records: live status log was not retired"
   assert_absent "$case_dir/state/task-x1.inbox" "archive-records: live inbox was not retired"
-  assert_grep 'done: finished' "$case_dir/data/task-x1/status.log" \
+  archive=$(find "$case_dir/data/task-x1/runs" -mindepth 1 -maxdepth 1 -type d)
+  assert_grep 'done: finished' "$archive/status.log" \
     "archive-records: teardown did not keep the status log"
-  assert_grep 'steer one' "$case_dir/data/task-x1/inbox/handled/001.msg" \
+  assert_grep 'steer one' "$archive/inbox/handled/001.msg" \
     "archive-records: teardown did not keep the handled inbox record"
-  assert_grep 'steer two' "$case_dir/data/task-x1/inbox/002.msg" \
+  assert_grep 'steer two' "$archive/inbox/002.msg" \
     "archive-records: teardown did not keep the pending inbox record"
   pass "teardown keeps the status log and inbox records in the task's data folder"
 }
@@ -886,6 +887,11 @@ test_teardown_archive_failure_warns_and_still_cleans_up() {
   git -C "$case_dir/wt" push -q origin fm/task-x1
   git -C "$case_dir/project" fetch -q origin
   printf 'done: finished\n' > "$case_dir/state/task-x1.status"
+  mkdir -p "$case_dir/state/task-x1.inbox/handled"
+  printf 'pending steer\n' > "$case_dir/state/task-x1.inbox/002.msg"
+  printf 'handled steer\n' > "$case_dir/state/task-x1.inbox/handled/001.msg"
+  printf 'cursor\n' > "$case_dir/state/.task-x1.open-decisions-cursor"
+  : > "$case_dir/state/task-x1.turn-ended"
   # A regular file where the task's data folder belongs makes the copy fail.
   printf 'not a folder\n' > "$case_dir/data/task-x1"
 
@@ -897,8 +903,117 @@ test_teardown_archive_failure_warns_and_still_cleans_up() {
   expect_code 0 "$rc" "archive-failure: a failed archive must not stop teardown"
   assert_grep 'warning: could not fully archive' "$case_dir/stderr" \
     "archive-failure: a failed archive did not warn"
-  assert_absent "$case_dir/state/task-x1.status" "archive-failure: live status log was not retired"
+  assert_grep 'done: finished' "$case_dir/state/task-x1.status" "archive failure lost original status"
+  assert_grep 'pending steer' "$case_dir/state/task-x1.inbox/002.msg" "archive failure lost pending inbox"
+  assert_grep 'handled steer' "$case_dir/state/task-x1.inbox/handled/001.msg" "archive failure lost handled inbox"
+  assert_absent "$case_dir/state/task-x1.meta" "archive failure prevented metadata cleanup"
+  assert_absent "$case_dir/state/task-x1.turn-ended" "archive failure prevented runtime cleanup"
+  assert_absent "$case_dir/state/.task-x1.open-decisions-cursor" "archive failure prevented cursor cleanup"
   pass "a failed status-log archive warns and teardown still completes"
+}
+
+test_teardown_nested_control_records_survive_home_removal() {
+  local case_dir home archive rc failure
+  for failure in no yes; do
+    case_dir=$(make_case "nested-records-$failure")
+    write_meta "$case_dir" local-only secondmate
+    home="$case_dir/secondmate-home"
+    mkdir -p "$home/state/parent-route" "$home/data/.parent-route" "$home/config" "$home/projects" "$case_dir/parent/data"
+    printf 'task-x1\n' > "$home/.fm-secondmate-home"
+    printf 'home=%s\n' "$home" >> "$case_dir/state/task-x1.meta"
+    mv "$case_dir/state/task-x1.meta" "$home/state/parent-route/task-x1.meta"
+    printf 'done: remote complete\n' > "$home/state/parent-route/task-x1.status"
+    mkdir -p "$home/state/parent-route/task-x1.inbox/handled"
+    printf 'remote steer\n' > "$home/state/parent-route/task-x1.inbox/handled/001.msg"
+    if [ "$failure" = yes ]; then printf 'blocked\n' > "$case_dir/parent/data/task-x1"; fi
+    rc=0
+    FM_HOME="$case_dir/parent" FM_ROOT_OVERRIDE="$ROOT" \
+      FM_STATE_OVERRIDE="$home/state/parent-route" FM_DATA_OVERRIDE="$home/data/.parent-route" \
+      FM_CONFIG_OVERRIDE="$home/config" FM_TEARDOWN_GUARD_DONE=1 \
+      PATH="$case_dir/fakebin:$PATH" "$TEARDOWN" task-x1 \
+      > "$case_dir/stdout" 2> "$case_dir/stderr" || rc=$?
+    expect_code 0 "$rc" "nested control cleanup failed: $(cat "$case_dir/stderr")"
+    if [ "$failure" = no ]; then
+      assert_absent "$home" "nested cleanup left the retired home"
+      archive=$(find "$case_dir/parent/data/task-x1/runs" -mindepth 1 -maxdepth 1 -type d)
+      assert_grep 'done: remote complete' "$archive/status.log" "home removal lost status"
+      assert_grep 'remote steer' "$archive/inbox/handled/001.msg" "home removal lost inbox"
+    else
+      assert_grep 'done: remote complete' "$home/state/parent-route/task-x1.status" "failed copy lost status"
+      assert_grep 'remote steer' "$home/state/parent-route/task-x1.inbox/handled/001.msg" "failed copy lost inbox"
+      assert_absent "$home/state/parent-route/task-x1.meta" "failed copy blocked metadata cleanup"
+      assert_grep 'keeping originals' "$case_dir/stderr" "failed nested archive did not warn"
+    fi
+  done
+  pass "nested control records survive home removal and archive failures"
+}
+
+test_teardown_remote_records_reach_parent_before_retirement() {
+  local case_dir remote_home remote_root archive failure rc
+  for failure in no yes; do
+    case_dir=$(make_case "remote-records-$failure")
+    write_meta "$case_dir" local-only secondmate
+    remote_home="$case_dir/remote-home"
+    remote_root="$case_dir/remote-root"
+    mkdir -p "$remote_home/state/parent-route/task-x1.inbox/handled" "$remote_home/bin" "$remote_root/data" "$case_dir/control"
+    cp -R "$ROOT/bin" "$case_dir/control/bin"
+    printf 'task-x1\n' > "$remote_home/.fm-secondmate-home"
+    : > "$remote_home/AGENTS.md"
+    printf 'done: remote complete\n' > "$remote_home/state/parent-route/task-x1.status"
+    printf 'remote steer\n' > "$remote_home/state/parent-route/task-x1.inbox/handled/001.msg"
+    printf 'remote_host=fixture\nremote_root=%s\nhome=%s\n' "$remote_root" "$remote_home" >> "$case_dir/state/task-x1.meta"
+    printf -- '- task-x1 - fixture (host: fixture; root: %s; home: %s; scope: fixture; projects: alpha; added 2026-10-18)\n' \
+      "$remote_root" "$remote_home" > "$case_dir/data/secondmates.md"
+    printf 'done: parent complete\n' > "$case_dir/state/task-x1.status"
+    cat > "$case_dir/control/bin/fm-procevent-remote-reply.sh" <<'SH'
+#!/usr/bin/env bash
+exit 0
+SH
+    cat > "$case_dir/control/bin/fm-on.sh" <<'SH'
+#!/usr/bin/env bash
+set -eu
+case "$3" in
+  archive)
+    FM_HOME="$FM_TEST_REMOTE_HOME" FM_ROOT_OVERRIDE="$FM_TEST_REMOTE_ROOT" \
+      bash "$FM_TEST_SOURCE_ROOT/bin/fm-remote-secondmate-control.sh" archive "$4"
+    ;;
+  retire)
+    if [ "$FM_TEST_TRANSFER_FAILURE" = yes ]; then
+      [ "${5:-}" = --keep-records ] || exit 81
+    else
+      found=0
+      for f in "$FM_DATA_OVERRIDE/task-x1/runs/"*/inbox/handled/001.msg; do
+        [ -f "$f" ] || continue
+        cmp -s "$f" "$FM_TEST_REMOTE_HOME/state/parent-route/task-x1.inbox/handled/001.msg" || exit 82
+        found=1
+      done
+      [ "$found" = 1 ] || exit 83
+      rm -rf "$FM_TEST_REMOTE_HOME"
+    fi
+    ;;
+  *) exit 84 ;;
+esac
+SH
+    if [ "$failure" = yes ]; then printf 'blocked\n' > "$case_dir/data/task-x1"; fi
+    rc=0
+    FM_TEST_REMOTE_HOME="$remote_home" FM_TEST_REMOTE_ROOT="$remote_root" FM_TEST_SOURCE_ROOT="$ROOT" \
+      FM_TEST_TRANSFER_FAILURE="$failure" FM_HOME="$case_dir" \
+      TEARDOWN="$case_dir/control/bin/fm-teardown.sh" run_teardown "$case_dir" \
+      > "$case_dir/stdout" 2> "$case_dir/stderr" || rc=$?
+    expect_code 0 "$rc" "remote parent cleanup failed: $(cat "$case_dir/stderr")"
+    assert_absent "$case_dir/state/task-x1.meta" "remote cleanup left parent metadata"
+    if [ "$failure" = no ]; then
+      assert_absent "$remote_home" "remote cleanup left the home"
+      archive=$(find "$case_dir/data/task-x1/runs" -path '*/inbox/handled/001.msg')
+      assert_grep 'remote steer' "$archive" "remote inbox did not survive in parent data"
+      archive=${archive%/inbox/handled/001.msg}
+      assert_grep 'done: remote complete' "$archive/status.log" "remote status did not survive in parent data"
+    else
+      assert_grep 'remote steer' "$remote_home/state/parent-route/task-x1.inbox/handled/001.msg" "failed transfer lost remote original"
+      assert_grep 'done: parent complete' "$case_dir/state/task-x1.status" "failed archive lost parent original"
+    fi
+  done
+  pass "remote teardown saves records in the parent before deletion and retains originals on transfer failure"
 }
 
 test_no_mistakes_truly_unpushed_refuses() {
@@ -4344,6 +4459,13 @@ test_retained_sources_still_reach_the_ordinary_refusal() {
   pass "present required sources still reach the ordinary teardown refusal"
 }
 
+if [ "$#" -gt 0 ]; then
+  for selected_test in "$@"; do
+    case "$selected_test" in test_*) "$selected_test" ;; *) fail "invalid test: $selected_test" ;; esac
+  done
+  exit 0
+fi
+
 test_missing_startup_source_refuses_before_cleanup
 test_unreadable_startup_source_refuses_before_cleanup
 test_missing_adapter_sibling_refuses_before_cleanup
@@ -4358,6 +4480,8 @@ test_local_only_truly_unpushed_refuses
 test_local_only_merged_to_local_main_allows
 test_no_mistakes_origin_remote_allows
 test_teardown_archives_status_log_and_inbox
+test_teardown_nested_control_records_survive_home_removal
+test_teardown_remote_records_reach_parent_before_retirement
 test_teardown_archive_failure_warns_and_still_cleans_up
 test_no_mistakes_truly_unpushed_refuses
 test_local_only_force_overrides_unpushed

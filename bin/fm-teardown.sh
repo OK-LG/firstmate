@@ -90,7 +90,7 @@
 # name a live quarantined space and is retained for that sweep.
 # data/<id>/ is deliberately left in place: a successor spawn reads brief.md
 # from it. Before the status log and steering inbox are retired, teardown keeps
-# copies of them there as status.log and inbox/ (teardown_archive_task_records).
+# copies in runs/<UTC-timestamp>.<suffix>/ (teardown_archive_task_records).
 # Pool membership is resolved through bin/fm-wake-lib.sh's fm_treehouse_pool_path
 # before slot mutation; uncertainty refuses cleanup even with --force and even
 # when a claim names another task. Repair the configuration or pool-state evidence
@@ -323,14 +323,17 @@ teardown_require_source() {  # <path>
   fi
 }
 
-# Keep the task's status log and steering-inbox records in its private data
-# folder before the live copies are retired (status_archive_task_records in
-# bin/fm-classify-lib.sh owns what is copied). Best effort: a failed copy warns
-# and never stops cleanup.
+TASK_RECORDS_ARCHIVE_ATTEMPTED=0
+TASK_RECORDS_RETIRE_MODE=
 teardown_archive_task_records() {
-  status_archive_task_records "$STATE" "$ID" "$DATA/$ID" \
-    || echo "warning: could not fully archive the status log and inbox of $ID into $DATA/$ID" >&2
-  return 0
+  local dest=${1:-$DATA/$ID}
+  [ "$TASK_RECORDS_ARCHIVE_ATTEMPTED" -eq 0 ] || return 0
+  TASK_RECORDS_ARCHIVE_ATTEMPTED=1
+  if [ "${FM_TEARDOWN_KEEP_RECORDS:-0}" = 1 ] \
+    || ! status_archive_task_records "$STATE" "$ID" "$dest"; then
+    TASK_RECORDS_RETIRE_MODE=keep-status
+    echo "warning: could not fully archive the status log and inbox of $ID into $dest; keeping originals" >&2
+  fi
 }
 
 teardown_require_backend_prerequisites() {  # <backend> <task-id>
@@ -1034,7 +1037,8 @@ remote_outbox_cleanup() {
 }
 
 remote_secondmate_teardown() {
-  local remote_host remote_root remote_home kind route_host route_root route_home out rc tmp
+  local remote_host remote_root remote_home kind route_host route_root route_home out rc tmp payload keep_records=0
+  local -a retire_args
   remote_host=$(fm_meta_get "$META" remote_host)
   [ -n "$remote_host" ] || return 3
   kind=$(fm_meta_get "$META" kind)
@@ -1063,11 +1067,18 @@ remote_secondmate_teardown() {
     return 1
   }
   "$FM_ROOT/bin/fm-guard.sh" || true
-  if [ "$FORCE" = --force ]; then
-    if out=$("$SCRIPT_DIR/fm-on.sh" "$ID" fm-remote-secondmate-control.sh retire "$ID" --force < /dev/null 2>&1); then rc=0; else rc=$?; fi
-  else
-    if out=$("$SCRIPT_DIR/fm-on.sh" "$ID" fm-remote-secondmate-control.sh retire "$ID" < /dev/null 2>&1); then rc=0; else rc=$?; fi
+  payload=$(umask 077 && mktemp "$STATE/.task-records.XXXXXX") || payload=
+  if [ -z "$payload" ] \
+    || ! "$SCRIPT_DIR/fm-on.sh" "$ID" fm-remote-secondmate-control.sh archive "$ID" > "$payload" \
+    || ! status_archive_import "$DATA/$ID" "$payload"; then
+    echo "warning: could not archive remote records for $ID into $DATA/$ID; keeping remote originals" >&2
+    keep_records=1
   fi
+  [ -z "$payload" ] || rm -f -- "$payload"
+  retire_args=(retire "$ID")
+  [ "$FORCE" != --force ] || retire_args+=(--force)
+  [ "$keep_records" -eq 0 ] || retire_args+=(--keep-records)
+  if out=$("$SCRIPT_DIR/fm-on.sh" "$ID" fm-remote-secondmate-control.sh "${retire_args[@]}" < /dev/null 2>&1); then rc=0; else rc=$?; fi
   if [ "$rc" -ne 0 ]; then
     [ -z "$out" ] || printf '%s\n' "$out" >&2
     if [ "$rc" -eq 255 ]; then
@@ -1077,6 +1088,7 @@ remote_secondmate_teardown() {
     fi
     return "$rc"
   fi
+  [ -z "$out" ] || printf '%s\n' "$out"
   remote_recovery_paths_validate recheck || {
     echo "error: remote home retired but local recovery paths changed; preserving the local route for retry" >&2
     return 1
@@ -1097,7 +1109,8 @@ remote_secondmate_teardown() {
   mv -f -- "$tmp" "$SECONDMATE_REG"
   [ ! -e "$CONFIG/fleet-ledger" ] || FM_HOME=$FM_HOME FM_STATE_OVERRIDE=$STATE FM_CONFIG_OVERRIDE=$CONFIG "$SCRIPT_DIR/fm-fleet-ledger.sh" cleaned_up "$ID" || true
   teardown_archive_task_records
-  status_retire_presentation_task "$STATE" "$ID" || return 1
+  status_retire_presentation_task "$STATE" "$ID" "$TASK_RECORDS_RETIRE_MODE" || return 1
+  [ "$TASK_RECORDS_RETIRE_MODE" = keep-status ] || rm -rf -- "$STATE/$ID.inbox"
   fm_backlog_atomic_transition remove "$STATE/$ID.meta" "task record" "$STATE" || return 1
   rm -f -- "$STATE/$ID.turn-ended" "$STATE/$ID.progress" \
     "$(fm_wake_signal_seen_path "$STATE" "$STATE/$ID.turn-ended")" \
@@ -2707,6 +2720,15 @@ remove_firstmate_home() {
   [ -e "$home" ] || return 0
   abs_home_path=$(validate_firstmate_home_for_removal "$home" "$label" "$expected_id") || return 1
   [ -n "$abs_home_path" ] || return 0
+  case "$STATE/" in
+    "$abs_home_path/"*)
+      teardown_archive_task_records "$FM_HOME/data/$ID"
+      if [ "$TASK_RECORDS_RETIRE_MODE" = keep-status ]; then
+        echo "warning: retaining $abs_home_path because it contains unarchived task records" >&2
+        return 0
+      fi
+      ;;
+  esac
   process_event_backup=$(snapshot_firstmate_home_process_events "$abs_home_path" "$label") || return 1
   if ! cleanup_firstmate_home_process_events "$abs_home_path" "$label"; then
     restore_firstmate_home_process_events "$abs_home_path" "$label" "$process_event_backup" || return $?
@@ -3825,7 +3847,7 @@ retire_busy_state "$STATE" "$ID" "$BUSY_GEN" || exit 1
 # retired so its last lines are captured; off costs one file test.
 [ ! -e "$CONFIG/fleet-ledger" ] || FM_HOME=$FM_HOME FM_STATE_OVERRIDE=$STATE FM_CONFIG_OVERRIDE=$CONFIG "$SCRIPT_DIR/fm-fleet-ledger.sh" cleaned_up "$ID" || true
 teardown_archive_task_records
-status_retire_presentation_task "$STATE" "$ID" || exit 1
+status_retire_presentation_task "$STATE" "$ID" "$TASK_RECORDS_RETIRE_MODE" || exit 1
 fm_wake_queue_prune_task "$STATE" "$ID" "$T" 2>/dev/null || true
 rm -f "$STATE/$ID.turn-ended" "$STATE/$ID.progress" \
   "$(fm_wake_signal_seen_path "$STATE" "$STATE/$ID.turn-ended")" \
@@ -3843,7 +3865,8 @@ rm -f "$STATE/$ID.turn-ended" "$STATE/$ID.progress" \
 # state/<id>.git-hooks is the spawn-owned commit-msg strip directory, left
 # read-only by its installer.
 chmod u+w "$STATE/$ID.git-hooks" 2>/dev/null || true
-rm -rf "$STATE/$ID.inbox" "$STATE/$ID.git-hooks"
+[ "$TASK_RECORDS_RETIRE_MODE" = keep-status ] || rm -rf "$STATE/$ID.inbox"
+rm -rf "$STATE/$ID.git-hooks"
 # A presentation journal the close path left behind is orphaned once the
 # recorded pane is proven gone (the Herdr gate above) unless it still names a
 # live projected workspace - a version 2 binding of some other pane, or a

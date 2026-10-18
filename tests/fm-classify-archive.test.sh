@@ -31,42 +31,53 @@ seed_case() {  # <name>
 }
 
 test_archives_status_log_and_inbox_records_without_touching_live_state() {
-  local d
+  local d archive
   d=$(seed_case basic)
   status_archive_task_records "$d/state" t1 "$d/data/t1" \
     || fail "archive of a complete task returned failure"
-  cmp -s "$d/state/t1.status" "$d/data/t1/status.log" \
+  archive=$STATUS_ARCHIVE_DIR
+  cmp -s "$d/state/t1.status" "$archive/status.log" \
     || fail "archived status log differs from the live status log"
-  cmp -s "$d/state/t1.inbox/002.msg" "$d/data/t1/inbox/002.msg" \
+  cmp -s "$d/state/t1.inbox/002.msg" "$archive/inbox/002.msg" \
     || fail "pending inbox record was not archived"
-  cmp -s "$d/state/t1.inbox/handled/001.msg" "$d/data/t1/inbox/handled/001.msg" \
+  cmp -s "$d/state/t1.inbox/handled/001.msg" "$archive/inbox/handled/001.msg" \
     || fail "handled inbox record was not archived"
   [ -f "$d/state/t1.status" ] && [ -f "$d/state/t1.inbox/002.msg" ] \
     || fail "archiving changed the live state it reads"
-  assert_absent "$d/data/t1/inbox/.ring-state" "inbox bookkeeping was archived"
-  assert_absent "$d/data/t1/inbox/.seq.lock" "inbox lock was archived"
+  assert_absent "$archive/inbox/.ring-state" "inbox bookkeeping was archived"
+  assert_absent "$archive/inbox/.seq.lock" "inbox lock was archived"
   [ -z "$(find "$d/data/t1" -name '*token*')" ] \
     || fail "a credential-bearing state file reached the archive"
   pass "the status log and inbox records are archived and live state is untouched"
 }
 
 test_retry_after_retirement_keeps_the_archive() {
-  local d
+  local d first second third
   d=$(seed_case retry)
   status_archive_task_records "$d/state" t1 "$d/data/t1" || fail "first archive failed"
+  first=$STATUS_ARCHIVE_DIR
   printf 'resolved: late line\n' >> "$d/state/t1.status"
   status_archive_task_records "$d/state" t1 "$d/data/t1" || fail "repeat archive failed"
-  cmp -s "$d/state/t1.status" "$d/data/t1/status.log" \
-    || fail "repeat archive did not refresh the status log copy"
+  second=$STATUS_ARCHIVE_DIR
+  [ "$first" != "$second" ] || fail "repeat archive overwrote an earlier snapshot"
+  cmp -s "$d/state/t1.status" "$second/status.log" || fail "repeat archive lost late status"
   status_retire_presentation_task "$d/state" t1 || fail "retirement failed"
   rm -rf "$d/state/t1.inbox"
-  status_archive_task_records "$d/state" t1 "$d/data/t1" \
-    || fail "archive with no live records left returned failure"
-  assert_grep 'resolved: late line' "$d/data/t1/status.log" \
-    "a retry after retirement erased the archived status log"
-  [ -f "$d/data/t1/inbox/handled/001.msg" ] \
-    || fail "a retry after retirement erased the archived inbox"
-  pass "archiving is idempotent and a retry after retirement keeps the archive"
+  status_archive_task_records "$d/state" t1 "$d/data/t1" || fail "empty retry failed"
+  [ -z "$STATUS_ARCHIVE_DIR" ] || fail "empty retry created another run"
+  assert_grep 'resolved: late line' "$second/status.log" "retry erased archived status"
+  assert_present "$second/inbox/handled/001.msg" "retry erased archived inbox"
+  mkdir -p "$d/state/t1.inbox/handled"
+  printf 'done: second run\n' > "$d/state/t1.status"
+  printf 'new steer\n' > "$d/state/t1.inbox/handled/001.msg"
+  status_archive_task_records "$d/state" t1 "$d/data/t1" || fail "second run archive failed"
+  third=$STATUS_ARCHIVE_DIR
+  [ "$third" != "$first" ] && [ "$third" != "$second" ] || fail "run paths collided"
+  assert_grep 'done: finished' "$first/status.log" "later run overwrote earlier status"
+  assert_grep 'first steer' "$first/inbox/handled/001.msg" "later run overwrote earlier inbox"
+  assert_grep 'done: second run' "$third/status.log" "later status was not archived"
+  assert_grep 'new steer' "$third/inbox/handled/001.msg" "later inbox was not archived"
+  pass "retries and reused task IDs preserve every earlier run"
 }
 
 test_task_without_records_creates_nothing() {
@@ -79,7 +90,7 @@ test_task_without_records_creates_nothing() {
 }
 
 test_symlinks_are_never_followed() {
-  local d
+  local d archive
   d=$(seed_case symlink)
   printf 'outside secret\n' > "$d/outside"
   rm -f "$d/state/t1.inbox/002.msg"
@@ -87,8 +98,9 @@ test_symlinks_are_never_followed() {
   if status_archive_task_records "$d/state" t1 "$d/data/t1"; then
     fail "archive reported success while skipping a symlinked record"
   fi
-  assert_absent "$d/data/t1/inbox/002.msg" "a symlinked inbox record was copied"
-  [ -f "$d/data/t1/status.log" ] || fail "one bad record stopped the rest of the archive"
+  archive=$STATUS_ARCHIVE_DIR
+  assert_absent "$archive/inbox/002.msg" "a symlinked inbox record was copied"
+  [ -f "$archive/status.log" ] || fail "one bad record stopped the rest of the archive"
 
   d=$(seed_case symlink-dest)
   mkdir -p "$d/elsewhere"
@@ -100,7 +112,36 @@ test_symlinks_are_never_followed() {
   pass "archiving never follows a symlinked source or destination"
 }
 
+test_remote_archive_round_trip() {
+  local d archive
+  d=$(seed_case 'remote home with spaces')
+  mkdir -p "$d/home/state/parent-route" "$d/home/bin" "$d/root/data"
+  printf 't1\n' > "$d/home/.fm-secondmate-home"
+  : > "$d/home/AGENTS.md"
+  cp -R "$d/state/." "$d/home/state/parent-route/"
+  FM_HOME="$d/home" FM_ROOT_OVERRIDE="$d/root" bash "$ROOT/bin/fm-remote-secondmate-control.sh" archive t1 \
+    > "$d/payload.json" || fail "remote archive export failed"
+  status_archive_import "$d/data/t1" "$d/payload.json" || fail "remote archive import failed"
+  archive=$STATUS_ARCHIVE_DIR
+  cmp -s "$d/state/t1.status" "$archive/status.log" || fail "remote status changed during transfer"
+  cmp -s "$d/state/t1.inbox/handled/001.msg" "$archive/inbox/handled/001.msg" \
+    || fail "remote handled inbox changed during transfer"
+  cmp -s "$d/state/t1.inbox/002.msg" "$archive/inbox/002.msg" \
+    || fail "remote pending inbox changed during transfer"
+  printf '{"../escape":"eA=="}\n' > "$d/unsafe.json"
+  if status_archive_import "$d/data/t1" "$d/unsafe.json" 2>/dev/null; then
+    fail "import accepted a traversal path"
+  fi
+  assert_absent "$d/data/t1/runs/escape" "import escaped its run directory"
+  printf '{"status.log":' > "$d/truncated.json"
+  if status_archive_import "$d/data/t1" "$d/truncated.json" 2>/dev/null; then
+    fail "import accepted a truncated transfer"
+  fi
+  pass "remote archives transfer exact records and reject unsafe or truncated payloads"
+}
+
 test_archives_status_log_and_inbox_records_without_touching_live_state
 test_retry_after_retirement_keeps_the_archive
 test_task_without_records_creates_nothing
 test_symlinks_are_never_followed
+test_remote_archive_round_trip
