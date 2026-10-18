@@ -89,8 +89,22 @@
 # - or a version 1 attempt whose workspace is still present or unreadable - may
 # name a live quarantined space and is retained for that sweep.
 # data/<id>/ is deliberately left in place: a successor spawn reads brief.md
-# from it. Before the status log and steering inbox are retired, teardown keeps
-# copies in runs/<UTC-timestamp>.<suffix>/ (teardown_archive_task_records).
+# from it.
+# Local task record retention: before retiring the live status log and inbox,
+# teardown copies them into data/<id>/runs/<UTC-timestamp>.<suffix>/, with the
+# log at status.log, pending numbered .msg records at inbox/, and acknowledged
+# records at inbox/handled/; inbox bookkeeping and other runtime files are excluded.
+# Each snapshot gets a unique run directory so retries and reused task IDs
+# preserve earlier copies.
+# A copy failure warns and preserves the original status log and inbox in state/
+# while the rest of cleanup proceeds.
+# Local secondmate retirement also copies child status logs, inbox records, and
+# existing run histories into the parent home's data/<secondmate-id>/children/<task>/
+# using the same runs/ layout; nested child histories retain their children/ hierarchy.
+# Failed child archival retains the source home and records, but still runs
+# process-event listener cleanup and propagates its failures.
+# Remote secondmate retirement does not archive status logs or inbox records.
+# Retention regressions: tests/fm-classify-archive.test.sh and tests/fm-teardown.test.sh.
 # Pool membership is resolved through bin/fm-wake-lib.sh's fm_treehouse_pool_path
 # before slot mutation; uncertainty refuses cleanup even with --force and even
 # when a claim names another task. Repair the configuration or pool-state evidence
