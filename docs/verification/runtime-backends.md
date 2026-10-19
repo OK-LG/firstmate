@@ -18,7 +18,7 @@ Initial alarm coverage was verified on 2026-10-09 with GNU Bash 5.2.21 on Linux:
 bash bin/fm-test-run.sh tests/fm-pr-ready.test.sh
 ```
 
-The current [regression](../../tests/fm-pr-ready.test.sh) also covers delayed acknowledgements, report-token validation and capture, alarm-supplied acknowledgement commands, and task-specific wake cleanup; the recorded output below covers the initial cases only.
+The current [regression](../../tests/fm-pr-ready.test.sh) also covers delayed acknowledgements, report-token validation and capture, alarm-supplied acknowledgement commands, task-specific wake cleanup, and acknowledgement through real byte endpoints for status logs with multi-byte text, NUL bytes and CRLF line endings; the recorded output below covers the initial cases only.
 
 Recorded output:
 

@@ -21,7 +21,8 @@
 # it. Writes are atomic, and a wake is queued BEFORE its repeat timer advances.
 # Endpoints are real byte offsets from fm_pr_ready_span_lines, so NUL bytes
 # (which bash read truncates at), multi-byte text, and CRLF line endings cannot
-# shift them, and a trailing CR is not part of the classified line.
+# shift them. fm_pr_ready_line_url drops a line's trailing CR before it
+# classifies it, so every caller reads a CRLF log the same way.
 
 FM_PR_READY_LIB_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=bin/fm-pr-lib.sh
@@ -32,7 +33,7 @@ FM_PR_READY_LIB_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 . "$FM_PR_READY_LIB_DIR/fm-wake-lib.sh"
 
 fm_pr_ready_line_url() {
-  local line=$1 verb token
+  local line=${1%$'\r'} verb token
   local -a words
   status_line_verb "$line" verb
   case "$verb" in done|ready) ;; *) return 1 ;; esac
@@ -49,7 +50,7 @@ fm_pr_ready_line_url() {
 
 # fm_pr_ready_span_lines <status-file> <start> <length> prints one record per
 # complete line in the span: its absolute end byte offset, a tab, then the line
-# without its LF and any trailing CR. A partial final line is not printed.
+# without its LF. A partial final line is not printed.
 fm_pr_ready_span_lines() {
   _fm_status_read_span "$1" "$2" "$3" | perl -e '
     binmode STDIN; binmode STDOUT;
@@ -57,7 +58,7 @@ fm_pr_ready_span_lines() {
     while (my $line = <STDIN>) {
       last unless $line =~ /\n\z/;
       $offset += length $line;
-      $line =~ s/\r?\n\z//;
+      $line =~ s/\n\z//;
       print "$offset\t$line\n";
     }
   ' "$2"
