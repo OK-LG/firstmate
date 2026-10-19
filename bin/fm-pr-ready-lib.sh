@@ -18,7 +18,16 @@
 # URL (or -), age origin, last alarm epoch, handled (0/1), ready byte endpoint,
 # format version. fm-pr-ready-ack.sh owns the separate acknowledgement record.
 # The cursor consumes complete lines only. File replacement/truncation resets
-# it. Writes are atomic, and a wake is queued BEFORE its repeat timer advances.
+# it, as does a marker from a superseded format version, whose offsets predate
+# this byte accounting; an acknowledgement record from a superseded version is
+# discarded for the same reason, so its handoff alarms again until it is
+# acknowledged through a real byte endpoint, which that alarm's own token
+# supplies. Writes are atomic, and a wake is queued BEFORE its repeat timer
+# advances.
+# Endpoints are real byte offsets from fm_pr_ready_span_lines, so NUL bytes
+# (which bash read truncates at), multi-byte text, and CRLF line endings cannot
+# shift them. fm_pr_ready_line_url drops a line's trailing CR before it
+# classifies it, so every caller reads a CRLF log the same way.
 
 FM_PR_READY_LIB_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=bin/fm-pr-lib.sh
@@ -29,7 +38,7 @@ FM_PR_READY_LIB_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 . "$FM_PR_READY_LIB_DIR/fm-wake-lib.sh"
 
 fm_pr_ready_line_url() {
-  local line=$1 verb token
+  local line=${1%$'\r'} verb token
   local -a words
   status_line_verb "$line" verb
   case "$verb" in done|ready) ;; *) return 1 ;; esac
@@ -44,10 +53,26 @@ fm_pr_ready_line_url() {
   return 1
 }
 
+# fm_pr_ready_span_lines <status-file> <start> <length> prints one record per
+# complete line in the span: its absolute end byte offset, a tab, then the line
+# without its LF. A partial final line is not printed.
+fm_pr_ready_span_lines() {
+  _fm_status_read_span "$1" "$2" "$3" | perl -e '
+    binmode STDIN; binmode STDOUT;
+    my $offset = shift;
+    while (my $line = <STDIN>) {
+      last unless $line =~ /\n\z/;
+      $offset += length $line;
+      $line =~ s/\n\z//;
+      print "$offset\t$line\n";
+    }
+  ' "$2"
+}
+
 fm_pr_ready_tick() {
   local state=$1 now=$2 age=${FM_PR_READY_AGE_SECS:-1200} repeat=${FM_PR_READY_REPEAT_SECS:-1200}
   local id size ident f marker device old_ident offset url since last handled version
-  local line candidate token stamp reason tmp snapshot before after ready_end report_token
+  local line record candidate token stamp reason tmp snapshot before after ready_end report_token
   local ack_ident ack_end ack_url ack_reason ack_version ack
   local LC_ALL=C
   for token in "$age" "$repeat"; do
@@ -71,13 +96,16 @@ fm_pr_ready_tick() {
           && IFS= read -r since && IFS= read -r last && IFS= read -r handled \
           && IFS= read -r ready_end && IFS= read -r version
       } < "$marker" || return 1
-      [ "$version" = fm-pr-ready-v1 ] || return 1
-      for token in "$offset" "$since" "$last" "$ready_end"; do
-        case "$token" in ''|*[!0-9]*|0[0-9]*) return 1 ;; esac
-        [ "${#token}" -le 12 ] || return 1
-      done
-      case "$handled" in 0|1) ;; *) return 1 ;; esac
-      [ "$url" = - ] || fm_pr_url_parse "$url" || return 1
+      if [ "$version" = fm-pr-ready-v2 ]; then
+        for token in "$offset" "$since" "$last" "$ready_end"; do
+          case "$token" in ''|*[!0-9]*|0[0-9]*) return 1 ;; esac
+          [ "${#token}" -le 12 ] || return 1
+        done
+        case "$handled" in 0|1) ;; *) return 1 ;; esac
+        [ "$url" = - ] || fm_pr_url_parse "$url" || return 1
+      else
+        old_ident='' offset=0 url=- since=0 last=0 handled=0 ready_end=0
+      fi
     fi
     before=$(printf '%s\n' "$old_ident" "$offset" "$url" "$since" "$last" "$handled" "$ready_end")
     if [ "$old_ident" != "$ident" ] || [ "$offset" -gt "$size" ]; then
@@ -91,22 +119,26 @@ fm_pr_ready_tick() {
         IFS= read -r ack_ident && IFS= read -r ack_end && IFS= read -r ack_url \
           && IFS= read -r ack_reason && IFS= read -r ack_version
       } < "$ack" || return 1
-      [ "$ack_version" = fm-pr-ready-ack-v1 ] || return 1
-      case "$ack_reason" in review-started|merge-started|held) ;; *) return 1 ;; esac
-      fm_pr_url_parse "$ack_url" || return 1
-      case "$ack_end" in ''|*[!0-9]*|0[0-9]*) return 1 ;; esac
-      [ "${#ack_end}" -le 12 ] || return 1
-      # A truncated log cannot inherit an acknowledgement from bytes it no
-      # longer contains, including after unrelated new appends grow it again.
-      if [ "$ack_ident" = "$ident" ] && [ "$ack_end" -gt "$size" ]; then
+      if [ "$ack_version" = fm-pr-ready-ack-v2 ]; then
+        case "$ack_reason" in review-started|merge-started|held) ;; *) return 1 ;; esac
+        fm_pr_url_parse "$ack_url" || return 1
+        case "$ack_end" in ''|*[!0-9]*|0[0-9]*) return 1 ;; esac
+        [ "${#ack_end}" -le 12 ] || return 1
+        # A truncated log cannot inherit an acknowledgement from bytes it no
+        # longer contains, including after unrelated new appends grow it again.
+        if [ "$ack_ident" = "$ident" ] && [ "$ack_end" -gt "$size" ]; then
+          rm -f -- "$ack" || return 1
+          ack_ident=''
+        fi
+      else
         rm -f -- "$ack" || return 1
-        ack_ident=''
+        ack_ident='' ack_end=0
       fi
     fi
     if [ "$ack_ident" = "$ident" ] && [ "$ack_end" -ge "$ready_end" ] && [ "$ack_url" = "$url" ]; then handled=1; fi
     # Read only the newly captured bytes; a partial append remains unread.
-    while IFS= read -r line; do
-      offset=$((offset + ${#line} + 1))
+    while IFS= read -r record; do
+      offset=${record%%$'\t'*} line=${record#*$'\t'}
       fm_pr_ready_line_url "$line" || continue
       candidate=$FM_PR_URL
       if [ "$candidate" != "$url" ] || [ "$handled" -eq 1 ]; then
@@ -117,7 +149,7 @@ fm_pr_ready_tick() {
       fi
       ready_end=$offset
       if [ "$ack_ident" = "$ident" ] && [ "$ack_end" -ge "$ready_end" ] && [ "$ack_url" = "$url" ]; then handled=1; fi
-    done < <(_fm_status_read_span "$f" "$offset" "$((size - offset))")
+    done < <(fm_pr_ready_span_lines "$f" "$offset" "$((size - offset))")
     # Replacement during the read is deferred, never combined with old bytes.
     [ "$(_fm_open_decisions_file_ident "$f")" = "$ident" ] || continue
     [ "$(_fm_status_file_size "$f")" -ge "$size" ] || continue
@@ -137,7 +169,7 @@ fm_pr_ready_tick() {
     after=$(printf '%s\n' "$ident" "$offset" "$url" "$since" "$last" "$handled" "$ready_end")
     [ "$before" != "$after" ] || continue
     tmp=$(mktemp "$state/.pr-ready.XXXXXX") || return 1
-    if ! { printf '%s\n%s\n' "$after" fm-pr-ready-v1 > "$tmp" \
+    if ! { printf '%s\n%s\n' "$after" fm-pr-ready-v2 > "$tmp" \
       && chmod 600 "$tmp" && fm_pr_regular_destination_on_device_or_absent "$marker" "$device" \
       && mv -f -- "$tmp" "$marker"; }; then
       rm -f -- "$tmp"
