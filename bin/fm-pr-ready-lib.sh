@@ -18,9 +18,12 @@
 # URL (or -), age origin, last alarm epoch, handled (0/1), ready byte endpoint,
 # format version. fm-pr-ready-ack.sh owns the separate acknowledgement record.
 # The cursor consumes complete lines only. File replacement/truncation resets
-# it, as does a record from a superseded format version, whose offsets predate
-# this byte accounting. Writes are atomic, and a wake is queued BEFORE its
-# repeat timer advances.
+# it, as does a marker from a superseded format version, whose offsets predate
+# this byte accounting; an acknowledgement record from a superseded version is
+# discarded for the same reason, so its handoff alarms again until it is
+# acknowledged through a real byte endpoint, which that alarm's own token
+# supplies. Writes are atomic, and a wake is queued BEFORE its repeat timer
+# advances.
 # Endpoints are real byte offsets from fm_pr_ready_span_lines, so NUL bytes
 # (which bash read truncates at), multi-byte text, and CRLF line endings cannot
 # shift them. fm_pr_ready_line_url drops a line's trailing CR before it
