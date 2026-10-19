@@ -19,6 +19,9 @@
 # format version. fm-pr-ready-ack.sh owns the separate acknowledgement record.
 # The cursor consumes complete lines only. File replacement/truncation resets
 # it. Writes are atomic, and a wake is queued BEFORE its repeat timer advances.
+# Endpoints are real byte offsets from fm_pr_ready_span_lines, so NUL bytes
+# (which bash read truncates at), multi-byte text, and CRLF line endings cannot
+# shift them, and a trailing CR is not part of the classified line.
 
 FM_PR_READY_LIB_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=bin/fm-pr-lib.sh
@@ -44,10 +47,26 @@ fm_pr_ready_line_url() {
   return 1
 }
 
+# fm_pr_ready_span_lines <status-file> <start> <length> prints one record per
+# complete line in the span: its absolute end byte offset, a tab, then the line
+# without its LF and any trailing CR. A partial final line is not printed.
+fm_pr_ready_span_lines() {
+  _fm_status_read_span "$1" "$2" "$3" | perl -e '
+    binmode STDIN; binmode STDOUT;
+    my $offset = shift;
+    while (my $line = <STDIN>) {
+      last unless $line =~ /\n\z/;
+      $offset += length $line;
+      $line =~ s/\r?\n\z//;
+      print "$offset\t$line\n";
+    }
+  ' "$2"
+}
+
 fm_pr_ready_tick() {
   local state=$1 now=$2 age=${FM_PR_READY_AGE_SECS:-1200} repeat=${FM_PR_READY_REPEAT_SECS:-1200}
   local id size ident f marker device old_ident offset url since last handled version
-  local line candidate token stamp reason tmp snapshot before after ready_end report_token
+  local line record candidate token stamp reason tmp snapshot before after ready_end report_token
   local ack_ident ack_end ack_url ack_reason ack_version ack
   local LC_ALL=C
   for token in "$age" "$repeat"; do
@@ -105,8 +124,8 @@ fm_pr_ready_tick() {
     fi
     if [ "$ack_ident" = "$ident" ] && [ "$ack_end" -ge "$ready_end" ] && [ "$ack_url" = "$url" ]; then handled=1; fi
     # Read only the newly captured bytes; a partial append remains unread.
-    while IFS= read -r line; do
-      offset=$((offset + ${#line} + 1))
+    while IFS= read -r record; do
+      offset=${record%%$'\t'*} line=${record#*$'\t'}
       fm_pr_ready_line_url "$line" || continue
       candidate=$FM_PR_URL
       if [ "$candidate" != "$url" ] || [ "$handled" -eq 1 ]; then
@@ -117,7 +136,7 @@ fm_pr_ready_tick() {
       fi
       ready_end=$offset
       if [ "$ack_ident" = "$ident" ] && [ "$ack_end" -ge "$ready_end" ] && [ "$ack_url" = "$url" ]; then handled=1; fi
-    done < <(_fm_status_read_span "$f" "$offset" "$((size - offset))")
+    done < <(fm_pr_ready_span_lines "$f" "$offset" "$((size - offset))")
     # Replacement during the read is deferred, never combined with old bytes.
     [ "$(_fm_open_decisions_file_ident "$f")" = "$ident" ] || continue
     [ "$(_fm_status_file_size "$f")" -ge "$size" ] || continue

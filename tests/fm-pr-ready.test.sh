@@ -170,6 +170,36 @@ printf 'ready [at=1500]: PR %s\n' "$URL" >> "$STATE_DIR/ship.status"
 assert_contains "$(tick 2700)" 'PR-ready overdue' 'alarm command acknowledges only its captured report'
 pass 'alarm supplies an executable acknowledgement bound to its report'
 
+for eol in lf crlf; do
+  new_case "bytes-$eol"
+  cr=''
+  [ "$eol" = crlf ] && cr=$'\r'
+  printf 'working [at=50]: m² ü über café%s\nworking [at=60]: 測試 progress%s\n' "$cr" "$cr" > "$STATE_DIR/ship.status"
+  # Bash read drops the rest of a line after a NUL, so pasted NULs must not shift endpoints.
+  printf 'working [at=70]: pasted C:\0 path tail%s\n' "$cr" >> "$STATE_DIR/ship.status"
+  printf 'done [at=100]: m² PR %s%s\n' "$URL" "$cr" >> "$STATE_DIR/ship.status"
+  ready_bytes=$(wc -c < "$STATE_DIR/ship.status" | tr -d ' ')
+  printf 'working [at=110]: ü after%s\n' "$cr" >> "$STATE_DIR/ship.status"
+  out=$(tick 1300) || fail 'alarm tick failed'
+  [[ "$out" == *"|$ready_bytes" ]] || fail "alarm token does not end at byte $ready_bytes: $out"
+  report=$(capture_pr "$URL") || fail 'could not capture multibyte ready report'
+  [ "${report##*|}" = "$ready_bytes" ] || fail "capture endpoint ${report##*|} is not byte $ready_bytes"
+  for token in "${report%|*}|$((ready_bytes - 1))" "${report%|*}|$((ready_bytes + 1))"; do
+    if FM_STATE_OVERRIDE="$STATE_DIR" bash "$ROOT/bin/fm-pr-ready-ack.sh" ship "$URL" held "$token" >/dev/null 2>&1; then
+      fail 'stale endpoint was accepted'
+    fi
+  done
+  command=${out#*acknowledge with }
+  command=${command/'<review-started|merge-started|held>'/review-started}
+  (cd "$ROOT" && FM_STATE_OVERRIDE="$STATE_DIR" bash -c "$command") >/dev/null \
+    || fail 'alarm acknowledgement command failed'
+  [ -z "$(tick 2500)" ] || fail 'alarm token acknowledgement did not stop alarms'
+  printf 'ready [at=2600]: ü PR %s fixes%s\n' "$URL" "$cr" >> "$STATE_DIR/ship.status"
+  ack_pr "$URL"
+  [ -z "$(tick 3800)" ] || fail 'captured acknowledgement did not stop alarms'
+done
+pass 'multibyte, NUL and CRLF status logs acknowledge through real byte endpoints'
+
 new_case cleanup
 printf 'done [at=100]: PR %s\n' "$URL" > "$STATE_DIR/ship.status"
 assert_contains "$(tick 1300)" 'PR-ready overdue' 'cleanup fixture has a real overdue alarm'

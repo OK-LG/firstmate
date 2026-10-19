@@ -57,13 +57,13 @@ fi
 [ "$IDENT" = "$CURRENT_IDENT" ] && [ "$END" -le "$SIZE" ] || {
   echo 'error: captured report no longer belongs to this status log' >&2; exit 1;
 }
-OFFSET=0 READY_END=0 READY_URL='' READY_LINE=''
+READY_END=0 READY_URL='' READY_LINE=''
 export LC_ALL=C
-while IFS= read -r line; do
-  OFFSET=$((OFFSET + ${#line} + 1))
+while IFS= read -r record; do
+  line=${record#*$'\t'}
   fm_pr_ready_line_url "$line" || continue
-  READY_END=$OFFSET READY_URL=$FM_PR_URL READY_LINE=$line
-done < <(_fm_status_read_span "$STATUS" 0 "$END")
+  READY_END=${record%%$'\t'*} READY_URL=$FM_PR_URL READY_LINE=$line
+done < <(fm_pr_ready_span_lines "$STATUS" 0 "$END")
 [ "$(_fm_open_decisions_file_ident "$STATUS")" = "$IDENT" ] \
   && [ "$(_fm_status_file_size "$STATUS")" -ge "$END" ] \
   && [ "$READY_URL" = "$URL" ] && [ "$READY_END" -gt 0 ] || {
