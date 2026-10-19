@@ -1,0 +1,14 @@
+### BASE e777c4a ###
+tick exit=0
+RESULT: no review was started
+RESULT: no acknowledgement record written
+
+### FIX c0b05b5 ###
+tick exit=0
+RESULT: the configured review command started for the CRLF ready PR
+RESULT: handoff acknowledged ->
+strong:16777232:297078379:1792395107.088810921
+79
+https://github.com/o/r/pull/7
+review-started
+fm-pr-ready-ack-v2

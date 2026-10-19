@@ -1,0 +1,25 @@
+### BASE e777c4a: an ordinary ASCII handoff, captured and acknowledged before the upgrade ###
+check: PR-ready overdue: task=ship PR=https://github.com/o/r/pull/7 age=1200s
+acknowledged: task=ship PR=https://github.com/o/r/pull/7 reason=review-started
+base records:
+[pr-ready-ack]
+strong:16777232:297076854:1792395071.053404007
+90
+https://github.com/o/r/pull/7
+review-started
+fm-pr-ready-ack-v1
+--- base tick after acknowledgement ---
+(silent)
+
+### upgrade to c0b05b5 ###
+tick now=3700 -> check: PR-ready overdue: task=ship PR=https://github.com/o/r/pull/7 age=3600s; start its authorized review or landing, then acknowledge with bin/fm-pr-ready-ack.sh ship https://github.com/o/r/pull/7 <review-started|merge-started|held> strong:16777232:297076854:1792395071.053404007\|90
+   operator runs the alarm's own command: acknowledged: task=ship PR=https://github.com/o/r/pull/7 reason=review-started
+tick now=4900 -> (silent)
+tick now=6100 -> (silent)
+tick now=7300 -> (silent)
+[pr-ready-ack now]
+strong:16777232:297076854:1792395071.053404007
+90
+https://github.com/o/r/pull/7
+review-started
+fm-pr-ready-ack-v2

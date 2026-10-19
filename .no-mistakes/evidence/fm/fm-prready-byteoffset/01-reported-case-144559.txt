@@ -1,0 +1,25 @@
+Scenario: the operator's reported case, driven end to end.
+Fixture: a 144634-byte ship status log with 37 non-ASCII bytes, 6 CR bytes and
+2 pasted NUL bytes before the ready line; the ready line really ends at byte
+144559 and 75 bytes of ordinary status follow it.
+Steps: watcher tick -> overdue alarm -> operator pastes the alarm's own
+acknowledge command -> watcher tick 20 minutes later.
+
+### BASE COMMIT e777c4a (before the fix) ###
+check: PR-ready overdue: task=ship PR=https://github.com/o/r/pull/7 age=1300s; start its authorized review or landing, then acknowledge with bin/fm-pr-ready-ack.sh ship https://github.com/o/r/pull/7 <review-started|merge-started|held> strong:16777232:297062653:1792394830.969388100\|144471
+--- operator runs the alarm's own acknowledge command ---
+error: captured report is unavailable or names another PR
+exit=1
+--- operator falls back to --capture ---
+strong:16777232:297062653:1792394830.969388100|144471
+capture exit=0
+--- alarm 20 minutes later (base) ---
+check: PR-ready overdue: task=ship PR=https://github.com/o/r/pull/7 age=2500s; start its authorized review or landing, then acknowledge with bin/fm-pr-ready-ack.sh ship https://github.com/o/r/pull/7 <review-started|merge-started|held> strong:16777232:297062653:1792394830.969388100\|144471
+
+### FIX UNDER TEST c0b05b5 ###
+check: PR-ready overdue: task=ship PR=https://github.com/o/r/pull/7 age=1300s; start its authorized review or landing, then acknowledge with bin/fm-pr-ready-ack.sh ship https://github.com/o/r/pull/7 <review-started|merge-started|held> strong:16777232:297062649:1792394830.916173755\|144559
+--- operator runs the alarm's own acknowledge command ---
+acknowledged: task=ship PR=https://github.com/o/r/pull/7 reason=review-started
+exit=0
+--- alarm 20 minutes later (fixed) ---
+(silent above = alarm cleared)

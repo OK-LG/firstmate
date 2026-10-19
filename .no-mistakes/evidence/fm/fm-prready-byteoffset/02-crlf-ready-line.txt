@@ -1,0 +1,23 @@
+fixture (CRLF log, ready line ends with the URL):
+cat: illegal option -- A
+usage: cat [-belnstuv] [file ...]
+real ready-line end byte: 109
+
+### BASE COMMIT e777c4a ###
+--- watcher tick 20 minutes after the ready declaration ---
+(no alarm line above = the CRLF handoff is invisible to the watcher)
+--- operator captures the ready report ---
+error: captured report is unavailable or names another PR
+capture exit=1
+
+### FIX UNDER TEST c0b05b5 ###
+--- watcher tick 20 minutes after the ready declaration ---
+check: PR-ready overdue: task=ship PR=https://github.com/o/r/pull/7 age=1200s; start its authorized review or landing, then acknowledge with bin/fm-pr-ready-ack.sh ship https://github.com/o/r/pull/7 <review-started|merge-started|held> strong:16777232:297068255:1792394951.285438095\|109
+--- operator captures the ready report ---
+done [at=100]: PR https://github.com/o/r/pull/7
+token: strong:16777232:297068255:1792394951.285438095|109
+--- operator acknowledges with that token ---
+acknowledged: task=ship PR=https://github.com/o/r/pull/7 reason=review-started
+exit=0
+--- next tick (should be silent) ---
+(silent = acknowledged)

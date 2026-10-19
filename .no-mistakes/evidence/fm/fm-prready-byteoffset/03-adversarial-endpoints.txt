@@ -1,0 +1,14 @@
+alarm token: strong:16777232:297071240:1792394982.896589945|144559   (real ready-line end = 144559)
+endpoint 144558 -> error: captured report is unavailable or names another PR
+endpoint 144560 -> error: endpoint is not a complete ready report
+endpoint 144634 -> error: endpoint is not a complete ready report
+endpoint 144471 -> error: captured report is unavailable or names another PR
+--- another task's identity with the right endpoint ---
+error: captured report no longer belongs to this status log
+--- wrong PR URL with the right token ---
+error: captured report is unavailable or names another PR
+--- the alarm still fires, nothing was silenced ---
+check: PR-ready overdue: task=ship PR=https://github.com/o/r/pull/7 age=2500s
+--- the real endpoint is accepted ---
+acknowledged: task=ship PR=https://github.com/o/r/pull/7 reason=held
+exit=0

@@ -1,0 +1,7 @@
+--- tick while the ready line is still a partial append ---
+(silent = a partial line is not a report)
+--- operator captures while partial ---
+error: captured report is unavailable or names another PR
+real ready-line end byte: 93
+--- tick after the line completes ---
+check: PR-ready overdue: task=ship PR=https://github.com/o/r/pull/7 age=1300s; start its authorized review or landing, then acknowledge with bin/fm-pr-ready-ack.sh ship https://github.com/o/r/pull/7 <review-started|merge-started|held> strong:16777232:297078707:1792395131.167491931\|93

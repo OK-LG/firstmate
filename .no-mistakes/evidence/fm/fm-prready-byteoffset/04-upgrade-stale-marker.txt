@@ -1,0 +1,27 @@
+### the same on-disk state, same status file (no copy): marker left by base e777c4a ###
+strong:16777232:297062653:1792394830.969388100
+144634
+https://github.com/o/r/pull/7
+5400
+7900
+0
+144471
+fm-pr-ready-v1
+live status identity: strong:16777232:297062653:1792394830.969388100
+
+### upgraded watcher ticks on that exact state ###
+check: PR-ready overdue: task=ship PR=https://github.com/o/r/pull/7 age=3700s; start its authorized review or landing, then acknowledge with bin/fm-pr-ready-ack.sh ship https://github.com/o/r/pull/7 <review-started|merge-started|held> strong:16777232:297062653:1792394830.969388100\|144559
+--- marker after the tick ---
+strong:16777232:297062653:1792394830.969388100
+144634
+https://github.com/o/r/pull/7
+5400
+9100
+0
+144559
+fm-pr-ready-v2
+--- operator runs the alarm's own acknowledge command ---
+acknowledged: task=ship PR=https://github.com/o/r/pull/7 reason=review-started
+exit=0
+--- next tick ---
+(silent = repeating alarm gone)
