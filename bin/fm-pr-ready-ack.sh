@@ -80,7 +80,7 @@ DEST="$STATE/$ID.pr-ready-ack"
 fm_pr_regular_destination_on_device_or_absent "$DEST" "$DEVICE" || exit 1
 TMP=$(mktemp "$STATE/.pr-ready-ack.XXXXXX") || exit 1
 trap 'rm -f -- "$TMP"' EXIT
-printf '%s\n' "$IDENT" "$END" "$URL" "$REASON" fm-pr-ready-ack-v1 > "$TMP" || exit 1
+printf '%s\n' "$IDENT" "$END" "$URL" "$REASON" fm-pr-ready-ack-v2 > "$TMP" || exit 1
 chmod 600 "$TMP" || exit 1
 fm_pr_regular_destination_on_device_or_absent "$DEST" "$DEVICE" || exit 1
 mv -f -- "$TMP" "$DEST" || exit 1

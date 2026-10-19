@@ -42,6 +42,13 @@ ack_pr() {
     || fail 'could not acknowledge handled PR'
 }
 
+# Run the acknowledgement command the overdue alarm itself supplies.
+ack_alarm() {  # <alarm output> <failure message>
+  local command=${1#*acknowledge with }
+  command=${command/'<review-started|merge-started|held>'/review-started}
+  (cd "$ROOT" && FM_STATE_OVERRIDE="$STATE_DIR" bash -c "$command") >/dev/null || fail "$2"
+}
+
 ack_queue() {
   local err seq gen
   err="$CASE/drain.err"
@@ -162,11 +169,8 @@ pass 'capture uses complete ready report bytes and presents the exact report'
 new_case alarm-token
 printf 'done [at=100]: PR %s\n' "$URL" > "$STATE_DIR/ship.status"
 out=$(tick 1300) || fail 'alarm tick failed'
-command=${out#*acknowledge with }
-command=${command/'<review-started|merge-started|held>'/review-started}
 printf 'ready [at=1500]: PR %s\n' "$URL" >> "$STATE_DIR/ship.status"
-(cd "$ROOT" && FM_STATE_OVERRIDE="$STATE_DIR" bash -c "$command") >/dev/null \
-  || fail 'alarm acknowledgement command failed'
+ack_alarm "$out" 'alarm acknowledgement command failed'
 assert_contains "$(tick 2700)" 'PR-ready overdue' 'alarm command acknowledges only its captured report'
 pass 'alarm supplies an executable acknowledgement bound to its report'
 
@@ -189,16 +193,43 @@ for eol in lf crlf; do
       fail 'stale endpoint was accepted'
     fi
   done
-  command=${out#*acknowledge with }
-  command=${command/'<review-started|merge-started|held>'/review-started}
-  (cd "$ROOT" && FM_STATE_OVERRIDE="$STATE_DIR" bash -c "$command") >/dev/null \
-    || fail 'alarm acknowledgement command failed'
+  ack_alarm "$out" 'alarm acknowledgement command failed'
   [ -z "$(tick 2500)" ] || fail 'alarm token acknowledgement did not stop alarms'
   printf 'ready [at=2600]: ü PR %s fixes%s\n' "$URL" "$cr" >> "$STATE_DIR/ship.status"
   ack_pr "$URL"
   [ -z "$(tick 3800)" ] || fail 'captured acknowledgement did not stop alarms'
 done
 pass 'multibyte, NUL and CRLF status logs acknowledge through real byte endpoints'
+
+new_case stale-accounting
+printf 'working [at=40]: progress\ndone [at=100]: PR %s\n' "$URL" > "$STATE_DIR/ship.status"
+ready_bytes=$(wc -c < "$STATE_DIR/ship.status" | tr -d ' ')
+printf 'working [at=110]: progress after the ready declaration\n' >> "$STATE_DIR/ship.status"
+size=$(wc -c < "$STATE_DIR/ship.status" | tr -d ' ')
+assert_contains "$(tick 1300)" 'PR-ready overdue' 'stale-accounting fixture has a real overdue alarm'
+ident=$(sed -n 1p "$STATE_DIR/ship.pr-ready")
+# Both records are persisted state. Rewrite them the way the superseded
+# character-count accounting left them: consumed to the end of the log, with an
+# endpoint short of the ready line's real bytes.
+stale_marker() {  # <handled>
+  printf '%s\n%s\n%s\n100\n0\n%s\n%s\nfm-pr-ready-v1\n' \
+    "$ident" "$size" "$URL" "$1" "$((ready_bytes - 9))" > "$STATE_DIR/ship.pr-ready"
+  chmod 600 "$STATE_DIR/ship.pr-ready"
+}
+stale_marker 0
+out=$(tick 2500) || fail 'tick failed on a superseded marker'
+[[ "$out" == *"|$ready_bytes" ]] || fail "superseded marker kept a drifted endpoint: $out"
+ack_alarm "$out" 'alarm token from a rescanned marker was refused'
+[ -z "$(tick 3700)" ] || fail 'rescanned acknowledgement did not stop alarms'
+printf '%s\n%s\n%s\nreview-started\nfm-pr-ready-ack-v1\n' \
+  "$ident" "$((ready_bytes - 9))" "$URL" > "$STATE_DIR/ship.pr-ready-ack"
+chmod 600 "$STATE_DIR/ship.pr-ready-ack"
+stale_marker 1
+out=$(tick 4900) || fail 'tick failed on a superseded acknowledgement'
+assert_contains "$out" 'PR-ready overdue' 'a superseded acknowledgement is not trusted'
+ack_alarm "$out" 'alarm token after a superseded acknowledgement was refused'
+[ -z "$(tick 6100)" ] || fail 'superseded acknowledgement left a permanent re-alarm'
+pass 'markers and acknowledgements from the superseded accounting rescan real bytes'
 
 new_case cleanup
 printf 'done [at=100]: PR %s\n' "$URL" > "$STATE_DIR/ship.status"
