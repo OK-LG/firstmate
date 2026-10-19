@@ -90,6 +90,21 @@
 # name a live quarantined space and is retained for that sweep.
 # data/<id>/ is deliberately left in place: a successor spawn reads brief.md
 # from it.
+# Local task record retention: before retiring the live status log and inbox,
+# teardown copies them into data/<id>/runs/<UTC-timestamp>.<suffix>/, with the
+# log at status.log, pending numbered .msg records at inbox/, and acknowledged
+# records at inbox/handled/; inbox bookkeeping and other runtime files are excluded.
+# Each snapshot gets a unique run directory so retries and reused task IDs
+# preserve earlier copies.
+# A copy failure warns and preserves the original status log and inbox in state/
+# while the rest of cleanup proceeds.
+# Local secondmate retirement also copies child status logs, inbox records, and
+# existing run histories into the parent home's data/<secondmate-id>/children/<task>/
+# using the same runs/ layout; nested child histories retain their children/ hierarchy.
+# Failed child archival retains the source home and records, but still runs
+# process-event listener cleanup and propagates its failures.
+# Remote secondmate retirement does not archive status logs or inbox records.
+# Retention regressions: tests/fm-classify-archive.test.sh and tests/fm-teardown.test.sh.
 # Pool membership is resolved through bin/fm-wake-lib.sh's fm_treehouse_pool_path
 # before slot mutation; uncertainty refuses cleanup even with --force and even
 # when a claim names another task. Repair the configuration or pool-state evidence
@@ -319,6 +334,18 @@ teardown_require_source() {  # <path>
   if [ ! -f "$1" ] || [ ! -r "$1" ]; then
     echo "error: teardown refused: required source $(basename "$1") is missing or unreadable; nothing was changed" >&2
     exit 1
+  fi
+}
+
+RETAINED_RECORD_HOMES=()
+TASK_RECORDS_LOCAL=1
+TASK_RECORDS_RETIRE_MODE=
+teardown_archive_task_records() {
+  local dest=$DATA/$ID
+  [ "$TASK_RECORDS_LOCAL" -eq 1 ] || return 0
+  if ! status_archive_task_records "$STATE" "$ID" "$dest"; then
+    TASK_RECORDS_RETIRE_MODE=keep-status
+    echo "warning: could not fully archive the status log and inbox of $ID into $dest; keeping originals" >&2
   fi
 }
 
@@ -2690,15 +2717,31 @@ EOF
 }
 
 remove_firstmate_home() {
-  local home=$1 label=$2 expected_id=${3:-} abs_home_path process_event_backup
+  local home=$1 label=$2 expected_id=${3:-} dest=${4:-} abs_home_path process_event_backup keep_home=0 retained
   [ -n "$home" ] || return 0
   [ -e "$home" ] || return 0
   abs_home_path=$(validate_firstmate_home_for_removal "$home" "$label" "$expected_id") || return 1
   [ -n "$abs_home_path" ] || return 0
+  if [ "$TASK_RECORDS_LOCAL" -eq 1 ]; then
+    [ -n "$dest" ] || dest="$DATA/$ID"
+    if ! status_archive_home_records "$abs_home_path" "$dest"; then
+      echo "warning: could not fully archive child records into $dest/children; keeping originals" >&2
+      keep_home=1
+    fi
+    for retained in "${RETAINED_RECORD_HOMES[@]+"${RETAINED_RECORD_HOMES[@]}"}"; do
+      case "$retained/" in "$abs_home_path/"*) keep_home=1 ;; esac
+    done
+  fi
   process_event_backup=$(snapshot_firstmate_home_process_events "$abs_home_path" "$label") || return 1
   if ! cleanup_firstmate_home_process_events "$abs_home_path" "$label"; then
     restore_firstmate_home_process_events "$abs_home_path" "$label" "$process_event_backup" || return $?
     return 1
+  fi
+  if [ "$keep_home" -eq 1 ]; then
+    [ -z "$process_event_backup" ] || rm -rf -- "$process_event_backup"
+    RETAINED_RECORD_HOMES+=("$abs_home_path")
+    echo "warning: retaining $abs_home_path because it contains unarchived task records" >&2
+    return 0
   fi
   # Read-only strip dirs sit at state/<id>.git-hooks, and a remote secondmate's
   # own one under state/parent-route/, so search the whole state tree.
@@ -3239,7 +3282,8 @@ endpoint_close_refusal() {  # <subject> <backend> <target> <honors-force>
 }
 
 cleanup_firstmate_home_children() {
-  local home=$1 sub_state child_meta child_id child_t child_wt child_proj child_kind child_home child_backend child_orca_worktree_id child_return_rc child_busy_gen child_owner_rc
+  local home=$1 dest=${2:-$DATA/$ID} child_retire_mode='' sub_state child_meta child_id child_t child_wt child_proj child_kind child_home child_backend child_orca_worktree_id child_return_rc child_busy_gen child_owner_rc
+  [ "$TASK_RECORDS_LOCAL" -ne 1 ] || child_retire_mode=keep-status
   sub_state="$home/state"
   [ -d "$sub_state" ] || return 0
   for child_meta in "$sub_state"/*.meta; do
@@ -3287,8 +3331,8 @@ cleanup_firstmate_home_children() {
       child_home=$(meta_value "$child_meta" home)
       [ -n "$child_home" ] || child_home=$child_wt
       if [ -n "$child_home" ] && [ -d "$child_home" ]; then
-        cleanup_firstmate_home_children "$child_home" || return $?
-        remove_firstmate_home "$child_home" "child firstmate home" "$child_id" || return $?
+        cleanup_firstmate_home_children "$child_home" "$dest/children/$child_id" || return $?
+        remove_firstmate_home "$child_home" "child firstmate home" "$child_id" "$dest/children/$child_id" || return $?
       fi
     elif [ "$child_backend" = orca ]; then
       if [ -n "$child_wt" ] && [ -d "$child_wt" ]; then
@@ -3339,7 +3383,7 @@ cleanup_firstmate_home_children() {
       child_busy_gen=$(cat "$sub_state/$child_id.busy-gen" 2>/dev/null || true)
     fi
     retire_busy_state "$sub_state" "$child_id" "$child_busy_gen" || return 1
-    status_retire_presentation_task "$sub_state" "$child_id" || return 1
+    status_retire_presentation_task "$sub_state" "$child_id" "$child_retire_mode" || return 1
     fm_wake_queue_prune_task "$sub_state" "$child_id" "$child_t" 2>/dev/null || true
     fm_backlog_atomic_transition remove "$sub_state/$child_id.meta" "task record" "$sub_state" || return 1
     rm -f "$sub_state/$child_id.turn-ended" "$sub_state/$child_id.progress" \
@@ -3381,6 +3425,7 @@ if [ "$KIND" = secondmate ]; then
   LOCAL_HANDOFF_LOCK="$STATE/.backlog-handoff-$ID.lock"
   fm_lock_acquire_wait "$LOCAL_HANDOFF_LOCK" || exit 1
   [ -n "$HOME_PATH" ] || HOME_PATH=$WT
+  case "$STATE/" in "$HOME_PATH/"*) TASK_RECORDS_LOCAL=0 ;; esac
   handoff_wake_retire_stage_recover "$HOME_PATH" || exit 1
   handoff_wake_retire_validate || exit 1
   pending_replies_recovery_validate initial || exit 1
@@ -3812,7 +3857,8 @@ retire_busy_state "$STATE" "$ID" "$BUSY_GEN" || exit 1
 # Opt-in fleet activity ledger (docs/fleet-ledger.md), before the status log is
 # retired so its last lines are captured; off costs one file test.
 [ ! -e "$CONFIG/fleet-ledger" ] || FM_HOME=$FM_HOME FM_STATE_OVERRIDE=$STATE FM_CONFIG_OVERRIDE=$CONFIG "$SCRIPT_DIR/fm-fleet-ledger.sh" cleaned_up "$ID" || true
-status_retire_presentation_task "$STATE" "$ID" || exit 1
+teardown_archive_task_records
+status_retire_presentation_task "$STATE" "$ID" "$TASK_RECORDS_RETIRE_MODE" || exit 1
 fm_wake_queue_prune_task "$STATE" "$ID" "$T" 2>/dev/null || true
 rm -f "$STATE/$ID.turn-ended" "$STATE/$ID.progress" \
   "$(fm_wake_signal_seen_path "$STATE" "$STATE/$ID.turn-ended")" \
@@ -3830,7 +3876,8 @@ rm -f "$STATE/$ID.turn-ended" "$STATE/$ID.progress" \
 # state/<id>.git-hooks is the spawn-owned commit-msg strip directory, left
 # read-only by its installer.
 chmod u+w "$STATE/$ID.git-hooks" 2>/dev/null || true
-rm -rf "$STATE/$ID.inbox" "$STATE/$ID.git-hooks"
+[ "$TASK_RECORDS_RETIRE_MODE" = keep-status ] || rm -rf "$STATE/$ID.inbox"
+rm -rf "$STATE/$ID.git-hooks"
 # A presentation journal the close path left behind is orphaned once the
 # recorded pane is proven gone (the Herdr gate above) unless it still names a
 # live projected workspace - a version 2 binding of some other pane, or a

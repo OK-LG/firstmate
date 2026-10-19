@@ -79,6 +79,7 @@ Each effective `FM_HOME` contains private operational directories.
 - Project and secondmate registries.
 - Captain preferences and optional shared captain preferences.
 - Learnings, backlog, briefs, and scout reports.
+- Retained local task status logs and steering-inbox records; the [`bin/fm-teardown.sh` header](../bin/fm-teardown.sh) owns archive layout, child histories, failure handling, and the remote-retirement exclusion.
 - Explicitly installed content-addressed extension packages under `data/extensions/packages/`.
 
 `state/` holds runtime records:

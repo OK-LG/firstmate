@@ -1699,7 +1699,121 @@ status_presentation_marker_commit() {
   printf 'v2\t%s\t%s' "$reported" "$classified" > "$marker"
 }
 
-status_retire_presentation_task() {  # <state> <task-id>
+# Copy one regular, non-symlink file into place through a same-directory
+# temporary name, so a reader never sees a partial copy and a retry converges.
+_status_archive_copy() {  # <src> <dest>
+  local src=$1 dest=$2 tmp
+  [ -f "$src" ] && [ ! -L "$src" ] && [ -r "$src" ] || return 1
+  [ ! -L "$dest" ] && { [ ! -e "$dest" ] || [ -f "$dest" ]; } || return 1
+  tmp="$dest.tmp.$$"
+  if (umask 077 && command cp -- "$src" "$tmp") && mv -f -- "$tmp" "$dest"; then
+    return 0
+  fi
+  rm -f -- "$tmp"
+  return 1
+}
+
+status_archive_run_create() {
+  local dest=$1 stamp
+  STATUS_ARCHIVE_DIR=
+  [ ! -L "$dest" ] && [ ! -L "$dest/runs" ] || return 1
+  (umask 077 && mkdir -p -- "$dest/runs") || return 1
+  stamp=$(date -u +%Y%m%dT%H%M%SZ) || return 1
+  STATUS_ARCHIVE_DIR=$(umask 077 && mktemp -d "$dest/runs/$stamp.XXXXXX")
+}
+
+_status_archive_copy_tree() {
+  local src=$1 dest=$2 entry name rc=0
+  [ -d "$src" ] && [ ! -L "$src" ] && [ ! -L "$dest" ] || return 1
+  (umask 077 && mkdir -p -- "$dest") || return 1
+  for entry in "$src"/* "$src"/.[!.]* "$src"/..?*; do
+    [ -e "$entry" ] || [ -L "$entry" ] || continue
+    name=${entry##*/}
+    if [ -d "$entry" ]; then
+      _status_archive_copy_tree "$entry" "$dest/$name" || rc=1
+    else
+      _status_archive_copy "$entry" "$dest/$name" || rc=1
+    fi
+  done
+  return "$rc"
+}
+
+status_archive_task_history() {
+  local src=$1 dest=$2 run child rc=0
+  [ ! -L "$src" ] && [ ! -L "$src/runs" ] && [ ! -L "$src/children" ] \
+    && [ ! -L "$dest" ] && [ ! -L "$dest/children" ] || return 1
+  for run in "$src/runs"/*; do
+    [ -e "$run" ] || [ -L "$run" ] || continue
+    if status_archive_run_create "$dest"; then
+      _status_archive_copy_tree "$run" "$STATUS_ARCHIVE_DIR" || rc=1
+    else
+      rc=1
+    fi
+  done
+  for child in "$src/children"/*; do
+    [ -e "$child" ] || [ -L "$child" ] || continue
+    status_archive_task_history "$child" "$dest/children/${child##*/}" || rc=1
+  done
+  return "$rc"
+}
+
+status_archive_home_records() {
+  local home=$1 dest=$2 src task rc=0 seen=$'\n'
+  home=$(cd "$home" && pwd -P) || return 1
+  [ ! -L "$home/state" ] \
+    && [ ! -L "$dest" ] && [ ! -L "$dest/children" ] || return 1
+  for src in "$home/state"/*.status "$home/state"/*.inbox "$home/data"/*; do
+    [ -e "$src" ] || [ -L "$src" ] || continue
+    task=${src##*/}
+    case "$src" in
+      "$home/state/"*) task=${task%.*} ;;
+      *) [ -d "$src" ] || [ -L "$src" ] || continue ;;
+    esac
+    case "$task" in ''|.|..|*[!A-Za-z0-9._-]*) rc=1; continue ;; esac
+    case "$seen" in *$'\n'"$task"$'\n'*) continue ;; esac
+    seen="$seen$task"$'\n'
+    status_archive_task_records "$home/state" "$task" "$dest/children/$task" || rc=1
+    status_archive_task_history "$home/data/$task" "$dest/children/$task" || rc=1
+  done
+  return "$rc"
+}
+
+status_archive_task_records() {  # <state> <task-id> <dest-dir>
+  local state=$1 task=$2 dest=$3 inbox sub src name rc=0
+  STATUS_ARCHIVE_DIR=
+  [ -n "$task" ] && [ -n "$dest" ] || return 1
+  inbox="$state/$task.inbox"
+  if { [ ! -e "$state/$task.status" ] && [ ! -L "$state/$task.status" ]; } \
+    && [ ! -e "$inbox" ] && [ ! -L "$inbox" ]; then
+    return 0
+  fi
+  status_archive_run_create "$dest" || return 1
+  dest=$STATUS_ARCHIVE_DIR
+  if [ -e "$state/$task.status" ] || [ -L "$state/$task.status" ]; then
+    _status_archive_copy "$state/$task.status" "$dest/status.log" || rc=1
+  fi
+  if [ -d "$inbox" ] && [ ! -L "$inbox" ]; then
+    for sub in "" /handled; do
+      if [ -L "$inbox$sub" ]; then rc=1; continue; fi
+      [ -d "$inbox$sub" ] || continue
+      for src in "$inbox$sub"/*.msg; do
+        [ -e "$src" ] || [ -L "$src" ] || continue
+        name=${src##*/}
+        case "${name%.msg}" in ''|*[!0-9]*) continue ;; esac
+        if [ -L "$dest/inbox" ] || [ -L "$dest/inbox$sub" ] \
+          || ! (umask 077 && mkdir -p -- "$dest/inbox$sub"); then
+          rc=1; continue
+        fi
+        _status_archive_copy "$src" "$dest/inbox$sub/$name" || rc=1
+      done
+    done
+  elif [ -e "$inbox" ] || [ -L "$inbox" ]; then
+    rc=1
+  fi
+  return "$rc"
+}
+
+status_retire_presentation_task() {  # <state> <task-id> [keep-status]
   local state=$1 task=$2 lock manifest tmp data row_task ident offset backstop extra rc=0 found=0
   local signal_marker heartbeat_marker daemon_marker home_appends home_appends_lock
   lock="$state/.status-presentation-lock"
@@ -1769,7 +1883,10 @@ EOF
     fi
   fi
   if [ "$rc" -eq 0 ]; then
-    rm -f -- "$state/$task.status" "$state/.$task.open-decisions-cursor" \
+    if [ "${3:-}" != keep-status ]; then
+      rm -f -- "$state/$task.status" || rc=1
+    fi
+    rm -f -- "$state/.$task.open-decisions-cursor" \
       "$home_appends" "$signal_marker" "$heartbeat_marker" "$daemon_marker" || rc=1
     fm_lock_remove_path "$home_appends_lock" 2>/dev/null || true
   fi

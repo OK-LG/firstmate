@@ -2148,7 +2148,7 @@ SH
 }
 
 test_secondmate_force_teardown_allows_non_state_operational_dir_symlinks_inside_home() {
-  local opdir home subhome target fakebin err log
+  local opdir home subhome target fakebin err log archive history
   for opdir in data config projects; do
     home="$TMP_ROOT/symlink-inside-teardown-home-$opdir"
     subhome="$TMP_ROOT/symlink-inside-teardown-subhome-$opdir"
@@ -2158,6 +2158,13 @@ test_secondmate_force_teardown_allows_non_state_operational_dir_symlinks_inside_
     mkdir -p "$home/state" "$home/data" "$subhome" "$target"
     printf 'domain\n' > "$subhome/.fm-secondmate-home"
     ln -s "$target" "$subhome/$opdir"
+    if [ "$opdir" = data ]; then
+      mkdir -p "$subhome/state/child.inbox" "$subhome/data/completed/runs/previous/inbox"
+      printf 'done: child finished\n' > "$subhome/state/child.status"
+      printf 'child steer\n' > "$subhome/state/child.inbox/001.msg"
+      printf 'done: earlier run\n' > "$subhome/data/completed/runs/previous/status.log"
+      printf 'earlier steer\n' > "$subhome/data/completed/runs/previous/inbox/001.msg"
+    fi
     cat > "$home/state/domain.meta" <<EOF
 window=firstmate:fm-domain
 worktree=$subhome
@@ -2178,6 +2185,14 @@ EOF
     [ ! -e "$subhome" ] || fail "force teardown did not remove subhome with inside $opdir symlink"
     [ ! -e "$home/state/domain.meta" ] || fail "force teardown did not clear parent meta for inside $opdir symlink"
     grep -F 'kill-window -t =firstmate:=fm-domain' "$log" >/dev/null || fail "force teardown did not kill parent window for inside $opdir symlink"
+    if [ "$opdir" = data ]; then
+      archive=$(find "$home/data/domain/children/child/runs" -name status.log)
+      history=$(find "$home/data/domain/children/completed/runs" -name status.log)
+      assert_grep 'done: child finished' "$archive" "inside data symlink lost live child status"
+      assert_grep 'child steer' "${archive%/*}/inbox/001.msg" "inside data symlink lost live child inbox"
+      assert_grep 'done: earlier run' "$history" "inside data symlink lost archived status"
+      assert_grep 'earlier steer' "${history%/*}/inbox/001.msg" "inside data symlink lost archived inbox"
+    fi
   done
   pass "force teardown allows non-state operational directory symlinks inside the subhome"
 }
