@@ -190,7 +190,9 @@ for phase in ("waiting", "publishing"):
         stack("acquire", "c")
         shim.write_text('#!/usr/bin/env bash\nif [ "$1" = 1 ]; then printf \'%s\\n\' "$PPID" > "$CANCEL_READY"; fi\nexec "$REAL_SLEEP" "$@"\n')
     else:
-        shim.write_text('#!/usr/bin/env bash\n"$REAL_MV" "$@" || exit "$?"\nprintf \'%s\\n\' "$PPID" > "$CANCEL_READY"\nwhile [ ! -e "$CANCEL_RESUME" ]; do "$REAL_SLEEP" 0.02; done\n')
+        # Only the lease publish pauses: shared lock helpers rename their own
+        # owner files through mv before the allocator reaches its slot.
+        shim.write_text('#!/usr/bin/env bash\n"$REAL_MV" "$@" || exit "$?"\ncase "${!#}" in */local-stack/[0-9]*) ;; *) exit 0 ;; esac\nprintf \'%s\\n\' "$PPID" > "$CANCEL_READY"\nwhile [ ! -e "$CANCEL_RESUME" ]; do "$REAL_SLEEP" 0.02; done\n')
     shim.chmod(0o755)
     env = dict(base_env, PATH=str(fakebin) + os.pathsep + os.environ["PATH"],
                REAL_SLEEP=shutil.which("sleep"), REAL_MV=shutil.which("mv"),
