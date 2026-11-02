@@ -714,6 +714,61 @@ EOF
   pass "home seeding refuses project-less conversion of a populated home"
 }
 
+test_home_seed_spaced_name_registry_handling() {
+  local home sub err design
+  home="$TMP_ROOT/spaced-registry-home"
+  sub="$TMP_ROOT/spaced-registry-subhome"
+  design="$TMP_ROOT/spaced-registry-design"
+  err="$TMP_ROOT/spaced-registry.err"
+  mkdir -p "$home/projects/spaced app" "$home/data" "$home/state" "$sub/data"
+  mark_firstmate_home "$sub"
+
+  # 1. Project-less seed refusal must report the full spaced project name.
+  cat > "$sub/data/projects.md" <<EOF
+- spaced app [direct-PR] - retained project entry (added 2026-06-22)
+EOF
+  if FM_HOME="$home" FM_SECONDMATE_CHARTER='firstmate self-development' \
+    FM_SECONDMATE_SCOPE='firstmate repo work' \
+    "$ROOT/bin/fm-home-seed.sh" fdev "$sub" --no-projects >/dev/null 2>"$err"; then
+    fail "project-less seed accepted a home with a spaced project entry in projects.md"
+  fi
+  grep -F 'data/projects.md entries: spaced app' "$err" >/dev/null \
+    || fail "project-less seed refusal did not report the whole spaced project name"
+
+  # 2. Seeding a spaced project must resolve the parent registry line whole.
+  fm_git_init_commit "$home/projects/spaced app"
+  fm_git_add_origin "$home/projects/spaced app" "$TMP_ROOT/remotes/seed-spaced-app.git"
+  cat > "$home/data/projects.md" <<EOF
+- spaced app [direct-PR] - spaced project with posture (added 2026-06-22)
+EOF
+  FM_HOME="$home" FM_SECONDMATE_CHARTER='feature design for spaced app' \
+    FM_SECONDMATE_SCOPE='feature design for spaced app' \
+    "$ROOT/bin/fm-home-seed.sh" design "$design" "spaced app" >/dev/null \
+    || fail "seed with spaced project name failed"
+  assert_grep '- spaced app [direct-PR] - spaced project with posture' "$design/data/projects.md" \
+    "seed did not preserve the parent registry line for a spaced project name"
+
+  # 3. A name containing " - " must match its whole row, and reseeding must
+  #    replace that row instead of duplicating it.
+  mkdir -p "$home/projects/dash - app"
+  fm_git_init_commit "$home/projects/dash - app"
+  fm_git_add_origin "$home/projects/dash - app" "$TMP_ROOT/remotes/seed-dash-app.git"
+  cat >> "$home/data/projects.md" <<EOF
+- dash - app [direct-PR] - dashed project with posture (added 2026-06-22)
+EOF
+  local i
+  for i in 1 2; do
+    FM_HOME="$home" FM_SECONDMATE_CHARTER='feature design for dash app' \
+      FM_SECONDMATE_SCOPE='feature design for dash app' \
+      "$ROOT/bin/fm-home-seed.sh" design "$design" "dash - app" >/dev/null \
+      || fail "seed $i with a dashed project name failed"
+  done
+  [ "$(grep -cF -- '- dash - app [direct-PR] - dashed project with posture' "$design/data/projects.md")" = 1 ] \
+    || fail "seed did not keep exactly one parent registry line for a dashed project name: $(cat "$design/data/projects.md")"
+
+  pass "home seeding handles spaced project names in project-less refusal and registry queries"
+}
+
 test_home_seed_refuses_projectless_home_with_uninspectable_projects() {
   local home sub err
   home="$TMP_ROOT/no-projects-uninspectable-home"
@@ -2478,8 +2533,8 @@ task_set_lock_path() {  # <state-dir>
 # The holder must stay ALIVE: fm_lock_try_acquire reclaims a lock whose owning
 # pid is gone, so a lock taken in a subshell that then exits would be stolen and
 # the contention under test would never happen.
-hold_task_set_lock() {  # <state-dir> -> echoes "<holder-pid> <lock-path>"
-  local state=$1 lock holder i=0
+hold_task_set_lock() {  # <state-dir> [role] -> echoes "<holder-pid> <lock-path>"
+  local state=$1 role=${2:-} lock holder i=0
   lock=$(task_set_lock_path "$state") || return 1
   [ -n "$lock" ] || return 1
   # stdout/stderr are redirected so the long-lived holder does not inherit this
@@ -2490,6 +2545,7 @@ hold_task_set_lock() {  # <state-dir> -> echoes "<holder-pid> <lock-path>"
     # shellcheck source=/dev/null
     . "$ROOT/bin/fm-wake-lib.sh"
     fm_lock_try_acquire "$lock" || exit 1
+    [ -z "$role" ] || fm_lock_set_role "$lock" "$role" || exit 1
     sleep 30
   ) >/dev/null 2>&1 &
   # shellcheck disable=SC2031 # The background PID is captured immediately in this shell.
@@ -2503,6 +2559,17 @@ hold_task_set_lock() {  # <state-dir> -> echoes "<holder-pid> <lock-path>"
     wait "$holder" 2>/dev/null || true
     return 1
   }
+  if [ -n "$role" ]; then
+    while [ "$(cat "$lock/role" 2>/dev/null || true)" != "$role" ] && [ "$i" -lt 100 ]; do
+      sleep 0.1
+      i=$((i + 1))
+    done
+    [ "$(cat "$lock/role" 2>/dev/null || true)" = "$role" ] || {
+      kill "$holder" 2>/dev/null || true
+      wait "$holder" 2>/dev/null || true
+      return 1
+    }
+  fi
   printf '%s %s\n' "$holder" "$lock"
 }
 
@@ -2622,6 +2689,8 @@ SH
     || fail "could not resolve the established descendant task-set lock"
   [ -d "$subhome/state" ] || fail "forced teardown did not establish the absent state directory"
   [ -e "$lock" ] || fail "forced teardown did not own the descendant task-set lock during preflight"
+  [ "$(cat "$lock/role" 2>/dev/null || true)" = forced-teardown ] \
+    || fail "forced teardown did not identify itself as the task-set lock holder"
   kill -0 "$pid" 2>/dev/null || fail "forced teardown exited before task-set ownership was observed"
   : > "$release"
   if wait "$pid"; then
@@ -2642,7 +2711,7 @@ $rec
 EOF
   err="$TMP_ROOT/taskset-teardown.err"
   # Stand in for a fresh spawn that is mid-publication in the secondmate's home.
-  held=$(hold_task_set_lock "$subhome/state") \
+  held=$(hold_task_set_lock "$subhome/state" task-spawn) \
     || fail "could not stage a held task-set lock"
   holder=${held%% *}
   lock=${held#* }
@@ -3060,6 +3129,7 @@ test_secondmate_spawn_resolves_punctuated_registry_projects
 test_secondmate_spawn_refuses_ambiguous_and_mismatched_registry_bindings
 test_home_seed_refuses_projectful_reused_charter_for_projectless_home
 test_home_seed_refuses_projectless_conversion_of_populated_home
+test_home_seed_spaced_name_registry_handling
 test_home_seed_refuses_projectless_home_with_uninspectable_projects
 test_home_seed_refuses_projectless_home_with_symlinked_projects
 test_home_seed_refuses_projectless_home_with_non_directory_projects
