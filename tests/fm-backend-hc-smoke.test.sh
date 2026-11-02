@@ -11,8 +11,8 @@
 #
 # Covers one task lifecycle through the bin/fm-backend.sh dispatcher: binary
 # and generation gates, container ensure, create, submitted input, cwd
-# tracking, capture, agent state for a shell and for an agent-named process,
-# and a proven close.
+# tracking, capture, cross-home ownership isolation, agent state for a shell
+# and for an agent-named process, and a proven close.
 #
 # Skips cleanly (exit 0, "skip: hc not found ...") when no herdr-core binary
 # is installed (optional-binary gate); to pin a specific binary run
@@ -76,7 +76,7 @@ FM_HOME_DIR=$TMP_ROOT/home
 WORK_DIR=$TMP_ROOT/work
 mkdir -p "$FM_HOME_DIR" "$WORK_DIR"
 WORK_DIR=$(cd "$WORK_DIR" && pwd -P)
-export FM_HOME=$FM_HOME_DIR FM_ROOT_OVERRIDE=$FM_HOME_DIR
+export FM_HOME=$FM_HOME_DIR FM_ROOT_OVERRIDE=$ROOT
 
 # shellcheck source=/dev/null
 . "$ROOT/bin/fm-backend.sh"
@@ -112,6 +112,36 @@ fm_backend_hc_send_text_line "$T" "echo Smoke-Line-42" "$LABEL" || fail "send_te
 captured() { fm_backend_capture hc "$T" 50 "$LABEL" | grep -qx 'Smoke-Line-42'; }
 wait_for 10 captured || fail "capture did not show the submitted command's output"
 pass "hc smoke: send_text_line ran the command and capture shows its output"
+
+# Fresh callers share the checkout and Core session, but own separate homes.
+home_call() {  # <home> <function> <args...>
+  local home=$1
+  shift
+  FM_HOME="$home" bash -c '
+    . "$1/bin/fm-backend.sh"
+    shift
+    fm_backend_source hc || exit 1
+    "$@"
+  ' bash "$ROOT" "$@"
+}
+mkdir -p "$TMP_ROOT/other-home"
+ln -s "$FM_HOME_DIR" "$TMP_ROOT/home-alias"
+home_call "$TMP_ROOT/home-alias" fm_backend_hc_send_text_line "$T" \
+  'echo Owner-Alias-42' "$LABEL" || fail "a canonical alias of the owning home must retain access"
+alias_captured() { fm_backend_capture hc "$T" 50 "$LABEL" | grep -qx 'Owner-Alias-42'; }
+wait_for 10 alias_captured || fail "the owning home's alias did not deliver input"
+foreign_send_rc=0
+home_call "$TMP_ROOT/other-home" fm_backend_hc_send_text_line "$T" \
+  'echo Foreign-Input-42' "$LABEL" || foreign_send_rc=$?
+foreign_close_rc=0
+home_call "$TMP_ROOT/other-home" fm_backend_kill hc "$T" || foreign_close_rc=$?
+assert_equals ready "$(fm_backend_hc_endpoint_state "$T" "$LABEL")" \
+  "another home sharing the checkout must not close the terminal"
+[ "$foreign_send_rc" -ne 0 ] || fail "another home sharing the checkout must not send input"
+[ "$foreign_close_rc" -ne 0 ] || fail "another home's close must be refused"
+assert_not_contains "$(fm_backend_capture hc "$T" 50 "$LABEL")" Foreign-Input-42 \
+  "foreign input must never reach the terminal"
+pass "hc smoke: canonical home aliases retain access; other homes cannot send or close"
 
 verdict=$(fm_backend_hc_send_text_submit "$T" "echo Sub-Line-7" 1 0.4 0 "$LABEL")
 case "$verdict" in

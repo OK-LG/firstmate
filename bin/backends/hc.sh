@@ -23,7 +23,7 @@
 # terminal still reaches the recorded core.
 #
 # Identity: each task terminal carries the labels firstmate.task=<window-label>
-# and firstmate.home=<hometag> (bin/fm-backend-hometag-lib.sh). Operations that
+# and firstmate.home=<hometag> (fm_backend_hc_home_label below). Operations that
 # receive an expected label refuse a terminal whose labels do not match, so a
 # recorded address can never steer input into another home's terminal. hc
 # names are not used: they allow only 1-32 of [a-z0-9_-], narrower than task ids.
@@ -188,8 +188,16 @@ fm_backend_hc_parse_target() {  # <target>
   FM_BACKEND_HC_ADDRESS=${target#*:}
 }
 
+# Bind the shared tag derivation to the operational home, since separate
+# FM_HOME directories can use the same code checkout. The shared helper
+# canonicalizes the path so symlink aliases retain the same identity.
+fm_backend_hc_home_label() {
+  local FM_ROOT=$FM_HOME
+  fm_backend_hometag
+}
+
 fm_backend_hc_scoped_label() {  # <window-label>
-  printf '%s-%s' "$(fm_backend_hometag)" "$1"
+  printf '%s-%s' "$(fm_backend_hc_home_label)" "$1"
 }
 
 # fm_backend_hc_get: `hc get --json` of the parsed target. Status 3 is hc's
@@ -217,7 +225,7 @@ fm_backend_hc_endpoint_state() {  # <target> [expected-label]
   IFS=$'\t' read -r state task home <<EOF
 $fields
 EOF
-  if [ -n "$expected" ] && { [ "$home" != "$(fm_backend_hometag)" ] \
+  if [ -n "$expected" ] && { [ "$home" != "$(fm_backend_hc_home_label)" ] \
     || { [ "$expected" = '*' ] && [ -z "$task" ]; } \
     || { [ "$expected" != '*' ] && [ "$task" != "$expected" ]; }; }; then
     printf 'foreign'
@@ -279,7 +287,7 @@ fm_backend_hc_container_ensure() {
 # into any parent.
 fm_backend_hc_create_task() {  # <session> <window-label> <cwd>
   local session=$1 label=$2 cwd=$3 home scoped dup out address
-  home=$(fm_backend_hometag)
+  home=$(fm_backend_hc_home_label)
   scoped=$(fm_backend_hc_scoped_label "$label")
   dup=$(fm_backend_hc_cli "$session" ls --json --label "firstmate.task=$label" --label "firstmate.home=$home" 2>/dev/null) \
     || { echo "error: 'hc ls' failed for session '$session'; cannot create $label" >&2; return 1; }
