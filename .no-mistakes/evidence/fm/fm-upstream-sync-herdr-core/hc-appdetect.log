@@ -1,0 +1,6 @@
+lab core session fm-hclab-appdetect-3799844-20456 ready (server pid 3799938)
+ok - app-terminal: spawn env claiming a herdr.space-labeled terminal auto-selects hc, notices, records backend_detect=app-terminal, and labels the worker
+ok - app-window is not a signal: a live herdr-app.sock over a running spawn core keeps the default backend silently and records nothing
+ok - app-window is not a signal: a live window beside a session with no running core keeps the default silently and starts nothing
+ok - explicit: config/backend=hc wins over the app signals and records no detection provenance
+FM_TEST_COMPLETE

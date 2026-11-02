@@ -1,0 +1,3 @@
+lab core session fm-hclab-smoke-3960090-7178 ready (server pid 3960192)
+error: herdr-core 0.1.13 is older than the verified minimum 0.1.14; update herdr-core before using backend=hc
+not ok - container_ensure failed

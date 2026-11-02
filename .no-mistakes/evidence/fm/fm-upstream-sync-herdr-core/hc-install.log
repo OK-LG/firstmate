@@ -1,0 +1,2 @@
+fm-install-hc.sh: downloading herdr-core-linux-x86_64.tar.gz from https://releases.herdr.dev/core/0.1.14/herdr-core-linux-x86_64.tar.gz
+fm-install-hc.sh: installed herdr-core 0.1.14 (protocol generation 1) to /root/.no-mistakes/worktrees/7f0ec18181b6/01M6DY1J0F2N3BYSPMY2GKYGJH/.test-hc/bin/herdr-core

@@ -1,0 +1,3 @@
+root@vultr:~/.no-mistakes/worktrees/7f0ec18181b6/01M6DY1J0F2N3BYSPMY2GKYGJH/.test-tmp# printf "LIVE_OUTPUT_%s\n" 731; cd tmp
+LIVE_OUTPUT_731
+root@vultr:~/.no-mistakes/worktrees/7f0ec18181b6/01M6DY1J0F2N3BYSPMY2GKYGJH/.test-tmp/tmp#

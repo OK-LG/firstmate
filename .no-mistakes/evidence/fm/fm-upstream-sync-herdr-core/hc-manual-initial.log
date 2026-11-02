@@ -1,0 +1,38 @@
+/root/.no-mistakes/worktrees/7f0ec18181b6/01M6DY1J0F2N3BYSPMY2GKYGJH/.test-hc/manual-home
+lab core session fm-hclab-manual-3838787-14626 ready (server pid 3838967)
+
+CORE HANDSHAKE: fm-hclab-manual-3838787-14626
+{"address":"t1","argv":["/usr/bin/bash"],"cols":200,"created_ms":1793616953548,"cwd":"/root/.no-mistakes/worktrees/7f0ec18181b6/01M6DY1J0F2N3BYSPMY2GKYGJH/.test-hc","die_with_parent":false,"exit_code":null,"finished_ms":null,"identity":"ghostty","keep":false,"labels":{"firstmate.home":"firstmate-ab6f32fd","firstmate.task":"fm-live","herdr.space":"fm-firstmate-ab6f32fd","herdr.tab":"firstmate-ab6f32fd-fm-live"},"name":null,"notify":false,"parent":null,"pid":3839179,"reason":null,"reported":false,"rm":false,"rows":120,"screen":"exact","signal":null,"state":"live","status":null,"status_ms":null,"template":null,"title":"","turn":0}
+
+CAPTURE AFTER SUBMIT:
+root@vultr:~/.no-mistakes/worktrees/7f0ec18181b6/01M6DY1J0F2N3BYSPMY2GKYGJH/.test-hc# printf "LIVE_OUTPUT_%s\n" 731; cd tmp
+LIVE_OUTPUT_731
+root@vultr:~/.no-mistakes/worktrees/7f0ec18181b6/01M6DY1J0F2N3BYSPMY2GKYGJH/.test-hc/tmp#
+
+CURRENT DIRECTORY: /root/.no-mistakes/worktrees/7f0ec18181b6/01M6DY1J0F2N3BYSPMY2GKYGJH/.test-hc/tmp
+
+
+DUPLICATE CREATE REFUSAL:
+error: hc terminal for fm-live already exists in session 'fm-hclab-manual-3838787-14626'
+
+LABEL-BOUND DETECTION:
+NOTICE: auto-detected a Herdr-app-projected terminal (fm-hclab-manual-3838787-14626:t1 carries a herdr.space label) - spawning into the EXPERIMENTAL hc backend with Herdr app presentation (herdr.space/herdr.tab labels). Set config/backend or pass --backend <name> to opt out.
+backend=hc signal=app-terminal
+
+EXPLICIT SELECTION WINS:
+backend=tmux signal=
+
+WRONG CORE SOCKET DOES NOT SELECT HC:
+backend=tmux
+
+UNSUPPORTED INSTALLED CORE DOES NOT SELECT HC:
+NOTICE: running in a live hc terminal (fm-hclab-manual-3838787-14626:t1) but no usable hc toolchain (an executable FM_HC_BIN, or herdr-core/hc on PATH reporting 'hc x.y.z' at or above the verified minimum 0.1.14, and jq) can verify a Herdr app projection; staying on the default backend. See docs/hc-backend.md.
+backend=tmux signal=app-terminal-unusable
+
+BARE CORE TERMINAL DOES NOT SELECT HC:
+backend=tmux
+
+WRONG TASK INPUT REFUSAL:
+send refused; forbidden-write absent
+
+FOREIGN HOME CLOSE REFUSAL:

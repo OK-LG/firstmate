@@ -1,0 +1,64 @@
+/root/.no-mistakes/worktrees/7f0ec18181b6/01M6DY1J0F2N3BYSPMY2GKYGJH/.test-tmp/manual-home
+lab core session fm-hclab-manual-4003873-20251 ready (server pid 4004109)
+
+CORE HANDSHAKE: fm-hclab-manual-4003873-20251
+{"address":"t1","argv":["/usr/bin/bash"],"cols":200,"created_ms":1793617312434,"cwd":"/root/.no-mistakes/worktrees/7f0ec18181b6/01M6DY1J0F2N3BYSPMY2GKYGJH/.test-tmp","die_with_parent":false,"exit_code":null,"finished_ms":null,"identity":"ghostty","keep":false,"labels":{"firstmate.home":"firstmate-bb212665","firstmate.task":"fm-live","herdr.space":"fm-firstmate-bb212665","herdr.tab":"firstmate-bb212665-fm-live"},"name":null,"notify":false,"parent":null,"pid":4004420,"reason":null,"reported":false,"rm":false,"rows":120,"screen":"exact","signal":null,"state":"live","status":null,"status_ms":null,"template":null,"title":"","turn":0}
+
+CAPTURE AFTER SUBMIT:
+root@vultr:~/.no-mistakes/worktrees/7f0ec18181b6/01M6DY1J0F2N3BYSPMY2GKYGJH/.test-tmp# printf "LIVE_OUTPUT_%s\n" 731; cd tmp
+LIVE_OUTPUT_731
+root@vultr:~/.no-mistakes/worktrees/7f0ec18181b6/01M6DY1J0F2N3BYSPMY2GKYGJH/.test-tmp/tmp#
+
+CURRENT DIRECTORY: /root/.no-mistakes/worktrees/7f0ec18181b6/01M6DY1J0F2N3BYSPMY2GKYGJH/.test-tmp/tmp
+
+
+DUPLICATE CREATE REFUSAL:
+error: hc terminal for fm-live already exists in session 'fm-hclab-manual-4003873-20251'
+
+LABEL-BOUND DETECTION:
+NOTICE: auto-detected a Herdr-app-projected terminal (fm-hclab-manual-4003873-20251:t1 carries a herdr.space label) - spawning into the EXPERIMENTAL hc backend with Herdr app presentation (herdr.space/herdr.tab labels). Set config/backend or pass --backend <name> to opt out.
+backend=hc signal=app-terminal
+
+EXPLICIT SELECTION WINS:
+backend=tmux signal=
+
+WRONG CORE SOCKET DOES NOT SELECT HC:
+backend=tmux
+
+UNSUPPORTED INSTALLED CORE DOES NOT SELECT HC:
+NOTICE: running in a live hc terminal (fm-hclab-manual-4003873-20251:t1) but no usable hc toolchain (an executable FM_HC_BIN, or herdr-core/hc on PATH reporting 'hc x.y.z' at or above the verified minimum 0.1.14, and jq) can verify a Herdr app projection; staying on the default backend. See docs/hc-backend.md.
+backend=tmux signal=app-terminal-unusable
+
+BARE CORE TERMINAL DOES NOT SELECT HC:
+backend=tmux
+
+WRONG TASK INPUT REFUSAL:
+send refused; forbidden-write absent
+
+CANONICAL HOME ALIAS CAN SEND:
+
+FOREIGN HOME INPUT REFUSAL:
+foreign send refused; foreign-input absent
+
+FOREIGN HOME CLOSE REFUSAL:
+owner-home=/root/.no-mistakes/worktrees/7f0ec18181b6/01M6DY1J0F2N3BYSPMY2GKYGJH/.test-tmp/manual-home owner-tag=firstmate-bb212665
+foreign-home=/root/.no-mistakes/worktrees/7f0ec18181b6/01M6DY1J0F2N3BYSPMY2GKYGJH/.test-tmp/other-home foreign-tag=firstmate-0aa10286
+error: hc terminal fm-hclab-manual-4003873-20251:t1 does not carry this task's labels; refusing to close it
+foreign close refused
+
+STALE AMBIENT SOCKET DOES NOT DIVERT RECORDED TARGET:
+root@vultr:~/.no-mistakes/worktrees/7f0ec18181b6/01M6DY1J0F2N3BYSPMY2GKYGJH/.test-tmp# printf "LIVE_OUTPUT_%s\n" 731; cd tmp
+LIVE_OUTPUT_731
+root@vultr:~/.no-mistakes/worktrees/7f0ec18181b6/01M6DY1J0F2N3BYSPMY2GKYGJH/.test-tmp/tmp# printf ALIAS_OK
+ALIAS_OKroot@vultr:~/.no-mistakes/worktrees/7f0ec18181b6/01M6DY1J0F2N3BYSPMY2GKYGJH/.test-tmp/tmp# printf "ROUTED_%s\n" 992
+ROUTED_992
+root@vultr:~/.no-mistakes/worktrees/7f0ec18181b6/01M6DY1J0F2N3BYSPMY2GKYGJH/.test-tmp/tmp#
+
+CLOSE AND VERIFY ABSENCE:
+agent-state=missing
+second close succeeded
+
+DEAD DETECTION SOCKET DOES NOT START CORE:
+backend=tmux socket-exists=false
+
+Manual checks complete; cross-home-failure=0; guarded teardown follows

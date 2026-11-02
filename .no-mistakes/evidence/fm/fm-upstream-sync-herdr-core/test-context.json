@@ -1,0 +1,19 @@
+{
+  "platform": "Linux",
+  "installed_core": "0.1.13",
+  "tested_core": "0.1.14 (checksum-pinned repository installer; temporary worktree binary)",
+  "baseline_tests_run": [],
+  "targeted_tests_run": [
+    "TMPDIR=\"$PWD/.test-hc/tmp\" FM_HC_LAB_DIR=\"$PWD/.test-hc/labs\" FM_HC_BIN=\"$PWD/.test-hc/bin/herdr-core\" bash tests/fm-backend-hc-smoke.test.sh",
+    "TMPDIR=\"$PWD/.test-hc/tmp\" FM_HC_LAB_DIR=\"$PWD/.test-hc/labs\" FM_HC_BIN=\"$PWD/.test-hc/bin/herdr-core\" bash tests/fm-backend-hc-appdetect-smoke.test.sh",
+    "TMPDIR=\"$PWD/.test-hc/tmp\" FM_HC_LAB_DIR=\"$PWD/.test-hc/labs\" FM_HC_BIN=\"$PWD/.test-hc/bin/herdr-core\" bash tests/fm-backend-hc-liveness-live-e2e.test.sh",
+    "bash .test-hc/manual.sh (initial reproduction and fresh-process confirmation)"
+  ],
+  "limits": [
+    "App-detection smoke uses a real Core and real fm-spawn, but its app-window listener is simulated; this does not validate the actual Mac App UI.",
+    "Lifecycle smoke uses an agent-named stand-in for its agent-state subcase; real installed harness liveness was separately exercised.",
+    "Harness liveness does not establish an authenticated model turn or native busy-status reporting.",
+    "Actual Herdr Mac App rendering unavailable: Linux host, no connected macOS GUI automation/capture tool."
+  ],
+  "lab_teardown": "Every helper teardown exited successfully."
+}

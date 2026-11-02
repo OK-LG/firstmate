@@ -1,0 +1,14 @@
+lab core session fm-hclab-liveness-3868942-27678 ready (server pid 3869060)
+# claude 2.1.316 (Claude Code): foreground={"argv":["/root/.local/bin/claude"],"cwd":"/root/.no-mistakes/worktrees/7f0ec18181b6/01M6DY1J0F2N3BYSPMY2GKYGJH/.test-hc/labs/fm-hclab-liveness-3868942-27678/wt","name":"claude","pid":3869185}
+ok - hc liveness: claude 2.1.316 (Claude Code) classifies alive in hc 0.1.14
+# codex codex-cli 0.162.0: foreground={"argv":["node","/usr/local/bin/codex"],"cwd":"/root/.no-mistakes/worktrees/7f0ec18181b6/01M6DY1J0F2N3BYSPMY2GKYGJH/.test-hc/labs/fm-hclab-liveness-3868942-27678/wt","name":"node","pid":3869729}
+ok - hc liveness: codex codex-cli 0.162.0 classifies alive in hc 0.1.14
+# opencode 1.17.6: foreground={"argv":["/root/.opencode/bin/opencode"],"cwd":"/root/.no-mistakes/worktrees/7f0ec18181b6/01M6DY1J0F2N3BYSPMY2GKYGJH/.test-hc/labs/fm-hclab-liveness-3868942-27678/wt","name":"opencode","pid":3870590}
+ok - hc liveness: opencode 1.17.6 classifies alive in hc 0.1.14
+# pi 0.85.1: foreground={"argv":["pi"],"cwd":"/root/.no-mistakes/worktrees/7f0ec18181b6/01M6DY1J0F2N3BYSPMY2GKYGJH/.test-hc/labs/fm-hclab-liveness-3868942-27678/wt","name":"pi","pid":3870876}
+ok - hc liveness: pi 0.85.1 classifies alive in hc 0.1.14
+# skip: grok is not installed on this machine
+# skip: kimi is not installed on this machine
+# unverified on this machine (not installed): grok kimi
+# checked 4 installed harness(es)
+FM_TEST_COMPLETE
