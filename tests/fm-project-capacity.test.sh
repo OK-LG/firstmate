@@ -494,29 +494,36 @@ test_unreadable_holders_refuse_admission() {
 # Two spawns racing for the last place: the one holding the project lock
 # publishes, the other cannot publish while it waits and is deferred afterwards.
 test_concurrent_spawns_cannot_both_take_the_last_place() {
-  local case_dir home out rc=0 hold i wt
+  local case_dir home out rc=0 hold i wt first second
   case_dir=$(make_case concurrent task-a task-b)
   home="$case_dir/home"
   declare_capacity "$home" "project 1"
   hold="$case_dir/hold"
   wt=$(new_worktree "$case_dir" task-a)
   FM_FAKE_HOLD="$hold" spawn_ship "$case_dir" task-a "$wt" > "$case_dir/a.out" 2>&1 &
+  first=$!
   i=0
   while [ ! -f "$hold.reached" ]; do
     i=$((i + 1))
     [ "$i" -lt 400 ] || fail "the first spawn never reached its launch: $(cat "$case_dir/a.out")"
     sleep 0.05
   done
-  out=$(spawn_ship "$case_dir" task-b "$case_dir/unused") || rc=$?
-  [ "$rc" -ne 0 ] || fail "a concurrent spawn launched while the last place was being taken: $out"
+  spawn_ship "$case_dir" task-b "$case_dir/unused" > "$case_dir/b.out" 2>&1 &
+  second=$!
+  i=0
+  while ! grep -Fq "waiting: this home's task set is locked; queueing task task-b" "$case_dir/b.out"; do
+    i=$((i + 1))
+    [ "$i" -lt 400 ] || fail "the competing spawn never queued: $(cat "$case_dir/b.out")"
+    sleep 0.05
+  done
   assert_absent "$home/state/task-b.meta" "a concurrent spawn published past the last place"
   : > "$hold.release"
-  wait || true
+  wait "$first" || fail "the lock-holding spawn failed: $(cat "$case_dir/a.out")"
   assert_contains "$(cat "$case_dir/a.out")" "spawned task-a" "the lock-holding spawn did not finish"
-  rc=0
-  out=$(spawn_ship "$case_dir" task-b "$case_dir/unused") || rc=$?
-  expect_code "$DEFER_EXIT" "$rc" "the retried spawn was not deferred once the place was taken: $out"
-  assert_absent "$home/state/task-b.meta" "the retried spawn published past capacity"
+  wait "$second" || rc=$?
+  out=$(cat "$case_dir/b.out")
+  expect_code "$DEFER_EXIT" "$rc" "the queued spawn was not deferred once the place was taken: $out"
+  assert_absent "$home/state/task-b.meta" "the queued spawn published past capacity"
   pass "concurrent spawns can never both take the last place"
 }
 
@@ -623,18 +630,18 @@ SH
     [ "$i" -lt 200 ] || fail "the lock holder never took the project lock"
     sleep 0.05
   done
-  out=$(run_spawn "$case_dir" "$home" "$case_dir/unused" task-o "$case_dir/project" \
+  out=$(FM_TREEHOUSE_LOCK_WAIT_SECS=1 run_spawn "$case_dir" "$home" "$case_dir/unused" task-o "$case_dir/project" \
     --backend orca --mode no-mistakes --yolo off) || rc=$?
   rc2=0
-  out2=$(run_spawn "$case_dir" "$home" "$case_dir/unused" task-o "$case_dir/project-2" \
+  out2=$(FM_TREEHOUSE_LOCK_WAIT_SECS=1 run_spawn "$case_dir" "$home" "$case_dir/unused" task-o "$case_dir/project-2" \
     --backend orca --mode no-mistakes --yolo off) || rc2=$?
   : > "$case_dir/holder.release"
   wait "$holder" || true
   expect_code 1 "$rc" "an Orca spawn ignored a held project lock: $out"
-  assert_contains "$out" "another spawn or cleanup holds the shared project lock for $case_dir/project; refusing to race its capacity admission" \
+  assert_contains "$out" "another spawn or cleanup holds the shared project lock for $case_dir/project (waited 1s); refusing to race its capacity admission" \
     "the Orca spawn did not refuse on the shared project lock"
   expect_code 1 "$rc2" "an Orca spawn from an uncapped same-origin clone ignored the held project lock: $out2"
-  assert_contains "$out2" "another spawn or cleanup holds the shared project lock for $case_dir/project-2" \
+  assert_contains "$out2" "another spawn or cleanup holds the shared project lock for $case_dir/project-2 (waited 1s)" \
     "the uncapped same-origin clone's Orca spawn did not refuse on the shared project lock"
   assert_absent "$home/state/task-o.meta" "the uncapped clone's Orca spawn published a record while the lock was held"
   assert_no_grep "orca " "$case_dir/calls.log" "the Orca spawn asked Orca for more than its runtime status"
