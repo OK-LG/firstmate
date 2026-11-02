@@ -526,13 +526,11 @@ fm_backend_validate_spawn() {  # <name>
 # docs/configuration.md "Toolchain" and bootstrap's COMMON list). This is the
 # single owner of the per-backend dependency delta, so bootstrap follows the
 # RESOLVED backend instead of demanding an inactive backend's tools. Each set is:
-#   - the session-provider CLI itself (tmux/herdr/zellij/orca/cmux/paseo/rex/tern);
-#   - jq, for the JSON-emitting adapters (herdr, zellij, cmux, paseo, rex, tern) whose spawn/liveness
-#     paths parse the backend's JSON output (see each adapter's
-#     tool check, e.g. fm_backend_herdr_tool_check);
+#   - the session-provider CLI itself when the adapter uses one;
+#   - jq where spawn/liveness paths parse the backend's JSON output;
 #   - the treehouse worktree provider for every session-provider-only backend
-#     (tmux, herdr, zellij, cmux, paseo, rex, t3code, tern); orca owns its own task worktree and
-#     terminal, so it drops both treehouse and any other backend's session CLI;
+#     (orca owns its own task worktree and terminal, so it drops both treehouse
+#     and any other backend's session CLI);
 #   - node for t3code, whose adapter speaks MCP to the T3 server through
 #     bin/fm-t3-mcp.mjs.
 # Prints a single space-separated line and returns 0 for a known backend; returns

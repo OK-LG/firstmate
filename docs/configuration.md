@@ -892,9 +892,9 @@ The flag is a home-local preference and is not inherited by secondmate homes; [`
 
 ## Task status archive (config/status-archive)
 
-The optional local, gitignored `config/status-archive` presence flag opts this home into retaining task status history during teardown.
-Create it with `touch "$FM_HOME/config/status-archive"`; remove it to disable future archival and pruning.
-It is off by default: without the flag, teardown deletes status logs as before and leaves existing archives untouched.
+The optional local, gitignored `config/status-archive` presence flag enables an additional status-log archive during teardown, separate from [default local task record retention](../bin/fm-teardown.sh).
+Create it with `touch "$FM_HOME/config/status-archive"`; remove it to stop updating and pruning this additional archive.
+It is off by default, and existing archives remain untouched when the flag is absent.
 The flag applies to teardown run by this home, including forced retirement of its secondmate children; it is not inherited by other homes.
 Each opted-in archival prunes owned logs older than 30 completed days by mtime; housekeeping failures warn and never abort teardown.
 Age-based retention works independently of the selected backlog backend and keeps histories available for a predictable audit period.
@@ -2131,28 +2131,12 @@ Lavish is a presentation-only dependency for visual decisions and reports; nonvi
 **Backend requirements**
 
 The per-backend delta is required only for the backend resolved from `FM_BACKEND`, then `config/backend`, then runtime auto-detection, then default `tmux`, so a home is never told to install a tool an inactive backend or feature would need.
-`fm_backend_required_tools` in `bin/fm-backend.sh` owns the backend additions:
-
-| Resolved backend | Additional tools |
-| --- | --- |
-| `tmux` | `tmux`, `treehouse` |
-| `herdr` | `herdr`, `jq`, `treehouse` |
-| `zellij` | `zellij`, `jq`, `treehouse` |
-| `orca` | `orca` |
-| `cmux` | `cmux`, `jq`, `treehouse` |
-| `paseo` | `paseo`, `jq`, `treehouse` |
-| `rex` | `rex`, `jq`, `treehouse` |
-| `t3code` | `node`, `treehouse` |
-| `tern` | `tern`, `jq`, `treehouse` |
-
-The JSON-emitting adapters (`herdr`, `zellij`, `cmux`, `paseo`, `rex`, `tern`) need `jq` because their spawn and liveness paths parse backend JSON.
-Every session-provider-only backend (`tmux`, `herdr`, `zellij`, `cmux`, `paseo`, `rex`, `t3code`, `tern`) uses `treehouse` for worktrees.
+[`fm_backend_required_tools` in `bin/fm-backend.sh`](../bin/fm-backend.sh) owns the backend additions consumed by bootstrap; each guide linked under [Runtime backend](#runtime-backend-configbackend--fm_backend) owns its installation prerequisites.
 
 Backend tool availability uses the adapter's own executable resolver, so bootstrap and spawn agree on supported non-`PATH` locations such as cmux's bundled CLI and the Rex server bundle's `rex`.
 An unknown resolved backend emits `BACKEND_INVALID` and blocks dispatch instead of silently dropping its dependency delta or falling back to tmux.
 
-Orca provides both the task worktree and terminal endpoint (see "Runtime backend" above), so `backend=orca` requires only `orca` on top of the universal toolchain and skips both `treehouse` and every other backend's session CLI.
-A herdr, zellij, cmux, paseo, rex, t3code, or tern home is therefore never told `tmux` is missing, and the `treehouse` durable-lease upgrade check runs only for the backends that actually use treehouse.
+The `treehouse` durable-lease upgrade check runs only for the backends that actually use treehouse; [Runtime backend](#runtime-backend-configbackend--fm_backend) owns worktree-provider selection.
 
 **Feature-specific requirements**
 
@@ -3251,7 +3235,7 @@ FM_DATA_OVERRIDE=        # alternate data dir, mainly for tests
 FM_PROJECTS_OVERRIDE=    # alternate projects dir, mainly for tests
 FM_CONFIG_OVERRIDE=      # alternate config dir, mainly for tests
 FM_PROC_ROOT_OVERRIDE=   # alternate /proc root for Linux process-identity reads in fm-wake-lib.sh and fm-teardown.sh, mainly for tests
-FM_BACKEND=             # optional runtime backend override for new spawns; tmux/herdr/zellij/orca/cmux/paseo/rex/t3code/tern support ship/scout spawns, codex-app is not accepted
+FM_BACKEND=             # optional runtime backend override for new spawns; see "Accepted backends and secondmate limits"
 FM_T3CODE_ORIGIN=       # optional T3 Code server origin for bin/fm-t3-mcp.mjs login; the default is read from ~/.t3/userdata/server-runtime.json
 FM_TRACE_CONTEXT=       # optional trace-context override; see "Trace context propagation"
 FM_TASK_ID=             # internal task-worker marker fm-spawn.sh delivers to ship and scout environments, never set by hand; bin/fm-test-run.sh refuses to execute in the repository primary checkout while it is set

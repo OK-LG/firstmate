@@ -98,7 +98,7 @@ git -C "$PROJ" -c user.name='Firstmate Tests' -c user.email='tests@example.inval
 git clone --quiet --bare "$PROJ" "$PROJ.origin.git"
 git -C "$PROJ" remote add origin "file://$PROJ.origin.git"
 
-HOMETAG=$(bash -c '. "'"$ROOT"'/bin/fm-backend.sh"; fm_backend_source hc >/dev/null 2>&1; fm_backend_hometag')
+HOMETAG=$(bash -c '. "'"$ROOT"'/bin/fm-backend.sh"; fm_backend_source hc >/dev/null 2>&1; fm_backend_hc_home_label')
 [ -n "$HOMETAG" ] || fail "could not resolve the test home's hometag"
 
 write_brief() {

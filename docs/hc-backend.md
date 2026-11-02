@@ -68,7 +68,7 @@ The terminal carries these labels:
 | Label | Value | Purpose |
 | --- | --- | --- |
 | `firstmate.task` | `fm-<id>` | Task identity checked before input or close. |
-| `firstmate.home` | `<hometag>` from `bin/fm-backend-hometag-lib.sh` | Keeps two homes with the same task id apart. |
+| `firstmate.home` | `<hometag>` derived from the canonical `FM_HOME` by `fm_backend_hc_home_label` in `bin/backends/hc.sh` | Keeps two operational homes with the same task id apart, even when they share a code checkout; symlink aliases retain the same identity. |
 | `herdr.space` | `FM_HC_SPACE`, default `fm-<hometag>` | Groups a home's tasks in one Herdr.app space. |
 | `herdr.tab` | `<hometag>-fm-<id>` | One Herdr.app tab per task. |
 
