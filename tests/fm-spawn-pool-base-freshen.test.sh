@@ -851,6 +851,7 @@ test_refused_launch_leaves_the_pool_for_a_retry_and_a_second_task() {
   git -C "$PROJECT_DIR" worktree add --quiet --detach "$slot_root/2/project" "$INITIAL_SHA"
   printf '{"worktrees":[{"name":"1","path":"%s"},{"name":"2","path":"%s"}]}\n' \
     "$slot_root/1/project" "$slot_root/2/project" > "$slot_root/treehouse-state.json"
+  fm_test_treehouse_pool "$PROJECT_DIR" "$slot_root"
   claim1="$slot_root/1/.fm-slot-owner"
   claim2="$slot_root/2/.fm-slot-owner"
   world="$CASE_DIR/tmux-world"
@@ -912,6 +913,7 @@ test_refused_launch_spares_per_id_paths_under_a_contended_spawn_lock() {
   git -C "$PROJECT_DIR" worktree move "$POOL_DIR" "$slot_root/1/project"
   printf '{"worktrees":[{"name":"1","path":"%s"}]}\n' "$slot_root/1/project" \
     > "$slot_root/treehouse-state.json"
+  fm_test_treehouse_pool "$PROJECT_DIR" "$slot_root"
   world="$CASE_DIR/tmux-world"
   install_pool_world_tmux "$FAKEBIN_DIR" "$world" "$slot_root"
   mv "$FAKEBIN_DIR/tmux" "$FAKEBIN_DIR/tmux.world"
@@ -965,6 +967,7 @@ test_non_polytoken_refused_launch_keeps_its_window() {
   git -C "$PROJECT_DIR" worktree move "$POOL_DIR" "$slot_root/1/project"
   printf '{"worktrees":[{"name":"1","path":"%s"}]}\n' "$slot_root/1/project" \
     > "$slot_root/treehouse-state.json"
+  fm_test_treehouse_pool "$PROJECT_DIR" "$slot_root"
   git -C "$slot_root/1/project" config remote.origin.fetch '+refs/heads/*:refs/remotes/origin/*'
   world="$CASE_DIR/tmux-world"
   install_pool_world_tmux "$FAKEBIN_DIR" "$world" "$slot_root"
