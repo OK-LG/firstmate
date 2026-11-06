@@ -609,6 +609,25 @@ fm_pending_reply_line_resolves() {  # <line> <corr_id>
   fm_pending_reply_text_has_corr "$line" "$corr"
 }
 
+# Print the lines of <file> that hold the text <prefix><word>, in file order,
+# each prefixed "<line-number>:" when [numbered] is given. One grep pass
+# replaces a per-line shell loop: a status log reaches tens of thousands of
+# lines and megabytes, and every caller's per-line check forks, so the check now
+# runs only on the lines this pre-filter keeps. The lines are the ones a plain
+# `while IFS= read -r` loop over <file> would read: NUL bytes are dropped first,
+# as bash read drops them, and line numbers count the same newlines. A <word>
+# that is not a plain [[:alnum:]_] word could act as a pattern in a caller's
+# regex, so it selects every line instead of filtering.
+_fm_pending_reply_lines_with() {  # <file> <prefix> <word> [numbered]
+  local file=$1 prefix=$2 word=$3 numbered=${4-} n=''
+  [ -n "$numbered" ] && n=n
+  case "$word" in
+    ''|*[![:alnum:]_]*) LC_ALL=C grep -a${n} '' "$file" 2>/dev/null || true ;;
+    *) LC_ALL=C tr -d '\000' < "$file" 2>/dev/null \
+         | LC_ALL=C grep -a${n}F -e "$prefix$word" 2>/dev/null || true ;;
+  esac
+}
+
 # Scan a status file for a correlated resolve. Prints the matching line or empty.
 fm_pending_reply_find_resolve_line() {  # <status-file> <corr_id>
   local status_file=$1 corr=$2 line
@@ -619,7 +638,7 @@ fm_pending_reply_find_resolve_line() {  # <status-file> <corr_id>
       printf '%s' "$line"
       return 0
     fi
-  done < "$status_file"
+  done < <(_fm_pending_reply_lines_with "$status_file" "$(fm_pending_reply_corr_token '')" "$corr")
   return 0
 }
 
@@ -1168,21 +1187,30 @@ fm_pending_reply_escalation_payload() {  # <record-path> <kind>
 # that exact escalation remains open. If an unrelated decision has since taken
 # over that key, the close is withheld so the unrelated decision is not cleared.
 fm_pending_reply_escalation_line() {  # <status-file> <record-path> <corr_id>
-  local status_file=$1 rec=$2 corr=$3 line found='' kind payload own_key untimed
+  local status_file=$1 rec=$2 corr=$3 line found='' kind payload own_key untimed verb
+  local -a payloads=()
   [ -f "$status_file" ] || return 0
   [ "$(fm_pending_reply_get "$rec" corr_id)" = "$corr" ] || return 0
   own_key=$(fm_pending_reply_escalation_key "$corr")
+  # The payloads depend only on the record, so they are built once, not per line.
+  for kind in missed delivery-unknown recovery-delivery; do
+    payload=$(fm_pending_reply_escalation_payload "$rec" "$kind") || continue
+    payloads+=("$payload")
+  done
+  [ "${#payloads[@]}" -gt 0 ] || return 0
+  # Every payload carries pending-reply-id=<corr> in the note, which the time
+  # tag never touches, so only lines holding that text can match.
   while IFS= read -r line || [ -n "$line" ]; do
-    [ "$(status_line_verb "$line")" = blocked ] || continue
+    status_line_verb "$line" verb
+    [ "$verb" = blocked ] || continue
     _fm_status_untimed "$line" untimed
-    for kind in missed delivery-unknown recovery-delivery; do
-      payload=$(fm_pending_reply_escalation_payload "$rec" "$kind") || continue
+    for payload in "${payloads[@]}"; do
       case "$untimed" in
         "blocked [key=$own_key]: $payload"|"blocked: $payload") found=$line; break ;;
         "blocked [key=$own_key]: $payload "*|"blocked: $payload "*) found=$line; break ;;
       esac
     done
-  done < "$status_file"
+  done < <(_fm_pending_reply_lines_with "$status_file" pending-reply-id= "$corr")
   printf '%s' "$found"
 }
 
@@ -1402,9 +1430,9 @@ fm_pending_reply_detect_wrong_home() {  # <state-dir> <corr_id> <secondmate-home
     fi
     sighting_base=$(fm_pending_reply_sighting_encode "$status_file" 0) || continue
     sighting_base=${sighting_base%:0}
-    line_no=0
     while IFS= read -r line || [ -n "$line" ]; do
-      line_no=$((line_no + 1))
+      line_no=${line%%:*}
+      line=${line#*:}
       fm_pending_reply_line_resolves "$line" "$corr" || continue
       sighting_id="$sighting_base:$line_no"
       [ -n "$first" ] || first=$sighting_id
@@ -1418,7 +1446,7 @@ fm_pending_reply_detect_wrong_home() {  # <state-dir> <corr_id> <secondmate-home
       fi
       hits=$((hits + 1))
       changed=1
-    done < "$status_file"
+    done < <(_fm_pending_reply_lines_with "$status_file" "$(fm_pending_reply_corr_token '')" "$corr" numbered)
   done
   if [ -n "$first" ] && [ -z "$(fm_pending_reply_get "$rec" wrong_home_first_sighting)" ]; then
     fm_pending_reply_set "$rec" wrong_home_first_sighting "$first" || return 1

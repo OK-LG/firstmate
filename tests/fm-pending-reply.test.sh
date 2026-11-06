@@ -38,6 +38,9 @@
 #      the decision; a retry while that decision is still open appends nothing
 #  19. A request summary keeps accented letters, drops control characters, and
 #      caps at 120 characters without splitting one under any caller locale
+#  20. Status-log scans return what a line-by-line read returns, edge cases
+#      included, and a 50,000-line log scans in seconds rather than one fork
+#      per line
 set -u
 
 # shellcheck source=tests/lib.sh
@@ -1229,7 +1232,6 @@ test_helper_report_resolves() {
   home=$(setup_parent helper)
   state="$home/state"
   sm_home=$(bind_local_mate "$home" hibit)
-  export FM_PENDING_REPLY_NOW=9100
   corr=$(fm_pending_reply_create "$home" "$state" "hibit" "quick answer")
   fm_pending_reply_mark_delivered "$state" "$corr"
   FM_HOME="$sm_home" "$REPORT" "done" "$corr" "all good" \
@@ -2103,6 +2105,104 @@ test_same_kind_escalation_reopens_after_operator_close() {
   pass "a same-kind escalation after an operator close opens the decision again"
 }
 
+# The answer a plain line-by-line read gives: the first nonempty line that
+# resolves, and its line number.
+reference_resolve() {  # <status-file> <corr> -> "<line-number>:<line>" or empty
+  local line n=0
+  while IFS= read -r line || [ -n "$line" ]; do
+    n=$((n + 1))
+    [ -n "$line" ] || continue
+    if fm_pending_reply_line_resolves "$line" "$2"; then
+      printf '%s:%s' "$n" "$line"
+      return 0
+    fi
+  done < "$1"
+}
+
+test_scans_match_a_line_by_line_read() {
+  local home state sm_home corr rec dir f want got display odd
+  home=$(setup_parent scan-parity)
+  state="$home/state"
+  corr=$(fm_pending_reply_create "$home" "$state" hibit "scan parity")
+  fm_pending_reply_mark_delivered "$state" "$corr"
+  rec=$(fm_pending_reply_path "$state" "$corr")
+  dir="$TMP_ROOT/scan-parity-$RANDOM"
+  mkdir -p "$dir"
+  # Near misses before the real answer, behind blank lines.
+  printf '\n\nnote: xcorr=%s\nnote: corr=%sff\nblocked: pending-reply-missed: corr=%s\n\ndone [corr=%s]: real\ndone corr=%s: later\n' \
+    "$corr" "$corr" "$corr" "$corr" "$corr" > "$dir/near-miss"
+  # A NUL byte inside the token: a read drops it, so the token is whole.
+  printf 'note: other\ndone co\000rr=%s: split by NUL\n' "$corr" > "$dir/nul"
+  printf 'note: other\r\ndone corr=%s:\r\n' "$corr" > "$dir/crlf"
+  printf 'note: other\ndone corr=%s: unterminated' "$corr" > "$dir/unterminated"
+  printf 'note: corr=%s0\nnote: nothing here\n' "$corr" > "$dir/none"
+  : > "$dir/empty"
+  for f in near-miss nul crlf unterminated none empty; do
+    want=$(reference_resolve "$dir/$f" "$corr")
+    got=$(fm_pending_reply_find_resolve_line "$dir/$f" "$corr")
+    [ "$got" = "${want#*:}" ] \
+      || fail "resolve scan of $f differs from a line-by-line read: got [$got], want [${want#*:}]"
+    sm_home="$TMP_ROOT/scan-parity-sm-$RANDOM"
+    mkdir -p "$sm_home/state"
+    cp "$dir/$f" "$sm_home/state/mate.status"
+    fm_pending_reply_set "$rec" wrong_home_scan_signature ''
+    fm_pending_reply_set "$rec" wrong_home_first_sighting ''
+    fm_pending_reply_detect_wrong_home "$state" "$corr" "$sm_home" \
+      || fail "wrong-home scan of $f should succeed"
+    display=$(fm_pending_reply_sighting_display "$(fm_pending_reply_get "$rec" wrong_home_first_sighting)") \
+      || display=''
+    if [ -n "$want" ]; then
+      [ "$display" = "$sm_home/state/mate.status:${want%%:*}" ] \
+        || fail "wrong-home scan of $f names [$display], want line ${want%%:*}"
+    else
+      [ -z "$display" ] || fail "wrong-home scan of $f sighted [$display] where a read finds nothing"
+    fi
+  done
+  # An id that is not a plain word is matched by the same regex, not by a
+  # literal pre-filter that could miss what the regex accepts.
+  odd='a.b'
+  printf 'note: other\ndone corr=aXb: regex-shaped id\n' > "$dir/odd"
+  want=$(reference_resolve "$dir/odd" "$odd")
+  [ -n "$want" ] || fail "fixture: the reference should match the regex-shaped id"
+  got=$(fm_pending_reply_find_resolve_line "$dir/odd" "$odd")
+  [ "$got" = "${want#*:}" ] || fail "a regex-shaped id scanned [$got], want [${want#*:}]"
+  pass "status-log scans return what a line-by-line read returns, edge cases included"
+}
+
+test_large_status_log_scans_in_one_pass() {
+  local home state sm_home corr rec log line start elapsed escalation payload
+  home=$(setup_parent large-log)
+  state="$home/state"
+  sm_home="$TMP_ROOT/large-log-sm-$RANDOM"
+  mkdir -p "$sm_home/state"
+  corr=$(fm_pending_reply_create "$home" "$state" hibit "large log")
+  fm_pending_reply_mark_delivered "$state" "$corr"
+  rec=$(fm_pending_reply_path "$state" "$corr")
+  log="$state/hibit.status"
+  payload=$(fm_pending_reply_escalation_payload "$rec" missed)
+  escalation="blocked [key=$(fm_pending_reply_escalation_key "$corr")]: $payload"
+  printf '%s\n' "$escalation" > "$log"
+  # 50,000 lines that mention other requests, as a long-running mate's log does.
+  awk 'BEGIN { for (i = 1; i <= 50000; i++)
+    printf "done [at=%d] corr=%016x: progress report %d\n", 1000 + i, i, i }' >> "$log"
+  printf 'done corr=%s: the answer\n' "$corr" >> "$log"
+  cp "$log" "$sm_home/state/mate.status"
+  start=$SECONDS
+  line=$(fm_pending_reply_find_resolve_line "$log" "$corr")
+  [ "$line" = "done corr=$corr: the answer" ] || fail "large-log resolve scan returned [$line]"
+  [ "$(fm_pending_reply_escalation_line "$log" "$rec" "$corr")" = "$escalation" ] \
+    || fail "large-log escalation scan did not return the escalation line"
+  fm_pending_reply_detect_wrong_home "$state" "$corr" "$sm_home" \
+    || fail "large-log wrong-home scan should succeed"
+  elapsed=$((SECONDS - start))
+  [ "$(fm_pending_reply_sighting_display "$(fm_pending_reply_get "$rec" wrong_home_first_sighting)")" \
+    = "$sm_home/state/mate.status:50002" ] || fail "large-log wrong-home scan named the wrong line"
+  # A scan that forks once per line takes minutes here; one pass takes well
+  # under a second, so the bound leaves room for a slow host.
+  [ "$elapsed" -lt 20 ] || fail "three scans of a 50,000-line status log took ${elapsed}s"
+  pass "a 50,000-line status log scans in seconds, not one fork per line"
+}
+
 test_summary_keeps_accents_and_caps_by_character() {
   local out long cap_chars loc
   out=$(fm_pending_reply_summarize "não faça a correção")
@@ -2174,5 +2274,7 @@ test_local_parent_replies_is_wrong_home_evidence
 test_escalated_undelivered_correlation_stays_retryable
 test_same_kind_escalation_reopens_after_operator_close
 test_summary_keeps_accents_and_caps_by_character
+test_scans_match_a_line_by_line_read
+test_large_status_log_scans_in_one_pass
 
 printf 'ok - all pending-reply tests passed\n'

@@ -12,7 +12,8 @@
 # status_line_verb / status_open_decisions / status_open_decisions_incremental
 # functions over crafted status files and assert their folded output, never the
 # fold's own source text. Also covers status_event_recorded: a recorded line
-# stays recorded across a later resolved line for its key. Also covers
+# stays recorded across a later resolved line for its key, and that a long
+# log with a large open set folds in seconds. Also covers
 # status_key_closing_verb, which reports how
 # the status side currently reads one key so a consumer can tell a settled key
 # from one handed to a durable captain-held task (bin/fm-captain-hold.sh
@@ -603,4 +604,32 @@ test_recorded_line_stays_recorded_across_a_resolve() {
   pass "a recorded line stays recorded across a later resolve"
 }
 
+# A long-lived mate's log holds hundreds of open decisions with long notes, so
+# the open set reaches 100 KB; a fold that rebuilds that set as text on every
+# decision line takes minutes here, while the whole-file fold takes seconds.
+test_long_log_with_a_large_open_set_folds_in_seconds() {
+  local dir f pad expected got start elapsed
+  dir=$(case_dir large-open-set)
+  f="$dir/mate.status"
+  printf 'kind=secondmate\n' > "$dir/mate.meta"
+  pad=$(awk 'BEGIN { for (i = 0; i < 60; i++) printf "context-%02d ", i }')
+  awk -v pad="$pad" 'BEGIN {
+    for (i = 1; i <= 400; i++) printf "needs-decision [key=k%d]: question %d %s\n", i, i, pad
+    for (i = 2; i <= 400; i += 2) printf "resolved [key=k%d]: answered %d\n", i, i
+    for (i = 1; i <= 400; i++) printf "done: progress %d\n", i
+    for (i = 3; i <= 400; i += 6) printf "blocked [key=k%d]: blocked again %d\n", i, i
+  }' > "$f"
+  expected=$(awk -v pad="$pad" 'BEGIN {
+    for (i = 1; i <= 400; i += 2) if (i % 6 != 3) printf "k%d\tneeds-decision\tquestion %d %s\n", i, i, pad
+    for (i = 3; i <= 400; i += 6) printf "k%d\tblocked\tblocked again %d\n", i, i
+  }')
+  start=$SECONDS
+  got=$(status_open_decisions "$f")
+  elapsed=$((SECONDS - start))
+  [ "$got" = "$expected" ] || fail "the large open set folded to the wrong records"
+  [ "$elapsed" -lt 20 ] || fail "folding a 1,267-line log with a 200-record open set took ${elapsed}s"
+  pass "a long log with a large open set folds in seconds"
+}
+
 test_recorded_line_stays_recorded_across_a_resolve
+test_long_log_with_a_large_open_set_folds_in_seconds
