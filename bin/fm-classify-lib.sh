@@ -1044,7 +1044,7 @@ status_open_decisions() {  # <status-file> [<kind>]
   # The open set is held as parallel arrays, one record per element, rather
   # than as text: dropping a record from text costs a pass over the whole set,
   # which reaches 100 KB on a long-lived mate's log, for every decision line.
-  local -a keys=() records=() kept_keys=() kept_records=()
+  local -a fold_keys=() fold_records=() fold_kept_keys=() fold_kept_records=()
   [ -f "$f" ] && [ -r "$f" ] && [ ! -L "$f" ] || return 0
   kind=$(_fm_status_kind "$f" "$kind")
   resolve=${FM_CLASSIFY_RESOLVE_VERB:-$FM_CLASSIFY_RESOLVE_VERB_DEFAULT}
@@ -1057,30 +1057,30 @@ status_open_decisions() {  # <status-file> [<kind>]
     esac
     _fm_decision_fold_transition
     case "$action" in
-      clear) keys=(); records=() ;;
+      clear) fold_keys=(); fold_records=() ;;
       open|close)
-        kept_keys=(); kept_records=(); n=0
-        for ((i = 0; i < ${#keys[@]}; i++)); do
-          [ "${keys[$i]}" != "$key" ] || continue
-          kept_keys[n]=${keys[$i]}
-          kept_records[n]=${records[$i]}
+        fold_kept_keys=(); fold_kept_records=(); n=0
+        for ((i = 0; i < ${#fold_keys[@]}; i++)); do
+          [ "${fold_keys[$i]}" != "$key" ] || continue
+          fold_kept_keys[n]=${fold_keys[$i]}
+          fold_kept_records[n]=${fold_records[$i]}
           n=$((n + 1))
         done
         if [ "$action" = open ]; then
-          kept_keys[n]=$key
-          kept_records[n]="${key}"$'\t'"${verb}"$'\t'"${note}"
+          fold_kept_keys[n]=$key
+          fold_kept_records[n]="${key}"$'\t'"${verb}"$'\t'"${note}"
         fi
-        keys=(); records=()
-        for ((i = 0; i < ${#kept_keys[@]}; i++)); do
-          keys[i]=${kept_keys[$i]}
-          records[i]=${kept_records[$i]}
+        fold_keys=(); fold_records=()
+        for ((i = 0; i < ${#fold_kept_keys[@]}; i++)); do
+          fold_keys[i]=${fold_kept_keys[$i]}
+          fold_records[i]=${fold_kept_records[$i]}
         done
         ;;
     esac
   done < "$f"
-  for ((i = 0; i < ${#records[@]}; i++)); do
+  for ((i = 0; i < ${#fold_records[@]}; i++)); do
     [ "$i" -eq 0 ] || printf '\n'
-    printf '%s' "${records[$i]}"
+    printf '%s' "${fold_records[$i]}"
   done
 }
 
