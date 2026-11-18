@@ -33,9 +33,13 @@ make_world() {
   mkdir -p "$world/state" "$world/config" "$fakebin" "$world/root/.treehouse/repo-1/3"
   git init -q -b main "$world/project"
   git -C "$world/project" commit -q --allow-empty -m base
-  printf '{}\n' > "$world/root/.treehouse/repo-1/treehouse-state.json"
   wt="$world/root/.treehouse/repo-1/3/repo"
   git -C "$world/project" worktree add -q -b fm/lane "$wt" main
+  # Pool membership is read from the project's own pool state, which records
+  # this slot.
+  jq -n --arg p "$wt" '{worktrees: [{name: "3", path: $p}]}' \
+    > "$world/root/.treehouse/repo-1/treehouse-state.json"
+  fm_test_treehouse_pool "$world/project" "$world/root/.treehouse/repo-1"
   printf 'work\n' > "$wt/work.txt"
   git -C "$wt" add work.txt
   git -C "$wt" commit -q -m work
