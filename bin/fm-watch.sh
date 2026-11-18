@@ -4233,6 +4233,9 @@ while :; do
   if pr_ready_out=$(fm_pr_ready_tick "$STATE" "$(date +%s)"); then
     [ -z "$pr_ready_out" ] || wake "$pr_ready_out"
   else
+    # A state directory torn down mid-cycle fails this read too; the
+    # home-gone check at the top of the loop owns that exit and its reason.
+    [ -d "$STATE" ] || continue
     echo "watcher: PR-ready alarm reconciliation failed" >&2
     exit 1
   fi
