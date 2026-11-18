@@ -1205,8 +1205,11 @@ github_read_required_contexts() {
 
 github_required_checks_missing() {
   local json=$1 required=$2 producers=$3
-  printf '%s' "$json" | jq -r --argjson required "$required" --argjson producers "$producers" '
-    if (.statusCheckRollup | type) != "array" then error("no check rollup") else . end
+  # JSON payloads ride stdin: even projected check runs can exceed exec's
+  # single-argument limit when a head has many runs.
+  printf '%s\n%s\n%s\n' "$json" "$required" "$producers" | jq -sr '
+    .[1] as $required | .[2] as $producers | .[0]
+    | if (.statusCheckRollup | type) != "array" then error("no check rollup") else . end
     | .statusCheckRollup as $reported
     | $required
     | map(. as $requirement
@@ -1236,7 +1239,7 @@ github_read_required_producers() {  # <head>
     || ! FM_PR_GITHUB_PRODUCERS=$(printf '%s' "$runs" | jq -sc --arg head "$head" '
       [ .[] | if (.check_runs | type) == "array" then .check_runs[] else error("invalid check runs") end
         | if (.name | type) == "string" and (.app.id | type) == "number" and .head_sha == $head
-          then . else error("invalid check producer") end ]' 2>/dev/null); then
+          then {name, app: {id: .app.id}} else error("invalid check producer") end ]' 2>/dev/null); then
     # shellcheck disable=SC2034 # read by the callers
     FM_PR_GITHUB_PRODUCERS='[]'
     return 1
