@@ -1478,7 +1478,7 @@ test_watcher_queues_a_scan_cut_at_the_check_bound() {
   state="$dir/home/state"
   : > "$dir/home/config/pr-register-scan"
   write_task_meta "$dir"
-  printf '%s\n' 'done [at=2]: PR https://github.com/o/r/pull/9 checks green' > "$state/task-a.status"
+  printf 'done [at=%s]: PR %s\n' "$(date +%s)" 'https://github.com/o/r/pull/9 checks green' > "$state/task-a.status"
   add_stop_custom_check "$dir"
   cat > "$dir/fakebin/sed" <<SH
 #!/usr/bin/env bash
@@ -1504,7 +1504,7 @@ test_watcher_sweep_records_a_reported_pr() {
   dir=$(make_case watcher-scan-off)
   state="$dir/home/state"
   write_task_meta "$dir"
-  printf '%s\n' 'done [at=2]: PR https://github.com/o/r/pull/7 checks green' > "$state/task-a.status"
+  printf 'done [at=%s]: PR %s\n' "$(date +%s)" 'https://github.com/o/r/pull/7 checks green' > "$state/task-a.status"
   add_stop_custom_check "$dir"
   set +e
   run_watcher_bounded "$dir/home" "$dir/fakebin" > "$dir/watch.out" 2> "$dir/watch.err"
@@ -1522,7 +1522,7 @@ test_watcher_sweep_records_a_reported_pr() {
   state="$dir/home/state"
   : > "$dir/home/config/pr-register-scan"
   write_task_meta "$dir"
-  printf '%s\n' 'done [at=2]: PR https://github.com/o/r/pull/7 checks green' > "$state/task-a.status"
+  printf 'done [at=%s]: PR %s\n' "$(date +%s)" 'https://github.com/o/r/pull/7 checks green' > "$state/task-a.status"
   add_stop_custom_check "$dir"
   set +e
   run_watcher_bounded "$dir/home" "$dir/fakebin" > "$dir/watch.out" 2> "$dir/watch.err"
@@ -1537,7 +1537,7 @@ test_watcher_sweep_records_a_reported_pr() {
   state="$dir/home/state"
   : > "$dir/home/config/pr-register-scan"
   write_task_meta "$dir"
-  printf '%s\n' 'done [at=2]: PR https://github.com/o/r/pull/9 checks green' > "$state/task-a.status"
+  printf 'done [at=%s]: PR %s\n' "$(date +%s)" 'https://github.com/o/r/pull/9 checks green' > "$state/task-a.status"
   add_stop_custom_check "$dir"
   set +e
   FM_TEST_GH_DRAFT=true run_watcher_bounded "$dir/home" "$dir/fakebin" > "$dir/watch.out" 2> "$dir/watch.err"
@@ -1551,7 +1551,7 @@ test_watcher_sweep_records_a_reported_pr() {
   state="$dir/home/state"
   : > "$dir/home/config/pr-register-scan"
   write_task_meta "$dir"
-  printf '%s\n' 'done [at=2]: PR https://github.com/o/r/pull/9 checks green' > "$state/task-a.status"
+  printf 'done [at=%s]: PR %s\n' "$(date +%s)" 'https://github.com/o/r/pull/9 checks green' > "$state/task-a.status"
   add_stop_custom_check "$dir"
   set +e
   FM_CHECK_TIMEOUT=7 FM_TEST_GH_SLOW_URL=pull/9 run_watcher_bounded "$dir/home" "$dir/fakebin" > "$dir/watch.out" 2> "$dir/watch.err"
