@@ -122,7 +122,10 @@
 #   stale: <window> (steering-inbox busy bookkeeping unwritable: ...)
 #                          steering-inbox recovery; bin/fm-task-inbox-lib.sh owns
 #                          delivery-attempt, busy-deferral, and unavailable-endpoint policy
-#   check: <script>: <out> authenticated check output, always actionable
+#   check: <script>: <out> authenticated check output, always actionable; each
+#                          FM_CHECK_INTERVAL sweep runs every due check, queues
+#                          each printing check as its own row, and prints one
+#                          such line per row in a single wake after the loop
 #   check: PR-ready overdue: task=<id> PR=<url> age=<seconds>s; ...
 #                          a ship's ready PR has no acknowledged landing handoff;
 #                          fm-pr-ready-lib.sh owns age, repeat and acknowledgement
@@ -4270,6 +4273,11 @@ while :; do
   if [ "$(age_of "$STATE/.last-check")" -ge "$CHECK_INTERVAL" ]; then
     rejected_checks=
     contribution_check_output=
+    # Every due check runs in this sweep: each printing check queues its own
+    # durable wake row and adds its reason here, and the sweep wakes once
+    # after the loop, so an earlier-sorted check that prints never hides a
+    # later-sorted one until the next interval.
+    sweep_wake=
     # Record each PR a task reported but nobody recorded, so its merge poll
     # below runs in this same sweep (bin/fm-pr-check.sh owns the scan).
     pr_register_reason=
@@ -4398,7 +4406,8 @@ EOF
             triage_log "absorbed duplicate merged PR poll result for $id"
             continue
           fi
-          wake "$reason"
+          sweep_wake="${sweep_wake:+$sweep_wake$'\n'}$reason"
+          continue
         elif [ "$is_pr_poll" -eq 1 ] \
           && { [ "$out" = ontrain ] || [ "${out%% *}" = degraded ]; } \
           && [ "$PR_DEGRADED_WATCH_ENABLED" != 1 ]; then
@@ -4465,12 +4474,14 @@ EOF
           fi
           pr_poll_control_release || exit 1
           touch "$STATE/.last-check"
-          wake "$reason"
+          sweep_wake="${sweep_wake:+$sweep_wake$'\n'}$reason"
+          continue
         fi
         pr_poll_control_release || exit 1
         fm_wake_append check "$c" "$reason" || exit 1
         touch "$STATE/.last-check"
-        wake "$reason"
+        sweep_wake="${sweep_wake:+$sweep_wake$'\n'}$reason"
+        continue
       fi
       pr_poll_control_release || exit 1
     done
@@ -4478,7 +4489,7 @@ EOF
       reason="check: rejected unauthenticated state checks:$rejected_checks"
       fm_wake_append check unauthenticated-state-checks "$reason" || exit 1
       touch "$STATE/.last-check"
-      wake "$reason"
+      sweep_wake="${sweep_wake:+$sweep_wake$'\n'}$reason"
     fi
     # Parked-on-review lanes, close detection, opt-in automatic parking, and
     # the outcomes of detached park, relaunch, and cleanup actions
@@ -4488,14 +4499,14 @@ EOF
       "$SCRIPT_DIR/fm-park.sh" tick 2>/dev/null) || true
     if [ -n "$park_out" ]; then
       reason="check: park-on-review: $(printf '%s' "$park_out" | paste -sd ';' - | sed 's/;/; /g')"
-      touch "$STATE/.last-check"
-      wake "$reason"
+      sweep_wake="${sweep_wake:+$sweep_wake$'\n'}$reason"
     fi
     touch "$STATE/.last-check"
-    [ -z "$pr_register_reason" ] || wake "$pr_register_reason"
-    if [ -n "$contribution_check_output" ]; then
-      wake "$contribution_check_output"
-    fi
+    [ -z "$pr_register_reason" ] || sweep_wake="${sweep_wake:+$sweep_wake$'\n'}$pr_register_reason"
+    [ -z "$contribution_check_output" ] \
+      || sweep_wake="${sweep_wake:+$sweep_wake$'\n'}${contribution_check_output%$'\n'}"
+    # One wake per cycle: one prefixed line per reason, each already a queued row.
+    [ -z "$sweep_wake" ] || wake "$sweep_wake"
   fi
 
   # On the first changed signal, linger one grace period and re-scan before
