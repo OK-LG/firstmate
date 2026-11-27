@@ -298,6 +298,36 @@ SH
   pass "multi-line check output wakes as one line matching its queued row"
 }
 
+test_every_printing_check_in_one_sweep_is_queued() {
+  local dir state fakebin out drain_out first second
+  dir=$(make_case check-sweep-all)
+  state="$dir/state"
+  fakebin="$dir/fakebin"
+  out="$dir/watch.out"
+  drain_out="$dir/drain.out"
+  # Name order puts "aa-early" first: the sweep must still run "zz-late" in
+  # the same cycle rather than stopping at the first check that prints.
+  first="$state/aa-early.check.sh"
+  second="$state/zz-late.check.sh"
+  printf '#!/usr/bin/env bash\nprintf "early event\\n"\n' > "$first"
+  printf '#!/usr/bin/env bash\nprintf "late event\\n"\n' > "$second"
+  chmod 0700 "$first" "$second"
+  FM_STATE_OVERRIDE="$state" "$ROOT/bin/fm-check-register.sh" aa-early >/dev/null \
+    || fail "could not register the early custom check"
+  FM_STATE_OVERRIDE="$state" "$ROOT/bin/fm-check-register.sh" zz-late >/dev/null \
+    || fail "could not register the late custom check"
+  PATH="$fakebin:$PATH" FM_STATE_OVERRIDE="$state" FM_POLL=1 FM_SIGNAL_GRACE=1 FM_CHECK_INTERVAL=0 FM_HEARTBEAT=999999 "$WATCH" > "$out" &
+  wait_for_exit "$!" 40 || fail "watcher did not exit for two printing checks"
+  grep -Fx "check: $first: early event" "$out" >/dev/null || fail "wake did not name the early check"
+  grep -Fx "check: $second: late event" "$out" >/dev/null || fail "wake did not name the later-sorted check"
+  FM_STATE_OVERRIDE="$state" "$DRAIN" > "$drain_out" || fail "drain after the two-check sweep failed"
+  grep "$(printf '\tcheck\t')" "$drain_out" | grep -F "$first" | grep -F 'early event' >/dev/null \
+    || fail "the early check was not queued"
+  grep "$(printf '\tcheck\t')" "$drain_out" | grep -F "$second" | grep -F 'late event' >/dev/null \
+    || fail "the later-sorted check was not queued in the same sweep"
+  pass "every printing check in one sweep reaches the wake queue under one wake"
+}
+
 test_atomic_double_drain() {
   local dir state out1 out2 count1 count2 sequence generation leftover
   dir=$(make_case double-drain)
@@ -3849,6 +3879,7 @@ test_stale_enqueue_before_suppressor
 test_not_working_stale_enqueue_before_suppressor
 test_check_output_is_queued
 test_multiline_check_output_wakes_as_one_line
+test_every_printing_check_in_one_sweep_is_queued
 test_atomic_double_drain
 test_drain_dedupes_obvious_duplicates
 test_drain_presents_every_distinct_check_payload

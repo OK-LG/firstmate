@@ -4128,6 +4128,8 @@ seed_canonical_poll() {
   fm_pr_poll_publish_prepared || fail "could not publish retirement fixture"
 }
 
+# A control check that prints every sweep. The sweep runs every due check
+# before its one wake, so this line follows any earlier check's line.
 add_stop_custom_check() {
   local dir=$1 state
   state="$dir/home/state"
@@ -4176,7 +4178,7 @@ test_merged_poll_retires_once() {
   set -e
   [ "$rc" -eq 0 ] || fail "merged retirement watcher failed: $(cat "$dir/watch-1.err")"
   first=$(cat "$dir/watch-1.out")
-  case "$first" in check:*task-a.check.sh:*merged) ;; *) fail "first merged notification was not preserved: $first" ;; esac
+  case "$first" in check:*task-a.check.sh:*merged|check:*task-a.check.sh:*merged$'\n'check:*) ;; *) fail "first merged notification was not preserved: $first" ;; esac
   ack_watcher_cycle "$state" || fail "first merged notification handling acknowledgement failed"
   assert_poll_absent "$state" task-a
   [ "$(cat "$state/task-a.meta")" = "$meta_before" ] || fail "merged retirement changed canonical metadata"
@@ -4217,7 +4219,7 @@ test_merged_poll_reregistration_after_notification_is_absorbed() {
   set -e
   [ "$rc" -eq 0 ] || fail "first merged watcher cycle failed: $(cat "$dir/watch-1.err")"
   first=$(cat "$dir/watch-1.out")
-  case "$first" in check:*task-a.check.sh:*merged) ;; *) fail "first merge confirmation was not delivered: $first" ;; esac
+  case "$first" in check:*task-a.check.sh:*merged|check:*task-a.check.sh:*merged$'\n'check:*) ;; *) fail "first merge confirmation was not delivered: $first" ;; esac
   ack_watcher_cycle "$state" || fail "first merge confirmation acknowledgement failed"
   assert_poll_absent "$state" task-a
   [ -f "$state/task-a.pr-poll-merge-notified" ] || fail "the merge-notified marker was not recorded"
@@ -4483,7 +4485,7 @@ SH
   [ "$rc" -eq 0 ] \
     || fail "merge-outcome-uncommitted: poll retry failed: $(cat "$dir/watch.err")"
   case "$(cat "$dir/watch.out")" in
-    check:*task-a.check.sh:*merged) ;;
+    check:*task-a.check.sh:*merged|check:*task-a.check.sh:*merged$'\n'check:*) ;;
     *) fail "merge-outcome-uncommitted: poll retry did not re-emit the outcome" ;;
   esac
   assert_grep "$url" "$state/.wake-queue" \
@@ -4511,7 +4513,7 @@ test_merged_poll_reports_upward_from_a_secondmate_home_once() {
   set -e
   [ "$rc" -eq 0 ] || fail "merged-poll-upward: watcher failed: $(cat "$dir/watch-1.err")"
   case "$(cat "$dir/watch-1.out")" in
-    check:*task-a.check.sh:*merged) ;;
+    check:*task-a.check.sh:*merged|check:*task-a.check.sh:*merged$'\n'check:*) ;;
     *) fail "merged-poll-upward: the poll's own row was lost: $(cat "$dir/watch-1.out")" ;;
   esac
   assert_grep "done [key=merged-task-a]: merged task-a $url" <(sed -E 's/ \[at=[0-9]+\]//' "$replies") \
@@ -4547,7 +4549,7 @@ test_different_merged_pr_for_same_task_is_not_absorbed() {
   set -e
   [ "$rc" -eq 0 ] || fail "first merged watcher cycle failed: $(cat "$dir/watch-1.err")"
   case "$(cat "$dir/watch-1.out")" in
-    check:*task-a.check.sh:*merged) ;;
+    check:*task-a.check.sh:*merged|check:*task-a.check.sh:*merged$'\n'check:*) ;;
     *) fail "first PR merge confirmation was not delivered: $(cat "$dir/watch-1.out")" ;;
   esac
   ack_watcher_cycle "$state" || fail "first PR merge confirmation acknowledgement failed"
@@ -4563,7 +4565,7 @@ test_different_merged_pr_for_same_task_is_not_absorbed() {
   set -e
   [ "$rc" -eq 0 ] || fail "different-PR watcher cycle failed: $(cat "$dir/watch-2.err")"
   case "$(cat "$dir/watch-2.out")" in
-    check:*task-a.check.sh:*merged) ;;
+    check:*task-a.check.sh:*merged|check:*task-a.check.sh:*merged$'\n'check:*) ;;
     *) fail "a different PR merge was absorbed: $(cat "$dir/watch-2.out")" ;;
   esac
   grep -F "$(printf '\tcheck\tmerged-task-a-https://github.com/o/r/pull/2\t')" \
@@ -4798,7 +4800,7 @@ test_external_merge_transition_retires_only_terminal_poll() {
   rc=$?
   set -e
   [ "$rc" -eq 0 ] || fail "external merged transition failed: $(cat "$dir/merged.err")"
-  case "$(cat "$dir/merged.out")" in check:*task-a.check.sh:*merged) ;; *) fail "external merge did not preserve its notification" ;; esac
+  case "$(cat "$dir/merged.out")" in check:*task-a.check.sh:*merged|check:*task-a.check.sh:*merged$'\n'check:*) ;; *) fail "external merge did not preserve its notification" ;; esac
   assert_poll_absent "$state" task-a
   pass "open/red, closed-unmerged, malformed, and forge errors remain armed until an exact merged transition"
 }
@@ -4962,7 +4964,7 @@ test_gitlab_merged_poll_retires() {
   rc=$?
   set -e
   [ "$rc" -eq 0 ] || fail "GitLab merged retirement watcher failed: $(cat "$dir/watch.err")"
-  case "$(cat "$dir/watch.out")" in check:*task-a.check.sh:*merged) ;; *) fail "GitLab merged wake was missing" ;; esac
+  case "$(cat "$dir/watch.out")" in check:*task-a.check.sh:*merged|check:*task-a.check.sh:*merged$'\n'check:*) ;; *) fail "GitLab merged wake was missing" ;; esac
   assert_poll_absent "$state" task-a
   grep -qxF "pr=$url" "$state/task-a.meta" || fail "GitLab retirement removed canonical metadata"
   pass "GitHub and GitLab exact merged results share one retirement path"
