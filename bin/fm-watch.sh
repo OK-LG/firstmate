@@ -4040,6 +4040,10 @@ if ! fm_pr_poll_retirement_recover_all "$STATE" "$SCRIPT_DIR/fm-pr-poll.sh"; the
   wake "$reason"
 fi
 
+sweep_wake_add() {  # <reason>
+  sweep_wake="${sweep_wake:+$sweep_wake$'\n'}$1"
+}
+
 # Shared by both the first-notification and already-notified paths below so
 # the retirement sequence (bin/fm-pr-lib.sh) is stated once.
 retire_merged_pr_poll() {  # <id>
@@ -4278,6 +4282,7 @@ while :; do
     # after the loop, so an earlier-sorted check that prints never hides a
     # later-sorted one until the next interval.
     sweep_wake=
+    sweep_started_land=0
     # Record each PR a task reported but nobody recorded, so its merge poll
     # below runs in this same sweep (bin/fm-pr-check.sh owns the scan).
     pr_register_reason=
@@ -4397,6 +4402,7 @@ EOF
           pr_poll_control_release || exit 1
           FM_HOME="$FM_HOME" FM_STATE_OVERRIDE="$STATE" FM_CONFIG_OVERRIDE="$CONFIG" \
             "$SCRIPT_DIR/fm-park.sh" land "$id" --if-eligible --detach >/dev/null 2>&1 || true
+          sweep_started_land=1
           touch "$STATE/.last-check"
           # A merged lane eligible for merge-time cleanup, also one
           # bin/fm-pr-merge.sh already recorded, is torn down by a detached
@@ -4406,7 +4412,7 @@ EOF
             triage_log "absorbed duplicate merged PR poll result for $id"
             continue
           fi
-          sweep_wake="${sweep_wake:+$sweep_wake$'\n'}$reason"
+          sweep_wake_add "$reason"
           continue
         elif [ "$is_pr_poll" -eq 1 ] \
           && { [ "$out" = ontrain ] || [ "${out%% *}" = degraded ]; } \
@@ -4474,13 +4480,13 @@ EOF
           fi
           pr_poll_control_release || exit 1
           touch "$STATE/.last-check"
-          sweep_wake="${sweep_wake:+$sweep_wake$'\n'}$reason"
+          sweep_wake_add "$reason"
           continue
         fi
         pr_poll_control_release || exit 1
         fm_wake_append check "$c" "$reason" || exit 1
         touch "$STATE/.last-check"
-        sweep_wake="${sweep_wake:+$sweep_wake$'\n'}$reason"
+        sweep_wake_add "$reason"
         continue
       fi
       pr_poll_control_release || exit 1
@@ -4489,22 +4495,25 @@ EOF
       reason="check: rejected unauthenticated state checks:$rejected_checks"
       fm_wake_append check unauthenticated-state-checks "$reason" || exit 1
       touch "$STATE/.last-check"
-      sweep_wake="${sweep_wake:+$sweep_wake$'\n'}$reason"
+      sweep_wake_add "$reason"
     fi
     # Parked-on-review lanes, close detection, opt-in automatic parking, and
     # the outcomes of detached park, relaunch, and cleanup actions
     # (bin/fm-park.sh owns all of them, bounds the whole tick, and records its
     # wake before printing it, so the watcher only rings).
-    park_out=$(FM_HOME="$FM_HOME" FM_STATE_OVERRIDE="$STATE" FM_CONFIG_OVERRIDE="$CONFIG" \
-      "$SCRIPT_DIR/fm-park.sh" tick 2>/dev/null) || true
+    park_out=
+    if [ "$sweep_started_land" -eq 0 ]; then
+      park_out=$(FM_HOME="$FM_HOME" FM_STATE_OVERRIDE="$STATE" FM_CONFIG_OVERRIDE="$CONFIG" \
+        "$SCRIPT_DIR/fm-park.sh" tick 2>/dev/null) || true
+    fi
     if [ -n "$park_out" ]; then
       reason="check: park-on-review: $(printf '%s' "$park_out" | paste -sd ';' - | sed 's/;/; /g')"
-      sweep_wake="${sweep_wake:+$sweep_wake$'\n'}$reason"
+      sweep_wake_add "$reason"
     fi
     touch "$STATE/.last-check"
-    [ -z "$pr_register_reason" ] || sweep_wake="${sweep_wake:+$sweep_wake$'\n'}$pr_register_reason"
+    [ -z "$pr_register_reason" ] || sweep_wake_add "$pr_register_reason"
     [ -z "$contribution_check_output" ] \
-      || sweep_wake="${sweep_wake:+$sweep_wake$'\n'}${contribution_check_output%$'\n'}"
+      || sweep_wake_add "${contribution_check_output%$'\n'}"
     # One wake per cycle: one prefixed line per reason, each already a queued row.
     [ -z "$sweep_wake" ] || wake "$sweep_wake"
   fi
