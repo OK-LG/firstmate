@@ -1,0 +1,13 @@
+== [before-fix-base-6eb8bcd1] watcher: /tmp/fm-base.8EFq64/bin/fm-watch.sh  lab home: /tmp/fm-lab.Fhwac1
+-- cycle 1 wake output (stdout of fm-watch.sh):
+check: /tmp/fm-lab.Fhwac1/state/ea-incidents.check.sh: new EA incident INC-1
+   (exit=0)
+-- which checks ran in cycle 1:
+   order-attention.check.sh DID NOT RUN
+   zz-quiet.check.sh DID NOT RUN
+-- durable wake queue rows after cycle 1 (fm-wake-drain.sh):
+WAKE_ACK_REQUIRED: after handling completes run bin/fm-wake-drain.sh --ack-through 1 --recovery-generation 1768980.1795801262.0uLPGC
+WARNING: queued wakes pending - drain them with bin/fm-wake-drain.sh before anything else.
+   1	check	/tmp/fm-lab.Fhwac1/state/ea-incidents.check.sh	check: /tmp/fm-lab.Fhwac1/state/ea-incidents.check.sh: new EA incident INC-1
+-- exit log tail:
+== [before-fix-base-6eb8bcd1] lab removed

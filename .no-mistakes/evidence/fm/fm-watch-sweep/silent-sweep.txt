@@ -1,0 +1,8 @@
+== silent sweep: two registered checks, neither prints; watcher bounded to 8 s
+Terminated
+watcher exit=124 (124 = still watching, no wake)
+stdout bytes: 0
+aa-quiet sweeps run: 3
+zz-quiet sweeps run: 3
+queued check rows: 0
+lab removed
